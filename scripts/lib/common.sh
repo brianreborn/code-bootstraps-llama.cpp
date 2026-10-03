@@ -1,10 +1,12 @@
 # shellcheck shell=bash
 # Shared shell helpers (sourced by scripts/*.sh and tests/; bash).
 
-# "<size> <mtime in seconds>": the same format scripts/lib/common.ps1 writes, so
-# .cache/verified/<sha256> stamps mean the same on every OS.
+# "<size> <mtime> <ctime> <inode>" of a verified model (.cache/verified/<sha256>): while it is
+# unchanged, the file is not re-hashed. ctime cannot be set back by the user (touch -d, cp -p
+# set only mtime), so rewriting a file in place with the same size and mtime still shows.
+# FULL_VERIFY=1 re-hashes anyway. (scripts/lib/common.ps1 writes its own format on Windows.)
 fingerprint() {
-  stat -c '%s %Y' -L "$1" 2>/dev/null || stat -L -f '%z %m' "$1"   # GNU/busybox/Termux, else BSD/macOS
+  stat -c '%s %Y %Z %i' -L "$1" 2>/dev/null || stat -L -f '%z %m %c %i' "$1"   # GNU/busybox/Termux, else BSD/macOS
 }
 
 sha256_of() {

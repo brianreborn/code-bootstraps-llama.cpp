@@ -10,12 +10,90 @@ function Write-TextFile([string]$Path, $Lines) {
     [System.IO.File]::WriteAllText($full, $text, (New-Object System.Text.UTF8Encoding $false))
 }
 
-# "<size> <mtime in seconds>", the same format as fingerprint() in scripts/lib/common.sh
+# Identity and change times of a file, from the open handle (Windows): volume serial + file
+# index (the NTFS "inode"; the same for a path through subst, a junction or a symlink), and
+# FILE_BASIC_INFO's creation, last-write and change times. C# 5: Windows PowerShell 5.1
+# compiles it with the .NET 4 csc.
+$script:FileIdTypeDef = @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+namespace CodeBootstraps {
+    public static class FileId {
+        // BY_HANDLE_FILE_INFORMATION: FILETIMEs are 4-byte aligned (Pack = 4, 52 bytes)
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        struct ByHandleInfo {
+            public uint Attributes; public long Creation; public long Access; public long Write;
+            public uint VolumeSerial; public uint SizeHigh; public uint SizeLow; public uint Links;
+            public uint IndexHigh; public uint IndexLow;
+        }
+        // FILE_BASIC_INFO (40 bytes)
+        [StructLayout(LayoutKind.Sequential)]
+        struct BasicInfo { public long Creation; public long Access; public long Write; public long Change; public uint Attributes; }
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetFileInformationByHandle(SafeFileHandle h, out ByHandleInfo info);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetFileInformationByHandleEx(SafeFileHandle h, int infoClass, out BasicInfo info, uint size);
+        static FileStream Open(string path) {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+        // "<volume serial>-<file index>"
+        public static string Identity(string path) {
+            using (FileStream fs = Open(path)) {
+                ByHandleInfo i;
+                if (!GetFileInformationByHandle(fs.SafeFileHandle, out i)) throw new IOException("GetFileInformationByHandle failed");
+                return i.VolumeSerial.ToString("x8") + "-" + ((((ulong)i.IndexHigh) << 32) | i.IndexLow).ToString("x16");
+            }
+        }
+        // "<size> <write> <creation> <change> <identity>" (times in FILETIME ticks)
+        public static string Fingerprint(string path) {
+            using (FileStream fs = Open(path)) {
+                ByHandleInfo i; BasicInfo b;
+                if (!GetFileInformationByHandle(fs.SafeFileHandle, out i)) throw new IOException("GetFileInformationByHandle failed");
+                if (!GetFileInformationByHandleEx(fs.SafeFileHandle, 0, out b, (uint)Marshal.SizeOf(typeof(BasicInfo)))) throw new IOException("GetFileInformationByHandleEx failed");
+                ulong size = (((ulong)i.SizeHigh) << 32) | i.SizeLow;
+                string id = i.VolumeSerial.ToString("x8") + "-" + ((((ulong)i.IndexHigh) << 32) | i.IndexLow).ToString("x16");
+                return "w " + size + " " + b.Write + " " + b.Creation + " " + b.Change + " " + id;
+            }
+        }
+        public static string StructSizes() {
+            return Marshal.SizeOf(typeof(ByHandleInfo)) + " " + Marshal.SizeOf(typeof(BasicInfo));
+        }
+    }
+}
+'@
+function Initialize-FileId {
+    if ($script:FileIdFailed) { throw "CodeBootstraps.FileId unavailable" }
+    if (-not ("CodeBootstraps.FileId" -as [type])) {
+        try { Add-Type -TypeDefinition $script:FileIdTypeDef } catch { $script:FileIdFailed = $true; throw }
+    }
+}
+
+# Fingerprint of a verified model (.cache\verified\<sha256>); while it is unchanged the file is
+# not re-hashed ($env:FULL_VERIFY=1 re-hashes). Windows: size, last-write, creation and
+# change times and the file identity; elsewhere (PowerShell 7) the same as fingerprint() in
+# scripts/lib/common.sh: "<size> <mtime> <ctime> <inode>".
 function Get-Fingerprint([string]$Path) {
-    $i = Get-Item -LiteralPath $Path
-    $unix0 = New-Object DateTime 1970, 1, 1, 0, 0, 0, ([DateTimeKind]::Utc)
-    $epoch = [int64][Math]::Floor(($i.LastWriteTimeUtc - $unix0).TotalSeconds)
-    "$($i.Length) $epoch"
+    $full = (Resolve-Path -LiteralPath $Path).ProviderPath
+    if (Test-Windows) {
+        try { Initialize-FileId; return [CodeBootstraps.FileId]::Fingerprint($full) } catch { }
+        $i = Get-Item -LiteralPath $full   # no P/Invoke (constrained language?): weaker, times only
+        return "t $($i.Length) $($i.LastWriteTimeUtc.Ticks) $($i.CreationTimeUtc.Ticks)"
+    }
+    $out = & stat -c '%s %Y %Z %i' -L $full 2>$null
+    if (-not $out) { $out = & stat -L -f '%z %m %c %i' $full }
+    return "$out".Trim()
+}
+
+# Same file? (volume + file index on Windows, so subst drives, junctions and symlinks match;
+# else the full paths, case-insensitively)
+function Test-SameFile([string]$A, [string]$B) {
+    if (-not $A -or -not $B) { return $false }
+    if (Test-Windows) {
+        try { Initialize-FileId; return ([CodeBootstraps.FileId]::Identity($A) -eq [CodeBootstraps.FileId]::Identity($B)) } catch { }
+    }
+    return ([IO.Path]::GetFullPath($A) -ieq [IO.Path]::GetFullPath($B))
 }
 
 function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }

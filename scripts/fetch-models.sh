@@ -42,7 +42,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# fingerprint (size + modification time in seconds, scripts/lib/common.sh) skips
+# fingerprint (size, mtime, ctime and inode, scripts/lib/common.sh) skips
 # re-hashing an unchanged file on every start
 # shellcheck source=lib/common.sh
 . "$ROOT/scripts/lib/common.sh"
