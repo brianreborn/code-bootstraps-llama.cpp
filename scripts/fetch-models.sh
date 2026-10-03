@@ -19,7 +19,7 @@
 # into place; a mismatching download is kept as <file>.bad for inspection.
 # Entries with a "dir" field go there instead of models/<role> (the language slot
 # lives in models-optional/ so the router only sees it when serve.sh registers it).
-# Needs curl, python3 and sha256sum (or shasum).
+# Needs only curl, awk and sha256sum (or shasum); no Python.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -46,17 +46,12 @@ sha256_of() {
   else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 
-entries="$(python3 - "$pick" "$role" "$MANIFEST" <<'PY'
-import json, sys
-pick, role = sys.argv[1], sys.argv[2]
-m = json.load(open(sys.argv[3]))
-for c in m["candidates"]:
-    if c.get("pick") == pick and (not role or c["role"] == role):
-        print("\t".join([c["role"], c["repo"], c["revision"], c["file"], c["sha256"],
-                         "yes" if c.get("tested") else "no", c.get("dir", "models/" + c["role"]),
-                         c.get("notice", "-")]))
-PY
-)"
+entries="$(awk -v match_kv="pick=$pick${role:+ role=$role}" \
+  -v fields="role repo revision file sha256 tested dir notice" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
+  while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
+    [[ "$dir" == "-" ]] && dir="models/$r"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$r" "$repo" "$rev" "$file" "$sha" "$tested" "$dir" "$notice"
+  done)"
 [[ -n "$entries" ]] || { echo "fetch-models.sh: no manifest entries for pick='$pick'${role:+ role='$role'}" >&2; exit 1; }
 
 while IFS=$'\t' read -r r repo rev file sha tested dir notice; do

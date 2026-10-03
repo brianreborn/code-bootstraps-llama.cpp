@@ -9,6 +9,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+abspath() { case "$1" in /*) echo "$1" ;; *) echo "$ROOT/$1" ;; esac; }   # relative paths are relative to the repository
 
 HOST="${HOST:-127.0.0.1}"                       # loopback only by default
 PORT="${PORT:-9931}"                            # upstream's upcoming default port
@@ -63,11 +64,13 @@ done
 # --- binary -----------------------------------------------------------------
 BIN="${LLAMA_SERVER:-}"
 if [[ -z "$BIN" ]]; then
-  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server; do
+  # own builds first, then the official release binaries from scripts/fetch-llama.sh
+  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server "$ROOT"/bin/llama-*/llama-server; do
     [[ -x "$b" ]] && { BIN="$b"; break; }
   done
 fi
-[[ -n "$BIN" && -x "$BIN" ]] || die "llama-server not found; build first (scripts/build-*.sh) or set LLAMA_SERVER"
+[[ -n "$BIN" && -x "$BIN" ]] || die "llama-server not found: run scripts/fetch-llama.sh (release binaries) or scripts/build-*.sh, or set LLAMA_SERVER"
+BIN="$(abspath "$BIN")"
 
 # --- platform ---------------------------------------------------------------
 OS="$(uname -s)"
@@ -231,8 +234,14 @@ chmod 600 "$API_KEY_FILE"
 API_KEYS="$(grep -v -e '^#' -e '^[[:space:]]*$' "$API_KEY_FILE" | tr -d ' \r' | tr '\n' ',' | sed 's/,$//')"
 [[ -n "$API_KEYS" ]] || die "no key in $API_KEY_FILE"
 
+# --- MCP: the example server is a Python script; without Python, run without it
+if [[ -n "$MCP_CONFIG" && "$MCP_CONFIG" == "$ROOT/config/mcp-servers.json" ]] && ! command -v python3 >/dev/null 2>&1; then
+  warn "python3 not found: MCP servers from $MCP_CONFIG disabled (the built-in tools still work)"
+  MCP_CONFIG=""
+fi
+
 # --- tools runtime (isolation) ----------------------------------------------
-mkdir -p "$WORKDIR"
+mkdir -p "$WORKDIR"; WORKDIR="$(cd "$WORKDIR" && pwd)"
 CONTAINER_ID=""; ENGINE=""
 start_container() {   # $1 = podman|docker
   ENGINE="$1"
@@ -276,12 +285,12 @@ export LLAMA_API_KEY="$API_KEYS"
 # overrides them for the children (tools = get_info, empty MCP config).
 [[ -n "$TOOLS" ]]        && export LLAMA_ARG_TOOLS="$TOOLS"
 [[ -n "$RUNTIME_ARG" ]]  && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
-[[ -n "$MCP_CONFIG" ]]   && export LLAMA_ARG_MCP_SERVERS_CONFIG="$MCP_CONFIG"
+[[ -n "$MCP_CONFIG" ]]   && export LLAMA_ARG_MCP_SERVERS_CONFIG="$(abspath "$MCP_CONFIG")"
 
 # --- arguments --------------------------------------------------------------
 args=(
   --host "$HOST" --port "$PORT"
-  --models-dir "$MODELS_DIR"
+  --models-dir "$(abspath "$MODELS_DIR")"
   --models-preset "$EFFECTIVE_PRESET"
   --models-max "$MODELS_MAX"
 )
@@ -290,7 +299,7 @@ args+=(--threads "$THREADS" --threads-batch "$THREADS_BATCH")
 args+=(--n-gpu-layers "$GPU_LAYERS" --fit on)
 args+=(--load-mode "$LOAD_MODE")
 [[ "$REPACK" == "off" ]] && args+=(--no-repack)
-[[ -n "$LOG_FILE" ]]     && args+=(--log-file "$LOG_FILE")
+[[ -n "$LOG_FILE" ]]     && args+=(--log-file "$(abspath "$LOG_FILE")")
 
 echo "serve.sh: $BIN ${args[*]} $*" >&2
 echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_ARG_TOOLS:-} LLAMA_ARG_TOOLS_RUNTIME=${LLAMA_ARG_TOOLS_RUNTIME:-} LLAMA_ARG_MCP_SERVERS_CONFIG=${LLAMA_ARG_MCP_SERVERS_CONFIG:-}" >&2
@@ -301,8 +310,10 @@ echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default
 # Start the server in its own process group (job control on), so a terminal Ctrl-C
 # reaches only this script, which forwards exactly one signal. Two SIGINTs would make
 # llama-server skip its clean shutdown.
+# The server runs in WORKDIR: with the host runtime that is the default tool directory
+# the web UI and agent.py start from (not this repository).
 set -m
-"$BIN" "${args[@]}" "$@" &
+( cd "$WORKDIR" && exec "$BIN" "${args[@]}" "$@" ) &
 SERVER_PID=$!
 set +m
 forward() { trap '' INT TERM; kill "-$1" "$SERVER_PID" 2>/dev/null || true; }

@@ -74,7 +74,7 @@ models/coder/     coding agent model (tool calling)
 models/decision/  decision model for POST /v1/systemone
 ```
 
-`scripts/fetch-models.sh` downloads the 3 default models listed in `config/models-manifest.json` (about 2.3 GB in total). Each file comes from the Hugging Face commit pinned in the manifest (`revision`), over HTTPS only (`curl --proto '=https' --proto-redir '=https'`). Its sha256 is checked on the `.part` file **before** it is moved into place; a mismatching download is kept as `<file>.bad` and the script fails.
+`scripts/fetch-models.sh` downloads the 3 default models listed in `config/models-manifest.json` (about 2.3 GB in total). Each file comes from the Hugging Face commit pinned in the manifest (`revision`), over HTTPS only (`curl --proto '=https' --proto-redir '=https'`). Its sha256 is checked on the `.part` file **before** it is moved into place; a mismatching download is kept as `<file>.bad` and the script fails. The script needs only `curl`, `awk` and `sha256sum` (or `shasum`), no Python; `scripts/check-manifests.sh` (developers, needs Python) checks that its small manifest reader sees the same entries as a JSON parser.
 
 | Role | Model | File (Hugging Face repo) | Size | sha256 | License | Context |
 |---|---|---|---|---|---|---|
@@ -116,7 +116,8 @@ This starts `llama-server` in router mode on `127.0.0.1:9931` with:
 - `--models-dir models` and the preset `.cache/models-preset.effective.ini`, which `serve.sh` writes from `config/models-preset.ini` (profile overlay, language settings). The models are named `general`, `coder` and `decision` after their directories.
 - `--models-max 2` (1 in the low-RAM profile), so at most that many models are loaded at once and the least recently used one is unloaded.
 - the API key from `.secrets/api-keys` (generated on the first run, git-ignored, directory mode 700, file mode 600), passed as the `LLAMA_API_KEY` environment variable (see Security below).
-- the built-in tools (`read_file`, `file_glob_search`, `grep_search`, `exec_shell_command`, `write_file`, `edit_file`, `get_info`), the MCP servers in `config/mcp-servers.json`, and a tools runtime (see below).
+- the built-in tools (`read_file`, `file_glob_search`, `grep_search`, `exec_shell_command`, `write_file`, `edit_file`, `get_info`), the MCP servers in `config/mcp-servers.json` (skipped with a warning when `python3` is missing, since the example server is a Python script), and a tools runtime (see below).
+- the server's working directory set to `WORKDIR` (default `./workspace`), so with the host runtime the tools start there rather than in this repository.
 
 Then run the minimal agent against a project directory:
 
