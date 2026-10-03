@@ -22,6 +22,26 @@ cd code-bootstraps-llama.cpp
 
 If you already cloned without `--recursive`, run `git submodule update --init --recursive`.
 
+### Quick start (click-and-go)
+
+| System | Start with |
+|---|---|
+| Linux, Android (Termux) | `./start.sh` |
+| macOS | double-click `start.command` (or `./start.sh`) |
+| Windows | double-click `start.bat` |
+
+The launcher downloads the official llama.cpp release binary pinned in `config/llama-release.json` and the 3 default models, checking every file's sha256. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at `http://127.0.0.1:9931/?model=coder`, with the coder model selected. The UI's agent uses the server's tools and asks before each tool call. The API key is printed and copied to the clipboard; the page asks for it once. Files the agent creates go to `workspace/`. Stop with Ctrl-C (or close the window).
+
+No Python is needed: the launcher uses only `curl`, `tar`, `awk` and `sha256sum` (Windows: PowerShell 5.1, which ships with Windows 10 and 11). Python is used only by `scripts/agent.py` and the example MCP server, which is skipped when `python3` is missing. If port 9931 is taken, the next free port is used. Settings: `PORT`, `VARIANT=cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`), plus everything `serve.sh` reads.
+
+On Linux x86_64, from a fresh clone, the first start took about 36 s here (17.6 MB binary plus 2.4 GB of models on a fast link) and a restart takes 2 s. **Untested:** the launchers on macOS, Windows and Termux, macOS Gatekeeper and Windows SmartScreen prompts for downloaded binaries, and the Android release binary. The Windows scripts were only parsed and partly run with PowerShell 7 on Linux.
+
+Limits of the web UI path:
+- It does not use `/v1/systemone` routing, so the decision model is not used, and it lists the decision model even though that model cannot chat.
+- It has no interpreter mode (`LANGUAGE_MODE=interpret` is for `scripts/agent.py`). The coder answers in the user's language as far as it can.
+- Its agent runs up to 10 tool turns, then asks whether to continue. Unlike `scripts/agent.py` it has no repeat guard (see "Run"). In router mode the UI ignores `--ui-config` defaults (it returns before applying them when `/props` has no generation settings, b11374), so this repo cannot preset a system message for it. You can set one yourself under Settings, for example: "When the task is done, stop calling tools and reply with a one-line summary."
+- Closing the browser tab does not stop the server.
+
 ### Release binaries (no build)
 
 `scripts/fetch-llama.sh` downloads the official llama.cpp **b11374** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), Android arm64 (Termux), macOS arm64 (Metal) and x64, Windows x64/arm64. Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b11374-<platform>-<variant>/` (git-ignored). The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
@@ -193,7 +213,7 @@ Through `serve.sh` with the preset above, 4 concurrent coder requests produced 5
 
 `TOOLS_RUNTIME=auto` (the default) checks for a working `podman`, then `docker`. If it finds one, it starts a container from `TOOLS_IMAGE`, mounts `WORKDIR` at `/work`, and passes `--tools-runtime <engine>-container:<id>`. The tools then only see the mounted project.
 
-**If neither podman nor docker works (the usual case on Termux and on many laptops), the tools run on the host** with the permissions of the user running the server. The model can then read, write and run anything that account can. Paths are resolved against `WORKDIR`, but absolute paths are not confined to it. `serve.sh` prints a warning when this happens. To turn the tools off, use `TOOLS=""`. To pick a runtime yourself, set `TOOLS_RUNTIME` to `host`, `podman:<image>`, `docker:<image>`, `podman-container:<id>`, `docker-container:<id>` or `ssh:<target>`.
+**If neither podman nor docker works (the usual case on Termux and on many laptops), the tools run on the host** with the permissions of the user running the server. The model can then read, write and run anything that account can. Paths are resolved against `WORKDIR`, but absolute paths are not confined to it. `serve.sh` prints a warning when this happens. To turn the tools off, use `TOOLS="" MCP_CONFIG=""`. To pick a runtime yourself, set `TOOLS_RUNTIME` to `host`, `podman:<image>`, `docker:<image>`, `podman-container:<id>`, `docker-container:<id>` or `ssh:<target>`.
 
 ### Languages
 

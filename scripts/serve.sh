@@ -18,8 +18,8 @@ MODELS_PRESET="${MODELS_PRESET:-$ROOT/config/models-preset.ini}"
 PROFILE="${PROFILE:-auto}"                      # auto | default | lowram (auto: lowram on Android/Termux or < 6 GB RAM)
 MODELS_MAX="${MODELS_MAX:-}"                    # models kept loaded at once (LRU); default 2, lowram 1
 API_KEY_FILE="${API_KEY_FILE:-$ROOT/.secrets/api-keys}"
-MCP_CONFIG="${MCP_CONFIG:-$ROOT/config/mcp-servers.json}"   # set to "" to disable MCP
-TOOLS="${TOOLS:-read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info}"
+MCP_CONFIG="${MCP_CONFIG-$ROOT/config/mcp-servers.json}"   # set to "" to disable MCP
+TOOLS="${TOOLS-read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info}"
 # TOOLS_RUNTIME: auto | host | podman:<image> | docker:<image> | podman-container:<id> | docker-container:<id> | ssh:<target>
 TOOLS_RUNTIME="${TOOLS_RUNTIME:-auto}"
 # python:3.12-slim multi-arch index, pinned by digest (2026-10-03); override to update
@@ -288,7 +288,12 @@ export LLAMA_API_KEY="$API_KEYS"
 # overrides them for the children (tools = get_info, empty MCP config).
 [[ -n "$TOOLS" ]]        && export LLAMA_ARG_TOOLS="$TOOLS"
 [[ -n "$RUNTIME_ARG" ]]  && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
-[[ -n "$MCP_CONFIG" ]]   && export LLAMA_ARG_MCP_SERVERS_CONFIG="$(abspath "$MCP_CONFIG")"
+if [[ -n "$MCP_CONFIG" ]]; then
+  # @ROOT@ in the MCP config = this repository (the server itself runs in WORKDIR)
+  root_json="$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g' -e 's/[\\|&]/\\&/g')"
+  sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
+  export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
+fi
 
 # --- arguments --------------------------------------------------------------
 args=(

@@ -5,3 +5,5 @@
 *.json eol=lf
 *.env eol=lf
 *.ps1 eol=crlf
+*.bat eol=crlf
+*.command eol=lf

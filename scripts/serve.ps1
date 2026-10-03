@@ -33,6 +33,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 if (-not $WorkDir) { $WorkDir = Join-Path $Root "workspace" }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+$WorkDir = (Resolve-Path $WorkDir).Path
 
 # refuse pass-through args that would widen what the instances can do (see serve.sh)
 foreach ($a in $Extra) {
@@ -42,7 +43,12 @@ foreach ($a in $Extra) {
 }
 
 # llama-server.exe: explicit path, else the Release output of scripts\build-windows.ps1
-if (-not $LlamaServer) { $LlamaServer = Join-Path $Root "build-windows-x64\bin\Release\llama-server.exe" }
+if (-not $LlamaServer) {
+    # own build first, then the release binary scripts\fetch-llama.ps1 verified last
+    $LlamaServer = Join-Path $Root "build-windows-x64\bin\Release\llama-server.exe"
+    $relPath = Join-Path $Root ".cache\llama-server.path"
+    if (-not (Test-Path $LlamaServer) -and (Test-Path $relPath)) { $LlamaServer = (Get-Content $relPath -TotalCount 1).Trim() }
+}
 if (-not (Test-Path $LlamaServer -PathType Leaf)) { throw "llama-server.exe not found at $LlamaServer; run scripts\build-windows.ps1 or pass -LlamaServer" }
 
 # CPU topology (physical cores vs logical processors) and RAM
@@ -120,7 +126,10 @@ foreach ($line in $presetLines) {
     if ($script:skip) { continue }
     if ($line -match '^([A-Za-z0-9_-]+)\s*=') { $key = "$($script:sec).$($Matches[1])"
         if ($localeKeys.ContainsKey($key)) { $out.Add("$($Matches[1]) = $($localeKeys[$key])"); $seen[$key] = $true; continue }
-        if ($overlay.ContainsKey($key)) { $out.Add("$($Matches[1]) = $($overlay[$key])"); $seen[$key] = $true; continue } }
+        if ($overlay.ContainsKey($key)) { $out.Add("$($Matches[1]) = $($overlay[$key])"); $seen[$key] = $true; continue }
+        # path-valued keys: relative to the repository (the server runs in WorkDir)
+        if ($Matches[1] -match '^(model|mmproj)$|-(file|config|dir|path)$') { $v = ($line -replace '^[^=]*=\s*', '').Trim()
+            if ($v -and -not [System.IO.Path]::IsPathRooted($v)) { $out.Add("$($Matches[1]) = $(Join-Path $Root $v)"); continue } } }
     $out.Add($line)
 }
 Close-Section
@@ -169,7 +178,13 @@ Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $_.Name -eq 
 $env:LLAMA_API_KEY = $keys
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
-if ($McpConfig) { $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $McpConfig }
+if ($McpConfig) {
+    # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
+    if (-not [System.IO.Path]::IsPathRooted($McpConfig)) { $McpConfig = Join-Path $Root $McpConfig }
+    $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
+    (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')) | Set-Content -Encoding utf8 $mcpEff
+    $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
+}
 
 $srvArgs = @("--host", $BindHost, "--port", $Port,
           "--models-dir", (Join-Path $Root "models"), "--models-preset", $effective,
@@ -180,4 +195,7 @@ if ($Repack -eq "off") { $srvArgs += "--no-repack" }
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel.FullName } else { '-' })"
-try { & $LlamaServer @srvArgs } finally { if ($container) { docker rm -f $container *> $null } }
+# the server runs in WorkDir: with the host runtime that is the web UI's default tool directory
+if (-not [System.IO.Path]::IsPathRooted($LlamaServer)) { $LlamaServer = Join-Path $Root $LlamaServer }
+Push-Location $WorkDir
+try { & $LlamaServer @srvArgs } finally { Pop-Location; if ($container) { docker rm -f $container *> $null } }
