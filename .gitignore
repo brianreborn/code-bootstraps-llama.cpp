@@ -40,3 +40,4 @@ workspace/
 models-optional/
 __pycache__/
 *.pyc
+bin/

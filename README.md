@@ -22,6 +22,17 @@ cd code-bootstraps-llama.cpp
 
 If you already cloned without `--recursive`, run `git submodule update --init --recursive`.
 
+### Release binaries (no build)
+
+`scripts/fetch-llama.sh` downloads the official llama.cpp **b11374** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), Android arm64 (Termux), macOS arm64 (Metal) and x64, Windows x64/arm64. Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b11374-<platform>-<variant>/` (git-ignored). The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
+
+```sh
+scripts/fetch-llama.sh                    # CPU build for this machine (prints the llama-server path)
+scripts/fetch-llama.sh --variant vulkan   # or cuda-12 / cuda-13 where listed
+```
+
+`scripts/serve.sh` uses your own build when there is one, else the binary `fetch-llama.sh` verified last; set `LLAMA_SERVER` to choose. Tested on Linux x86_64 only (CPU and Vulkan archives unpack and run `--version`; the CPU one served the full stack).
+
 ### Build
 
 | Host | Command | Output |
@@ -74,7 +85,7 @@ models/coder/     coding agent model (tool calling)
 models/decision/  decision model for POST /v1/systemone
 ```
 
-`scripts/fetch-models.sh` downloads the 3 default models listed in `config/models-manifest.json` (about 2.3 GB in total). Each file comes from the Hugging Face commit pinned in the manifest (`revision`), over HTTPS only (`curl --proto '=https' --proto-redir '=https'`). Its sha256 is checked on the `.part` file **before** it is moved into place; a mismatching download is kept as `<file>.bad` and the script fails. The script needs only `curl`, `awk` and `sha256sum` (or `shasum`), no Python; `scripts/check-manifests.sh` (developers, needs Python) checks that its small manifest reader sees the same entries as a JSON parser.
+`scripts/fetch-models.sh` downloads the 3 default models listed in `config/models-manifest.json` (about 2.3 GB in total). Each file comes from the Hugging Face commit pinned in the manifest (`revision`), over HTTPS only (`curl --proto '=https' --proto-redir '=https'`). Its sha256 is checked on the `.part` file **before** it is moved into place; a mismatching download is kept as `<file>.bad` and the script fails. After a file has been checked once, later runs skip re-hashing it while its size and modification time are unchanged (`FULL_VERIFY=1` re-hashes everything). The script needs only `curl`, `awk` and `sha256sum` (or `shasum`), no Python; `scripts/check-manifests.sh` (developers, needs Python) checks that its small manifest reader sees the same entries as a JSON parser.
 
 | Role | Model | File (Hugging Face repo) | Size | sha256 | License | Context |
 |---|---|---|---|---|---|---|

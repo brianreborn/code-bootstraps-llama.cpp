@@ -64,8 +64,9 @@ done
 # --- binary -----------------------------------------------------------------
 BIN="${LLAMA_SERVER:-}"
 if [[ -z "$BIN" ]]; then
-  # own builds first, then the official release binaries from scripts/fetch-llama.sh
-  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server "$ROOT"/bin/llama-*/llama-server; do
+  # own builds first, then the release binary scripts/fetch-llama.sh verified last
+  rel=""; [[ -s "$ROOT/.cache/llama-server.path" ]] && rel="$(cat "$ROOT/.cache/llama-server.path")"
+  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server $rel; do
     [[ -x "$b" ]] && { BIN="$b"; break; }
   done
 fi
@@ -210,7 +211,9 @@ awk -v overlay="$OVERLAY" -v langmodel="$LANG_MODEL" -v lang="$LANG_CODE" -v swa
   skip { next }
   /^[A-Za-z0-9_-]+[ \t]*=/ { k = keyof($0); key = sec "." k
     if (key in lk) { print k " = " lk[key]; seen[key] = 1; next }
-    if (key in ov) { print k " = " ov[key]; seen[key] = 1; next } }
+    if (key in ov) { print k " = " ov[key]; seen[key] = 1; next }
+    # path-valued keys: relative to the repository (the server runs in WORKDIR)
+    if (k ~ /^(model|mmproj)$|-(file|config|dir|path)$/) { v = valof($0); if (v != "" && v !~ /^\//) { print k " = " root "/" v; next } } }
   { print }
   END { flush() }
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"

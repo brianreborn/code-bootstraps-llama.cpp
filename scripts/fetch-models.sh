@@ -41,6 +41,8 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# size + modification time, to skip re-hashing an unchanged file on every start
+fingerprint() { ls -lnL "$1" | awk '{ print $5, $6, $7, $8 }'; }
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
   else shasum -a 256 "$1" | cut -d' ' -f1; fi
@@ -61,7 +63,7 @@ while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
   fresh=0
   [[ "$tested" == "yes" ]] || echo "fetch-models.sh: NOTE: $file is untested with this repo" >&2
   if [[ -f "$dir/$file" ]]; then
-    echo "fetch-models.sh: $dir/$file exists, verifying"
+    echo "fetch-models.sh: $dir/$file exists"
   elif [[ -f "$inactive/$file" ]]; then
     echo "fetch-models.sh: restoring $inactive/$file"; mv "$inactive/$file" "$dir/"
   else
@@ -75,7 +77,11 @@ while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
     fi
     mv "$dir/$file.part" "$dir/$file"; fresh=1
   fi
-  [[ "$fresh" == 1 ]] || got="$(sha256_of "$dir/$file")"
+  stamp=".cache/verified/$sha"
+  if [[ "$fresh" == 1 ]]; then :
+  elif [[ "${FULL_VERIFY:-0}" != 1 && -f "$stamp" && "$(cat "$stamp")" == "$(fingerprint "$dir/$file")" ]]; then
+    got="$sha"; echo "fetch-models.sh: $file unchanged since its last sha256 check (FULL_VERIFY=1 re-hashes)"
+  else got="$(sha256_of "$dir/$file")"; fi
   if [[ "$got" != "$sha" ]]; then
     mv -f "$dir/$file" "$dir/$file.bad"
     echo "fetch-models.sh: sha256 mismatch for existing $dir/$file (got $got); moved to $dir/$file.bad" >&2; exit 1
@@ -86,6 +92,7 @@ while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
     mkdir -p "$inactive"; echo "fetch-models.sh: parking $other -> $inactive/"
     mv "$other" "$inactive/"
   done < <(find "$dir" -maxdepth 1 -name '*.gguf' ! -name "$file" ! -name '*mmproj*' -print0)
+  mkdir -p .cache/verified; fingerprint "$dir/$file" > "$stamp"
   echo "fetch-models.sh: OK $r = $file"
 done <<< "$entries"
 echo "fetch-models.sh: done. A running server picks up swaps via GET /models?reload=1 (or restart scripts/serve.sh)."

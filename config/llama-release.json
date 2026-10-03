@@ -1,0 +1,127 @@
+{
+  "_comment": "Official llama.cpp release binaries used by scripts/fetch-llama.sh and the start launchers instead of building. sha256 = the digest GitHub reports for each release asset (API field 'digest'), copied here so downloads are checked against this repository, not against the live release. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains the fallback for platforms or GPUs not listed.",
+  "tag": "b11374",
+  "commit": "b92761a515ea31e852e7fbc1fad5f874b46f3718",
+  "published_at": "2026-10-03T11:51:21Z",
+  "base_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11374/",
+  "assets": [
+    {
+      "platform": "linux-x64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-ubuntu-x64.tar.gz",
+      "sha256": "a197c3d60845c097339c6ecdf7339cf52a7bf39114c163dfc598fe386dd2b819",
+      "bytes": 17659271,
+      "note": "glibc 2.34+, needs libgomp1, libssl3, zlib, libzstd (Ubuntu 22.04+ / Debian 12+); all x86 CPU variants, picked at run time"
+    },
+    {
+      "platform": "linux-x64",
+      "variant": "vulkan",
+      "file": "llama-b11374-bin-ubuntu-vulkan-x64.tar.gz",
+      "sha256": "826ca9d0f0f38c7485297261f5291abd14c6f634be1dde4baf7a43816a036db9",
+      "bytes": 31599959,
+      "note": "needs a Vulkan driver (libvulkan1)"
+    },
+    {
+      "platform": "linux-x64",
+      "variant": "cuda-12",
+      "file": "llama-b11374-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "sha256": "bd3885b4997a25afc22e9d568fd646d223fec97ca0ccd1a65ab1d423edf624f9",
+      "bytes": 171513778,
+      "extra_file": "cudart-llama-b11374-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "extra_sha256": "19446ae5d77290502096a7f1b9d71472d9fe8e6e90789d767af3ccef15862d35",
+      "extra_bytes": 594377951,
+      "note": "NVIDIA driver for CUDA 12.8; CUDA runtime in extra_file"
+    },
+    {
+      "platform": "linux-x64",
+      "variant": "cuda-13",
+      "file": "llama-b11374-bin-ubuntu-cuda-13.4-x64.tar.gz",
+      "sha256": "f3632c94aa8f4f96c6d9d7fafb01317e733e75aacac456b8c8f89d736b908815",
+      "bytes": 152369798,
+      "extra_file": "cudart-llama-b11374-bin-ubuntu-cuda-13.4-x64.tar.gz",
+      "extra_sha256": "1aa63382b95962982c26a92b5fc7e97193ebee65f77b41d38816faf5f2c51679",
+      "extra_bytes": 440236625,
+      "note": "NVIDIA driver for CUDA 13.4; CUDA runtime in extra_file"
+    },
+    {
+      "platform": "linux-arm64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-ubuntu-arm64.tar.gz",
+      "sha256": "5541cbbcf064cb065beee4830ba454177215166361207cc1a94508d807d76a00",
+      "bytes": 13688667
+    },
+    {
+      "platform": "linux-arm64",
+      "variant": "vulkan",
+      "file": "llama-b11374-bin-ubuntu-vulkan-arm64.tar.gz",
+      "sha256": "63e6139f979ba669cc734b4500f9c98525b972c028478509380c237cec0a163b",
+      "bytes": 24849096
+    },
+    {
+      "platform": "android-arm64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-android-arm64.tar.gz",
+      "sha256": "9436b23e95b4060489e5081fc47e70e857918c36c3c697d9f934b49e91f80282",
+      "bytes": 73903250,
+      "note": "Android NDK build; for Termux"
+    },
+    {
+      "platform": "macos-arm64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-macos-arm64.tar.gz",
+      "sha256": "60e530c63000a1fdf792c4903f5398b9335ffde97b5ab19fa0e62cc15dd117c9",
+      "bytes": 11918888,
+      "note": "Metal GPU support built in"
+    },
+    {
+      "platform": "macos-x64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-macos-x64.tar.gz",
+      "sha256": "4a0dbc5433fbc466f32c549f927eaed89e3ccea0a145f1c79c9f78addb26f81c",
+      "bytes": 11473251
+    },
+    {
+      "platform": "windows-x64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-win-cpu-x64.zip",
+      "sha256": "07e4d54570d40a572cd9a8c506667e0ec35ed969dcb149ee5ff664600532d00c",
+      "bytes": 19352576
+    },
+    {
+      "platform": "windows-x64",
+      "variant": "vulkan",
+      "file": "llama-b11374-bin-win-vulkan-x64.zip",
+      "sha256": "af1a3ce9e267d0c9696200564e7cc719c281f2e88fb84d78ceb3d577705533f0",
+      "bytes": 33272836
+    },
+    {
+      "platform": "windows-x64",
+      "variant": "cuda-12",
+      "file": "llama-b11374-bin-win-cuda-12.4-x64.zip",
+      "sha256": "616630b03075b632a937199ae7f611a67b95bf1f7d256f64aae38f3c1d1553d6",
+      "bytes": 263794897,
+      "extra_file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+      "extra_sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+      "extra_bytes": 391443627,
+      "note": "NVIDIA driver for CUDA 12.4; CUDA runtime DLLs in extra_file"
+    },
+    {
+      "platform": "windows-x64",
+      "variant": "cuda-13",
+      "file": "llama-b11374-bin-win-cuda-13.4-x64.zip",
+      "sha256": "b571aeff9b7337ce8ab9c5b61fda8051649758354f227fb87b28d98c70cfe57a",
+      "bytes": 152990823,
+      "extra_file": "cudart-llama-bin-win-cuda-13.4-x64.zip",
+      "extra_sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668",
+      "extra_bytes": 423535356,
+      "note": "NVIDIA driver for CUDA 13.4; CUDA runtime DLLs in extra_file"
+    },
+    {
+      "platform": "windows-arm64",
+      "variant": "cpu",
+      "file": "llama-b11374-bin-win-cpu-arm64.zip",
+      "sha256": "e5c10b22478a000ad5004248730b5b99711e59659370c81756c81ba6d23fb885",
+      "bytes": 12205129
+    }
+  ]
+}
