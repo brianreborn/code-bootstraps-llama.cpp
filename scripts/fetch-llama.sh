@@ -62,7 +62,7 @@ IFS=$'\t' read -r file sha extra extra_sha row_base <<< "$row"
 # an asset with its own base_url is not an upstream ggml-org build (Android: see its note)
 if [[ "$row_base" != "-" ]]; then
   base="$row_base"
-  echo "fetch-llama.sh: $platform: using this repository's own build of $tag (not upstream's asset): $(awk -v match_kv="platform=$platform variant=$variant" -v fields=note -f scripts/lib/manifest.awk "$RELEASE" | head -1)" >&2
+  echo "fetch-llama.sh: $platform: this repository's own build of $tag, not upstream's (see the note in $RELEASE)" >&2
 fi
 
 dest="bin/llama-$tag-$platform-$variant"

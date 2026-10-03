@@ -1,5 +1,5 @@
 {
-  "_comment": "Official llama.cpp release binaries used by scripts/fetch-llama.sh and the start launchers instead of building. sha256 = the digest GitHub reports for each release asset (API field 'digest'), copied here so downloads are checked against this repository, not against the live release. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains the fallback for platforms or GPUs not listed.",
+  "_comment": "Official llama.cpp release binaries used by scripts/fetch-llama.sh and the start launchers instead of building. sha256 = the digest GitHub reports for each release asset (API field 'digest'), copied here so downloads are checked against this repository, not against the live release. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains the fallback for platforms or GPUs not listed. An asset with its own base_url is not an upstream build (android-arm64: this repository's release android-b11374-1, sha256 = our own published digest).",
   "tag": "b11374",
   "commit": "b92761a515ea31e852e7fbc1fad5f874b46f3718",
   "published_at": "2026-10-03T11:51:21Z",
@@ -60,10 +60,11 @@
     {
       "platform": "android-arm64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-android-arm64.tar.gz",
-      "sha256": "9436b23e95b4060489e5081fc47e70e857918c36c3c697d9f934b49e91f80282",
-      "bytes": 73903250,
-      "note": "Android NDK build; for Termux"
+      "file": "llama-b11374-bin-android-arm64-cbl1.tar.gz",
+      "sha256": "f5e1df0bcb19d96f0f700fd3ababbc78ec078eb573453f1cb0863195299a0053",
+      "bytes": 73241334,
+      "base_url": "https://github.com/brianreborn/code-bootstraps-llama.cpp/releases/download/android-b11374-1/",
+      "note": "built by this repository (scripts/build-android-release.sh, NDK r29, API 28) with subprocess support and RUNPATH $ORIGIN; upstream's llama-b11374-bin-android-arm64.tar.gz (sha256 9436b23e95b4060489e5081fc47e70e857918c36c3c697d9f934b49e91f80282) has LLAMA_SUBPROCESS=OFF, so router mode and the tools fail"
     },
     {
       "platform": "macos-arm64",
