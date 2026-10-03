@@ -90,7 +90,7 @@ open_ui() {
     echo "  The first time, the page says \"Server Connection Error / Access denied\": that is expected."
     echo "  Click \"Enter API Key\", paste the key above and confirm; the browser keeps it."
     echo "  Files the agent creates go to: ${WORKDIR:-$ROOT/workspace}"
-    echo "  Stop with Ctrl-C."
+    echo "  Stop with Ctrl-C or by closing this terminal."
     echo
   } >&2
   [[ "${NO_BROWSER:-0}" == 1 ]] && return 0
