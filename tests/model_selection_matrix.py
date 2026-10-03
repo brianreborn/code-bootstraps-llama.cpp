@@ -3,6 +3,8 @@
 
     tests/model-selection-matrix.sh [WORKDIR]     (needs bash, pwsh for the Windows half,
                                                   and a llama-server binary for the router check)
+WORKDIR defaults to a new private directory (mktemp); an existing one must be empty or an
+earlier matrix run's (marker file .model-selection-matrix), since it is deleted and recreated.
 
 For every combination of launcher x PROFILE x LANGUAGE_MODE x system locale x installed opt-ins
 (plus TOOLS, explicit LOCALE, PROFILE=auto and env-override grids) it runs the REAL launcher
@@ -19,7 +21,9 @@ Then the REAL pinned llama-server is started as a router on each distinct effect
 (-m path, ctx, parallel, threads, ngl). That is what the router would run.
 Assertions (exit 1 on failure, WORKDIR/assertions.txt): the expected models per combination;
 decoys (stray/mmproj/mtp/.part files, populated HF caches via LLAMA_CACHE, HF_HOME,
-HF_HUB_CACHE and ~/.cache/huggingface) never add or change a model; model-picking flags are
+HF_HUB_CACHE and ~/.cache/huggingface, and a populated, stale or symlinked .cache/llama-cache)
+never add or change a model, the router always gets a fresh empty LLAMA_CACHE in offline mode;
+a model replaced after verification with the same size and mtime is caught (TOCTOU); model-picking flags are
 refused in every spelling; env overrides work on every launcher; all launchers write the
 same effective preset for the same settings; start.ps1/serve.ps1 also pass under a
 Windows PowerShell 5.1 emulation (grid "ps51", tests/ps51_emulation.py).
@@ -35,11 +39,15 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORK = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "/tmp/model-selection-matrix")
+WORK = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+                       else tempfile.mkdtemp(prefix="model-selection-matrix."))
+MARKER = ".model-selection-matrix"   # in WORK: this matrix created it (it may be deleted again)
+RUNDIR = re.compile(r"llama-cache\.[0-9]+\.[A-Za-z0-9]+")   # serve.sh/serve.ps1's per-start LLAMA_CACHE
 OPTS = set(a for a in sys.argv[1:] if a.startswith("-"))
 PWSH = os.environ.get("PWSH") or shutil.which("pwsh")   # pwsh half is skipped when absent
 MANIFEST = json.load(open(os.path.join(ROOT, "config", "models-manifest.json")))
@@ -86,6 +94,9 @@ exit 7
         f"{st}/llama-server-stub": r'''#!/bin/bash
 # stub router: record argv, LLAMA_* environment and the effective preset, then exit
 printf '%s\n' "$@" > "$CAPTURE_DIR/argv.txt"
+if [ -n "$LLAMA_CACHE" ]; then   # what the router would find in its cache directory
+  { echo "path=$LLAMA_CACHE"; [ -d "$LLAMA_CACHE" ] && [ ! -L "$LLAMA_CACHE" ] && echo "dir=yes"; ls -A "$LLAMA_CACHE" 2>/dev/null; } > "$CAPTURE_DIR/llama-cache.txt"
+fi
 env | grep -E '^(LLAMA_|HF_|HUGGINGFACE_|XDG_CACHE_HOME=|HOME=|MODEL_ENDPOINT)' | sort > "$CAPTURE_DIR/env.txt"
 prev=""; for a in "$@"; do [ "$prev" = "--models-preset" ] && cp "$a" "$CAPTURE_DIR/preset.ini"; prev="$a"; done
 exit 0
@@ -207,20 +218,68 @@ def decoy_extra(kind):
                 shutil.rmtree(os.path.join(m, role), ignore_errors=True)
                 placeholder(os.path.join(m, role, "Qwen3.5-0.8B-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
                 placeholder(os.path.join(d, "models-inactive", role, DEFAULTS[role]), DEFAULTS[role])
+        elif kind in ("llama-cache", "llama-cache-stale", "llama-cache-symlink"):
+            # an HF-layout model where the launcher's own cache was (round 5: it showed up in
+            # /models as evil/decoy:Q4_K_M and loaded with --hf-repo, no sha256 check)
+            base = {"llama-cache": ".cache/llama-cache", "llama-cache-stale": ".cache/llama-cache.999999.AbC123",
+                    "llama-cache-symlink": "outside-cache"}[kind]
+            hf_cache_model(os.path.join(d, base), "evil", "decoy")
+            if kind == "llama-cache-symlink":
+                os.makedirs(os.path.join(d, ".cache"), exist_ok=True)
+                os.symlink(os.path.join(d, "outside-cache"), os.path.join(d, ".cache", "llama-cache"))
+        elif kind in ("toctou-replace", "toctou-inplace"):
+            # the coder passed verification (valid stamp), then is swapped for another model of the
+            # same size with the old mtime: a new file (new inode) or rewritten in place (ctime)
+            stamps = os.path.join(d, ".cache", "verified"); os.makedirs(stamps, exist_ok=True)
+            for role, file in DEFAULTS.items():
+                write_stamp(stamps, os.path.join(m, role, file), file)
+            pth = os.path.join(m, "coder", DEFAULTS["coder"]); old = os.stat(pth)
+            other = next(c["sha256"] for c in CANDS if c["file"] == "Qwen3.5-0.8B-Q4_K_M.gguf") + "\n"
+            if kind == "toctou-replace":
+                with open(pth + ".new", "w") as fh:
+                    fh.write(other)
+                os.replace(pth + ".new", pth)
+            else:
+                time.sleep(1.05)   # ctime has 1 s resolution in the stamp
+                with open(pth, "r+") as fh:
+                    fh.write(other)
+            os.utime(pth, ns=(old.st_atime_ns, old.st_mtime_ns))
         elif kind in ("hf-cache", "hf-home", "hf-hub-cache", "home-hf-cache"):
             base = {"hf-cache": "hfcache", "hf-home": "hfhome/hub", "hf-hub-cache": "hfhub",
                     "home-hf-cache": "home/.cache/huggingface/hub"}[kind]
-            c = os.path.join(d, base, "models--someorg--Decoy-GGUF")
-            os.makedirs(os.path.join(c, "refs")); rev = "0123456789abcdef0123456789abcdef01234567"   # the cache needs a 40-hex commit
-            open(os.path.join(c, "refs", "main"), "w").write(rev)
-            placeholder(os.path.join(c, "snapshots", rev, "Decoy-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            hf_cache_model(os.path.join(d, base), "someorg", "Decoy-GGUF")
     return f
+
+
+def hf_cache_model(base, org, name):
+    c = os.path.join(base, f"models--{org}--{name}")
+    os.makedirs(os.path.join(c, "refs")); rev = "0123456789abcdef0123456789abcdef01234567"   # the cache needs a 40-hex commit
+    open(os.path.join(c, "refs", "main"), "w").write(rev)
+    placeholder(os.path.join(c, "snapshots", rev, f"{name}-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+
+
+def write_stamp(stamps, pth, file):
+    """.cache/verified/<sha256>, written by the sandbox's own fingerprint() (scripts/lib/common.sh;
+    scripts/lib/common.ps1 writes the same off Windows), so the TOCTOU cases test the real format"""
+    if not os.path.exists(pth):
+        placeholder(pth, file)
+    sb = os.path.dirname(os.path.dirname(stamps))
+    fp = subprocess.run(["bash", "-c", '. "$1/scripts/lib/common.sh" && fingerprint "$2"', "-", sb, pth],
+                        check=True, capture_output=True, text=True).stdout
+    sha = next(c["sha256"] for c in CANDS if c["file"] == file)
+    open(os.path.join(stamps, sha), "w").write(fp)
+
+
+CACHE_KINDS = ("llama-cache", "llama-cache-stale", "llama-cache-symlink")
+TOCTOU_KINDS = ("toctou-replace", "toctou-inplace")
 
 
 def jobs_decoy():
     J = []
     kinds = ["role-dir", "top-level", "extra-dir", "mmproj", "draft", "stale-part", "inactive", "fallback-installed",
-             "hf-cache", "hf-home", "hf-hub-cache", "home-hf-cache"]
+             "hf-cache", "hf-home", "hf-hub-cache", "home-hf-cache", *CACHE_KINDS]
+    for l, k in itertools.product(["serve.sh", "serve.ps1"], TOCTOU_KINDS):   # prefetched models only
+        J.append(job(l, "default", "(unset)", "en_US", "defaults", grid="decoy", extra=k, label=k))
     for l, k in itertools.product(["start.sh", "serve.sh", "start.ps1", "serve.ps1"], kinds):
         e = {"hf-cache": {"LLAMA_CACHE": "@SANDBOX@/hfcache"}, "hf-home": {"HF_HOME": "@SANDBOX@/hfhome"},
              "hf-hub-cache": {"HF_HUB_CACHE": "@SANDBOX@/hfhub"}, "home-hf-cache": {"HOME": "@SANDBOX@/home"}}.get(k, {})
@@ -249,7 +308,13 @@ def jobs_env():
              ("passthrough --MODEL=x", {}, ["--MODEL=/tmp/decoy.gguf"]),
              ("passthrough --Hf_Repo", {}, ["--Hf_Repo", "someorg/Decoy-GGUF:Q4_K_M"]),
              ("passthrough --Api_Key", {}, ["--Api_Key", "x"]),
-             ("passthrough --tools", {}, ["--tools", "read_file"])]
+             ("passthrough --tools", {}, ["--tools", "read_file"]),
+             ("passthrough --host", {}, ["--host", "0.0.0.0"]),
+             ("passthrough --port", {}, ["--port", "1"]),
+             ("passthrough --Port=1", {}, ["--Port=1"]),
+             ("passthrough --rpc", {}, ["--rpc", "10.0.0.1:50052"]),
+             ("passthrough --log-file", {}, ["--log-file", "/tmp/x.log"]),
+             ("passthrough -lv", {}, ["-lv", "0"])]
     for l in ["start.sh", "serve.sh", "start.ps1", "serve.ps1"]:
         for name, env, args in cases:
             if name == "PROFILE=lowram env":
@@ -318,12 +383,7 @@ def prepare(j, n, stubs):
         # PATH; the models are pre-installed with fresh stamps so no hashing is needed.
         stamps = os.path.join(d, ".cache", "verified"); os.makedirs(stamps, exist_ok=True)
         for role, file in DEFAULTS.items():
-            pth = os.path.join(d, "models", role, file)
-            if not os.path.exists(pth):
-                placeholder(pth, file)
-            st_ = os.stat(pth)
-            sha = next(c["sha256"] for c in CANDS if c["file"] == file)
-            open(os.path.join(stamps, sha), "w").write(f"{st_.st_size} {int(st_.st_mtime)}\n")
+            write_stamp(stamps, os.path.join(d, "models", role, file), file)
         stub = os.path.join(d, "llama-server-stub")
         shutil.copy(os.path.join(st, "llama-server-stub"), stub)
         env.update({"STUB_LLAMA": stub, "PATH": os.path.join(WORK, "stubs-pwshfile") + ":" + st + ":" + os.environ["PATH"],
@@ -447,6 +507,13 @@ def collect(j):
             for fn in fs:
                 tree.append(os.path.relpath(os.path.join(dp, fn), j["sandbox"]))
     j["tree"] = sorted(tree)
+    # the router's cache as the stub saw it, and what is left in .cache afterwards
+    j["cache_seen"] = rd("llama-cache.txt").splitlines()
+    cd = os.path.join(j["sandbox"], ".cache")
+    j["cache_left"] = sorted(n for n in (os.listdir(cd) if os.path.isdir(cd) else []) if n.startswith("llama-cache"))
+    oc = os.path.join(j["sandbox"], "outside-cache")
+    j["outside_cache"] = sorted(os.listdir(oc)) if os.path.isdir(oc) else None
+    j["envcap"] = RUNDIR.sub("llama-cache.<run>", j["envcap"])
     if j["status"] == "ok" and not j["argv"]:
         j["status"] = "ok (no server started)"
 
@@ -478,6 +545,8 @@ def _router_resolve(j):
     os.makedirs(env["HOME"], exist_ok=True)
     for line in j["envcap"].splitlines():
         k, _, v = line.partition("=")
+        if k == "LLAMA_CACHE" and "llama-cache.<run>" in v:   # serve.*'s fresh per-start dir (gone by now)
+            v = tempfile.mkdtemp(prefix="router-cache.", dir=WORK)
         if k.startswith("LLAMA_ARG_") or k in ("LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT", "HF_HOME", "HF_HUB_CACHE",
                                                "HUGGINGFACE_HUB_CACHE", "XDG_CACHE_HOME", "HOME"):
             env[k] = v
@@ -532,14 +601,21 @@ def role_view(res, role, sandbox):
 
 # ---------------------------------------------------------------- main
 def main():
-    if os.path.exists(WORK):
+    if os.path.isdir(WORK) and os.listdir(WORK):
+        if not os.path.isfile(os.path.join(WORK, MARKER)):
+            sys.exit(f"[matrix] {WORK} is not empty and was not created by this matrix (no {MARKER}): refusing to delete it")
         shutil.rmtree(WORK)
     os.makedirs(os.path.join(WORK, "sb"))
+    open(os.path.join(WORK, MARKER), "w").write("created by tests/model_selection_matrix.py; deleted on the next run\n")
+    print(f"[matrix] work directory: {WORK}", file=sys.stderr)
     stubs = write_stubs()
     J = jobs_all() + jobs_decoy() + jobs_env()
     if "--smoke" in OPTS:   # a few combinations per launcher, for checking the harness itself
         J = [j for j in J if j["grid"] == "main" and j["profile"] == "lowram" and j["locale"] in ("ja-JP", "en_US")
              and j["mode"] in ("swap", "(unset)") and j["install"] == "optin"] + [j for j in J if j["grid"] == "decoy" and j["label"] == "role-dir"]
+    grids = next((o.split("=", 1)[1].split(",") for o in OPTS if o.startswith("--grids=")), None)
+    if grids:   # e.g. --grids=decoy,env while working on those cases
+        J = [j for j in J if j["grid"] in grids]
     t0 = time.time()
     for n, j in enumerate(J):
         prepare(j, n, stubs)
@@ -561,7 +637,9 @@ def main():
             j["router"] = None; continue
         av = [a.replace(j["sandbox"], "<ROOT>") for a in j["argv"]]
         av = [x for i, x in enumerate(av) if not (i > 0 and av[i - 1] == "--port")]
-        key = hashlib.sha256(json.dumps([av, j["envcap"].replace(j["sandbox"], "<ROOT>"), j["preset"], j["tree"]]).encode()).hexdigest()
+        # the per-sandbox API key is not passed to the router check (it uses its own)
+        ec = re.sub(r"^LLAMA_API_KEY=.*$", "LLAMA_API_KEY=<key>", j["envcap"].replace(j["sandbox"], "<ROOT>"), flags=re.M)
+        key = hashlib.sha256(json.dumps([av, ec, j["preset"], j["tree"]]).encode()).hexdigest()
         if key not in cache:
             cache[key] = router_resolve(j)
         res = cache[key]
@@ -574,7 +652,8 @@ def main():
         roles = {r: role_view(res, r, j["sandbox"]) for r in ("general", "coder", "decision", "language")}
         extra = sorted(k for k in (res or {}) if k not in ("general", "coder", "decision", "language", "error"))
         out.append({k: j[k] for k in ("launcher", "profile", "mode", "locale", "install", "tools", "explicit_locale", "grid",
-                                     "mem", "label", "status", "downloads", "argv", "preset", "language_json", "tree")}
+                                     "mem", "label", "status", "downloads", "argv", "preset", "language_json", "tree",
+                                     "cache_seen", "cache_left", "outside_cache")}
                    | {"envcap": j["envcap"].replace(j["sandbox"], "<ROOT>"), "argv": [a.replace(j["sandbox"], "<ROOT>") for a in j["argv"]],
                       "roles": roles, "extra_models": extra,
                       "router_error": (res or {}).get("error") if isinstance(res, dict) else None,
@@ -660,6 +739,7 @@ def assertions(rows):
             fails.append(f"{tag}: models {got} != {want}")
         if r["extra_models"]:
             fails.append(f"{tag}: extra models listed: {r['extra_models']}")
+        check_cache(r, tag, fails)
         for role in ("general", "coder", "decision", "language"):
             v = r["roles"][role] or {}
             if v.get("mmproj") or v.get("draft") or v.get("hf"):
@@ -696,7 +776,21 @@ def check_started(r, tag, want, fails, ctx=None):
 
 
 REFUSED = {"passthrough --Api_Key", "passthrough --tools", "passthrough -m", "passthrough --model", "passthrough -hf", "passthrough --models-preset", "passthrough --models-dir",
-           "passthrough --hf-repo", "passthrough -mu", "passthrough --models_preset", "passthrough --MODEL=x", "passthrough --Hf_Repo"}
+           "passthrough --hf-repo", "passthrough -mu", "passthrough --models_preset", "passthrough --MODEL=x", "passthrough --Hf_Repo",
+           "passthrough --host", "passthrough --port", "passthrough --Port=1", "passthrough --rpc", "passthrough --log-file", "passthrough -lv"}
+
+
+def check_cache(r, tag, fails):
+    """the router got a fresh, empty, per-start LLAMA_CACHE in offline mode, removed on exit"""
+    seen = r.get("cache_seen") or []
+    if not seen or not RUNDIR.search(seen[0]) or "/.cache/" not in seen[0].replace("\\", "/"):
+        fails.append(f"{tag}: LLAMA_CACHE is not a per-start .cache/llama-cache.<pid>.<x> dir: {seen[:1]}")
+    elif seen[1:] != ["dir=yes"]:
+        fails.append(f"{tag}: LLAMA_CACHE not a fresh empty directory: {seen[1:]}")
+    if r.get("cache_left"):
+        fails.append(f"{tag}: left in .cache: {r['cache_left']}")
+    if "LLAMA_ARG_OFFLINE=1" not in r["envcap"].splitlines():
+        fails.append(f"{tag}: LLAMA_ARG_OFFLINE=1 not set (the router could download a model at run time)")
 
 
 def assertions_decoy_env(rows):
@@ -711,13 +805,20 @@ def assertions_decoy_env(rows):
                 want = {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"}
             if r["label"] == "language-dir":
                 want = {"language": "HY-MT1.5-1.8B-Q4_K_M.gguf"}
+            if r["label"] in TOCTOU_KINDS:   # re-hashed, refused; nothing starts
+                if r["argv"] or "sha256 mismatch" not in r["status"] + r["output"]:
+                    fails.append(f"{tag}: a model swapped after verification was not caught (status {r['status'][:80]})")
+                continue
             check_started(r, tag, want, fails)
+            check_cache(r, tag, fails)
+            if r["label"] == "llama-cache-symlink" and r.get("outside_cache") != ["models--evil--decoy"]:
+                fails.append(f"{tag}: the symlinked cache's target was changed: {r.get('outside_cache')}")
         elif r["grid"] == "env":
             lab = r["label"]
             if lab in REFUSED:
                 # serve.ps1 -File: PowerShell itself rejects some before the script runs (-m is ambiguous,
-                # --model binds to the int -ModelsMax); either way nothing starts
-                if r["argv"] or not re.search(r"not allowed|is ambiguous|Cannot process argument transformation|would be read as",
+                # --model binds to the int -ModelsMax, --port to -Port given twice); nothing starts
+                if r["argv"] or not re.search(r"not allowed|is ambiguous|Cannot process argument transformation|would be read as|specified more than once",
                                               r["status"] + r["output"]):
                     fails.append(f"{tag}: not refused (status {r['status'][:80]})")
             elif lab == "ps -GpuLayers -1":

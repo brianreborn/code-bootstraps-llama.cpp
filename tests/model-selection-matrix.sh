@@ -10,9 +10,10 @@
 # PWSH=/path/to/pwsh selects PowerShell 7 when it is not on PATH.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-work="/tmp/model-selection-matrix"
-[[ $# -gt 0 && "$1" != -* ]] && work="$1"
-python3 "$here/model_selection_matrix.py" "$@"
+# WORKDIR: default a new private directory; the Python side refuses a non-empty one it did not create
+if [[ $# -gt 0 && "$1" != -* ]]; then work="$1"; shift
+else work="$(mktemp -d "${TMPDIR:-/tmp}/model-selection-matrix.XXXXXX")"; fi
+python3 "$here/model_selection_matrix.py" "$work" "$@"
 if [[ "${NO_HF:-0}" != 1 ]]; then
   python3 "$here/check-hf-manifest.py" > "$work/hf-check.txt" || echo "check-hf-manifest: MISMATCH or API error, see $work/hf-check.txt" >&2
 fi
