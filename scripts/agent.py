@@ -29,6 +29,7 @@ gives no clue, the system locale is used. English prompts get no language handli
   python3 scripts/agent.py --localize docs/guide.md --to ja > docs/guide.ja.md
 """
 import argparse
+import http.client
 import json
 import os
 import re
@@ -131,6 +132,11 @@ class Client:
                 return json.load(resp)
         except urllib.error.HTTPError as e:
             raise SystemExit(f"HTTP {e.code} on {path}: {e.read().decode(errors='replace')}")
+        except (urllib.error.URLError, ConnectionError, TimeoutError, http.client.HTTPException, OSError) as e:
+            # server stopped, restarted or never started: one line instead of a traceback
+            why = getattr(e, "reason", None) or e
+            raise SystemExit(f"agent.py: lost the connection to {self.url} during {method} {path} ({why}). "
+                             "Is the server still running? Start it again (start.sh / start.bat) and retry.")
 
 
 def translate(c, text, target, style="sys", tries=2):

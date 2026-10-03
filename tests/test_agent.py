@@ -194,5 +194,27 @@ class RepeatGuardTests(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "summary")
 
 
+class ConnectionTests(unittest.TestCase):
+    def test_server_gone_is_one_line(self):
+        # Windows test (qodesh): closing the server mid-run printed a ConnectionResetError traceback
+        import socket
+        srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+        port = srv.getsockname()[1]
+
+        def reset_once():   # accept, then close with RST (SO_LINGER 0) like a killed server
+            c, _ = srv.accept()
+            c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")
+            c.close()
+        t = threading.Thread(target=reset_once, daemon=True); t.start()
+        try:
+            r = subprocess.run([sys.executable, AGENT, "--url", f"http://127.0.0.1:{port}", "--key-file", os.devnull,
+                                "--locale", "en", "x"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+        finally:
+            srv.close()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertIn("lost the connection", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
