@@ -50,7 +50,7 @@ LOCALE="${LOCALE:-auto}"
 LANGUAGE_MODE="${LANGUAGE_MODE:-native}"
 SWAP_CODER="${SWAP_CODER:-0}"
 LANGUAGE_DIR="${LANGUAGE_DIR:-$ROOT/models-optional/language}"
-LOG_FILE="${LOG_FILE:-}"
+LOG_FILE="${LOG_FILE:-$ROOT/.cache/server.log}"   # llama-server's own log (also on the terminal)
 
 die() { echo "serve.sh: $*" >&2; exit 1; }
 warn() { echo "serve.sh: WARNING: $*" >&2; }
@@ -74,6 +74,12 @@ for a in "$@"; do
     -mm|--mmproj|-mmu|--mmproj-url|-a|--alias|--path|--media-path|--embd-*-default|--fim-*-default|--fim-*-spec|--gpt-oss-*-default|--vision-*-default)
       echo "serve.sh: argument '$a' is not allowed here: the models come from config/models-manifest.json" \
            "and MODELS_PRESET (a [<role>] section may set 'model = <file>'; see README Models)" >&2; exit 1 ;;
+    --host|--port|--reuse-port)
+      echo "serve.sh: argument '$a' is not allowed here; set HOST= / PORT= instead (serve.sh checks that its own server got that port)" >&2; exit 1 ;;
+    --rpc)
+      echo "serve.sh: argument '$a' is not allowed here: it would hand the models' work to other machines" >&2; exit 1 ;;
+    --log-file|--log-disable|-lv|--verbosity|--log-verbosity)
+      echo "serve.sh: argument '$a' is not allowed here: serve.sh reads the server's log (LOG_FILE, default .cache/server.log) to see that its own server listens; -v gives more output" >&2; exit 1 ;;
   esac
 done
 if [[ $# -gt 0 ]]; then
@@ -364,6 +370,7 @@ cleanup() {
   # the ready file, if it is ours (a second serve.sh may have written its own)
   if [[ -n "${SERVER_PID:-}" && -f "$ROOT/.cache/serve.ready" && "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" == "$SERVER_PID" ]]; then
     rm -f "$ROOT/.cache/serve.ready"; fi
+  if [[ -n "${LLAMA_CACHE_DIR:-}" ]]; then rm -rf "$LLAMA_CACHE_DIR"; fi
   # Termux: the wake lock start.sh took
   if [[ "${TERMUX_WAKE_LOCKED:-0}" == 1 ]] && command -v termux-wake-unlock >/dev/null 2>&1; then termux-wake-unlock >/dev/null 2>&1 || true; fi
 }
@@ -402,10 +409,25 @@ done < <(compgen -e)
 # The router forwards the client's Authorization header to them.
 export LLAMA_API_KEY="$API_KEYS"
 # The router also lists every GGUF in the Hugging Face cache (~/.cache/huggingface/hub, or
-# HF_HUB_CACHE / HF_HOME / XDG_CACHE_HOME), with no flag to turn that off; LLAMA_CACHE wins over
-# all of those (common/hf-cache.cpp), so an empty repo-local directory keeps the list to our roles.
-mkdir -p "$ROOT/.cache/llama-cache"
-export LLAMA_CACHE="$ROOT/.cache/llama-cache"
+# HF_HUB_CACHE / HF_HOME / XDG_CACHE_HOME) and serves it on request, with no flag to turn that
+# off; LLAMA_CACHE wins over all of those (common/hf-cache.cpp). So every start gets a NEW empty
+# directory (mode 700, removed on exit; leftovers of a killed serve.sh go at the next start):
+# whatever a cache directory held before is never listed.
+for d in "$ROOT"/.cache/llama-cache "$ROOT"/.cache/llama-cache.*; do
+  [[ -e "$d" || -L "$d" ]] || continue
+  owner="${d#"$ROOT"/.cache/llama-cache.}"; owner="${owner%%.*}"
+  # the old fixed directory, or one whose serve.sh is gone (rm -rf on a symlink removes the link only)
+  if [[ "$d" == "$ROOT/.cache/llama-cache" || ! "$owner" =~ ^[0-9]+$ ]] || ! kill -0 "$owner" 2>/dev/null; then rm -rf "$d"; fi
+done
+LLAMA_CACHE_DIR="$(mktemp -d "$ROOT/.cache/llama-cache.$$.XXXXXX")" || die "cannot create a cache directory in $ROOT/.cache"
+export LLAMA_CACHE="$LLAMA_CACHE_DIR"
+# ...and the router can download any Hugging Face model into it at run time (POST /models with
+# the API key, e.g. from the web UI's model picker). Offline mode makes the child's download
+# fail; the pinned local files need no network. The router's own check of such a request ignores
+# offline mode (server-models.cpp: it queries the repository's metadata and writes refs/main), so
+# the model endpoint is also a name that never resolves (.invalid, RFC 6761).
+export LLAMA_ARG_OFFLINE=1
+export MODEL_ENDPOINT="https://offline.invalid/"
 # Tools, tools runtime and MCP go to the router through the environment, NOT as CLI
 # flags (the router copies its CLI flags into every child). config/models-preset.ini
 # overrides them for the children (tools = get_info, empty MCP config).
@@ -429,7 +451,10 @@ args+=(--threads "$THREADS" --threads-batch "$THREADS_BATCH")
 args+=(--n-gpu-layers "$GPU_LAYERS" --fit on)
 args+=(--load-mode "$LOAD_MODE")
 [[ "$REPACK" == "off" ]] && args+=(--no-repack)
-[[ -n "$LOG_FILE" ]]     && args+=(--log-file "$(abspath "$LOG_FILE")")
+# the log is also how serve.sh knows its OWN server bound the port (see "Ready" below);
+# the router does not pass --log-file on to the model instances
+LOG_FILE="$(abspath "$LOG_FILE")"
+args+=(--log-file "$LOG_FILE")
 
 echo "serve.sh: $BIN ${args[*]} $*" >&2
 echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_ARG_TOOLS:-} LLAMA_ARG_TOOLS_RUNTIME=${LLAMA_ARG_TOOLS_RUNTIME:-} LLAMA_ARG_MCP_SERVERS_CONFIG=${LLAMA_ARG_MCP_SERVERS_CONFIG:-}" >&2
@@ -447,6 +472,7 @@ echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default
 # the web UI and agent.py start from (not this repository).
 SERVE_PID=$$
 READY_FILE="$ROOT/.cache/serve.ready"; rm -f "$READY_FILE"
+rm -f "$LOG_FILE"   # an old "listening on" line must not count for this server
 set -m
 ( cd "$WORKDIR" && exec "$BIN" "${args[@]}" "$@" ) &
 SERVER_PID=$!
@@ -454,10 +480,15 @@ set +m
 # Ready = our server process listens on PORT (not some other program that took the port
 # meanwhile) and answers /health. Then .cache/serve.ready gets "<port> <pid>": start.sh's UI
 # helper waits for that file instead of probing the server with the API key.
+# Required everywhere: the pid is alive and llama-server itself wrote "listening on
+# http://...:PORT" to LOG_FILE (it logs that only after its bind succeeded). Where ss or lsof
+# can see sockets, the listener must also be that pid.
+said_listening() {
+  [[ -f "$LOG_FILE" ]] && grep -aF "listening on http://" "$LOG_FILE" 2>/dev/null | grep -qE ":$PORT([^0-9]|\$)"
+}
 listener_is_ours() {   # 0 = yes, 1 = no, 2 = cannot tell (no ss/lsof, or Android)
   # Android 10+: SELinux denies apps /proc/net and sock_diag, so ss fails and lsof sees no
-  # sockets at all (it would say "not ours"). There the caller accepts "our pid is alive and
-  # the port answers /health" instead: llama-server exits when it cannot bind the port.
+  # sockets at all (it would say "not ours"); there the log line above is the proof.
   [[ "$IS_ANDROID" == 1 ]] && return 2
   if command -v ss >/dev/null 2>&1; then
     ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -q "pid=$SERVER_PID," && return 0
@@ -475,16 +506,13 @@ if command -v curl >/dev/null 2>&1; then
     [[ "$probe_host" == *:* ]] && probe_host="[$probe_host]"
     for _ in $(seq 1 1200); do
       kill -0 "$SERVER_PID" 2>/dev/null || exit 0
-      if curl -s -o /dev/null --max-time 2 "http://$probe_host:$PORT/health"; then
+      if said_listening && curl -s -o /dev/null --max-time 2 "http://$probe_host:$PORT/health"; then
         owner=0; listener_is_ours || owner=$?
         if [[ "$owner" == 1 ]]; then
           warn "port $PORT answers, but not from this server (pid $SERVER_PID): another program took it; stop it or set PORT"
           exit 0
         fi
-        if [[ "$owner" == 2 ]]; then   # no socket owner to see: our server alive and answering, twice
-          sleep 1
-          kill -0 "$SERVER_PID" 2>/dev/null && curl -s -o /dev/null --max-time 2 "http://$probe_host:$PORT/health" || continue
-        fi
+        kill -0 "$SERVER_PID" 2>/dev/null || exit 0   # still ours after the checks
         printf '%s %s\n' "$PORT" "$SERVER_PID" > "$READY_FILE.tmp" && mv -f "$READY_FILE.tmp" "$READY_FILE"
         echo "serve.sh: listening on http://$probe_host:$PORT (pid $SERVER_PID)" >&2; exit 0
       fi

@@ -60,6 +60,11 @@ foreach ($a in $Extra) {
     if ($n -match '^(-m|--model|-mu|--model-url|-dr|--docker-repo|-hf|-hfr|--hf-repo|-hff|--hf-file|-hfd|-hfrd|--hf-repo-draft|-hfv|-hfrv|--hf-repo-v|-hffv|--hf-file-v|-mv|--model-vocoder|-md|--model-draft|--spec-draft-model|--spec-draft-hf|--models-dir|--models-preset|--lora|--lora-scaled|--control-vector|--control-vector-scaled|-mm|--mmproj|-mmu|--mmproj-url|-a|--alias|--path|--media-path|--embd-.*-default|--fim-.*-default|--fim-.*-spec|--gpt-oss-.*-default|--vision-.*-default)$') {
         throw "argument '$a' is not allowed here: the models come from config\models-manifest.json and the preset (a [<role>] section may set 'model = <file>'; see README Models)"
     }
+    if ($n -match '^(--host|--port|--reuse-port)$') { throw "argument '$a' is not allowed here; use -BindHost / -Port (serve.ps1 checks that its own server got that port)" }
+    if ($n -eq '--rpc') { throw "argument '$a' is not allowed here: it would hand the models' work to other machines" }
+    if ($n -match '^(--log-file|--log-disable|-lv|--verbosity|--log-verbosity)$') {
+        throw "argument '$a' is not allowed here: serve.ps1 reads the server's log (.cache\server.log) to see that its own server listens; -v gives more output"
+    }
 }
 if ($Extra.Count -gt 0) { Write-Host "serve.ps1: extra llama-server arguments apply to EVERY role (general, coder, decision): $($Extra -join ' ')" }
 
@@ -311,11 +316,26 @@ $clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_
 Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
 # The router also lists every GGUF in the Hugging Face cache (%USERPROFILE%\.cache\huggingface\hub,
-# HF_HUB_CACHE, HF_HOME); LLAMA_CACHE wins over those, so an empty repo-local directory keeps
-# the list to our roles.
-$llamaCache = Join-Path $Root ".cache\llama-cache"
-New-Item -ItemType Directory -Force -Path $llamaCache | Out-Null
+# HF_HUB_CACHE, HF_HOME) and serves it on request; LLAMA_CACHE wins over those. So every start
+# gets a NEW empty directory (removed on exit; leftovers of a closed window go at the next
+# start): whatever a cache directory held before is never listed.
+$cacheBase = Join-Path $Root ".cache"
+New-Item -ItemType Directory -Force -Path $cacheBase | Out-Null
+foreach ($d in @(Get-ChildItem -Force -LiteralPath $cacheBase -Directory -Filter "llama-cache*")) {
+    $owner = 0
+    if ($d.Name -match '^llama-cache\.(\d+)\.') { $owner = [int]$Matches[1] }
+    if ($owner -and (Get-Process -Id $owner -ErrorAction SilentlyContinue)) { continue }   # another running serve.ps1
+    # a junction or symlink: remove the link only (Remove-Item -Recurse on 5.1 would empty its target)
+    if ($d.Attributes -band [IO.FileAttributes]::ReparsePoint) { [IO.Directory]::Delete($d.FullName) }
+    else { Remove-Item -Recurse -Force -LiteralPath $d.FullName }
+}
+$llamaCache = Join-Path $cacheBase ("llama-cache.$PID." + [guid]::NewGuid().ToString("N").Substring(0, 8))
+New-Item -ItemType Directory -Path $llamaCache | Out-Null   # fails if it exists
 $env:LLAMA_CACHE = $llamaCache
+# ...and the router can download any Hugging Face model into it at run time (POST /models with
+# the API key, e.g. from the web UI's model picker). Offline mode makes that download fail.
+$env:LLAMA_ARG_OFFLINE = "1"
+$env:MODEL_ENDPOINT = "https://offline.invalid/"   # the router checks a download request online even when offline (.invalid never resolves)
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
 if ($McpConfig) {
@@ -337,17 +357,26 @@ $srvArgs = @("--host", $BindHost, "--port", $Port,
           "--threads", $Threads, "--threads-batch", $ThreadsBatch,
           "--n-gpu-layers", $GpuLayers, "--fit", "on", "--load-mode", $LoadMode)
 if ($Repack -eq "off") { $srvArgs += "--no-repack" }
+# the log is also how serve.ps1 knows its OWN server bound the port (see "Ready" below); the
+# router does not pass --log-file on to the model instances
+$logFile = Join-Path $Root ".cache\server.log"
+$srvArgs += @("--log-file", $logFile)
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
-# Ready = OUR llama-server listens on the port (Windows: the listening socket's process is a
-# child of this PowerShell running $LlamaServer) and answers /health. Then .cache\serve.ready
-# gets "<port> <pid>"; scripts\lib\open-ui.ps1 waits for that file. Checked in a background
-# runspace of this process, which ends with the server.
+# Ready = OUR llama-server listens on the port and answers /health: it wrote "listening on
+# http://...:<port>" to .cache\server.log (it logs that only after its bind succeeded), and on
+# Windows the listening socket's process is a child of this PowerShell running the same file
+# as $LlamaServer (compared by file identity, so subst drives and junctions match). Then
+# .cache\serve.ready gets "<port> <pid>"; scripts\lib\open-ui.ps1 waits for that file. Checked
+# in a background runspace of this process, which ends with the server.
 $readyFile = Join-Path $Root ".cache\serve.ready"
 Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
+Remove-Item -Force -LiteralPath $logFile -ErrorAction SilentlyContinue   # an old "listening on" line must not count
+$exeId = ""
+if (Test-Windows) { try { Initialize-FileId; $exeId = [CodeBootstraps.FileId]::Identity($LlamaServer) } catch { } }
 # Closing the console window ends this process without running the "finally" below. A console
 # control handler (close, logoff, shutdown events) deletes the ready file first; Ctrl-C still
 # goes through "finally". C# 5 syntax: Windows PowerShell 5.1 compiles it with the .NET 4 csc.
@@ -384,15 +413,28 @@ $probeHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } elseif ($
 $sync = [hashtable]::Synchronized(@{ Stop = $false })
 $watch = [powershell]::Create()
 [void]$watch.AddScript({
-    param($sync, $port, $probeHost, $exe, $parentPid, $readyFile, $onWindows)
+    param($sync, $port, $probeHost, $exe, $parentPid, $readyFile, $onWindows, $logFile, $exeId)
+    function Test-SaidListening {   # the log is open for writing by llama-server: share it
+        try {
+            $fs = New-Object IO.FileStream($logFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+            try { $text = (New-Object IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+        } catch { return $false }
+        return [regex]::IsMatch($text, "listening on http://\S*:$port(?![0-9])")
+    }
+    function Test-OurExe($path) {
+        if (-not $path) { return $false }
+        if ($exeId) { try { return [CodeBootstraps.FileId]::Identity($path) -eq $exeId } catch { } }
+        return ([IO.Path]::GetFullPath($path) -ieq [IO.Path]::GetFullPath($exe))
+    }
     for ($i = 0; $i -lt 2400 -and -not $sync.Stop; $i++) {
         Start-Sleep -Milliseconds 500
+        if (-not (Test-SaidListening)) { continue }
         $owner = 0
         if ($onWindows) {
             try {
                 foreach ($c in @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop)) {
                     $p = Get-CimInstance Win32_Process -Filter "ProcessId = $($c.OwningProcess)"
-                    if ($p -and $p.ParentProcessId -eq $parentPid -and $p.ExecutablePath -eq $exe) { $owner = $c.OwningProcess }
+                    if ($p -and $p.ParentProcessId -eq $parentPid -and (Test-OurExe $p.ExecutablePath)) { $owner = $c.OwningProcess }
                 }
             } catch { }
             if (-not $owner) { continue }
@@ -403,7 +445,7 @@ $watch = [powershell]::Create()
         return
     }
 })
-[void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows))
+[void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows)).AddArgument($logFile).AddArgument($exeId)
 # the server runs in WorkDir: with the host runtime that is the web UI's default tool directory
 Push-Location $WorkDir
 try {
@@ -413,6 +455,7 @@ try {
     $sync.Stop = $true
     try { $watch.Stop(); $watch.Dispose() } catch { }
     Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force -LiteralPath $llamaCache -ErrorAction SilentlyContinue
     Pop-Location
     if ($container) { docker rm -f $container *> $null }
 }
