@@ -20,10 +20,11 @@ function global:Get-FileHash {
 }
 $here = Get-Location
 $list = Get-Content -Raw $Jobs | ConvertFrom-Json
-$envNames = @("LOCALE", "LANGUAGE_MODE", "PROFILE", "MODELS_MAX", "TOOLS", "LLAMA_ARG_MODEL", "LLAMA_ARG_HF_REPO",
-              "HF_ENDPOINT", "MODEL_ENDPOINT", "LLAMA_CACHE", "NO_BROWSER", "CAPTURE_DIR", "STUB_LLAMA", "SHAMAP")
+# every job starts from this process's original environment (jobs set HOME, HF_HOME, PROFILE, ...)
+$baseEnv = @{}; Get-ChildItem Env: | ForEach-Object { $baseEnv[$_.Name] = $_.Value }
 foreach ($j in $list) {
-    foreach ($n in $envNames) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue }
+    Get-ChildItem Env: | Where-Object { -not $baseEnv.ContainsKey($_.Name) } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+    foreach ($k in $baseEnv.Keys) { Set-Item "Env:$k" $baseEnv[$k] }
     foreach ($p in $j.env.PSObject.Properties) { Set-Item "Env:$($p.Name)" $p.Value }
     $global:FakeMem = [double]$j.mem; $global:FakeCulture = [string]$j.culture
     $oldPath = $env:PATH; $env:PATH = "$($j.stubs)$([IO.Path]::PathSeparator)$oldPath"

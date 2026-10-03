@@ -17,6 +17,12 @@ scripts in a throw-away copy of the repository with these stubs:
 Then the REAL pinned llama-server is started as a router on each distinct effective preset
 (models are listed, never loaded) and GET /models gives the exact per-role child arguments
 (-m path, ctx, parallel, threads, ngl). That is what the router would run.
+Assertions (exit 1 on failure, WORKDIR/assertions.txt): the expected models per combination;
+decoys (stray/mmproj/mtp/.part files, populated HF caches via LLAMA_CACHE, HF_HOME,
+HF_HUB_CACHE and ~/.cache/huggingface) never add or change a model; model-picking flags are
+refused in every spelling; env overrides work on every launcher; all launchers write the
+same effective preset for the same settings; start.ps1/serve.ps1 also pass under a
+Windows PowerShell 5.1 emulation (grid "ps51", tests/ps51_emulation.py).
 """
 import concurrent.futures as cf
 import hashlib
@@ -80,10 +86,11 @@ exit 7
         f"{st}/llama-server-stub": r'''#!/bin/bash
 # stub router: record argv, LLAMA_* environment and the effective preset, then exit
 printf '%s\n' "$@" > "$CAPTURE_DIR/argv.txt"
-env | grep -E '^(LLAMA_|HF_|MODEL_ENDPOINT)' | sort > "$CAPTURE_DIR/env.txt"
+env | grep -E '^(LLAMA_|HF_|HUGGINGFACE_|XDG_CACHE_HOME=|HOME=|MODEL_ENDPOINT)' | sort > "$CAPTURE_DIR/env.txt"
 prev=""; for a in "$@"; do [ "$prev" = "--models-preset" ] && cp "$a" "$CAPTURE_DIR/preset.ini"; prev="$a"; done
 exit 0
 ''',
+        f"{st}/icacls": '#!/bin/bash\nexit 0\n',   # ps51 grid: Test-Windows is true there
         f"{mac}/uname": '#!/bin/bash\ncase "$1" in -m) echo arm64 ;; -o) echo Darwin ;; *) echo Darwin ;; esac\n',
         f"{mac}/sysctl": '''#!/bin/bash
 case "$2" in hw.memsize) echo 17179869184 ;; hw.physicalcpu) echo 8 ;; hw.perflevel0.physicalcpu) echo 4 ;;
@@ -113,10 +120,12 @@ def placeholder(path, file):
         f.write(sha + "\n")
 
 
-def make_sandbox(d, install, prefetched, extra=None):
+def make_sandbox(d, install, prefetched, extra=None, ps51=False):
     os.makedirs(d)
     for n in ("config", "scripts"):
         shutil.copytree(os.path.join(ROOT, n), os.path.join(d, n), ignore=shutil.ignore_patterns("__pycache__"))
+    if ps51:   # Windows PowerShell 5.1: no $IsWindows / $IsLinux / $IsMacOS (tests/ps51_emulation.py)
+        sys.path.insert(0, os.path.join(ROOT, "tests")); __import__("ps51_emulation").rewrite(os.path.join(d, "scripts"))
     for n in ("start.sh", "start.command", "start.bat"):
         shutil.copy2(os.path.join(ROOT, n), d)
     # Windows: the binary is not the subject here, and the UI opener would poll for 10 minutes
@@ -150,7 +159,7 @@ def job(launcher, profile="default", mode="(unset)", locale="(unset)", install="
         explicit_locale=None, grid="main", mem=None, env_extra=None, args_extra=None, extra=None, label=""):
     return dict(launcher=launcher, profile=profile, mode=mode, locale=locale, install=install, tools=tools,
                 explicit_locale=explicit_locale, grid=grid, mem=mem, env_extra=env_extra or {},
-                args_extra=args_extra or [], extra=extra, label=label)
+                args_extra=args_extra or [], extra=extra, label=label, ps51=(grid == "ps51"))
 
 
 def jobs_all():
@@ -164,6 +173,9 @@ def jobs_all():
     for l, mem, loc in itertools.product(LAUNCHERS, [4 * 2**30, 16 * 2**30], ["en_US", "ja_JP"]):
         if l.endswith(".ps1") or mem == 16 * 2**30:
             J.append(job(l, "auto", "(unset)", loc, "defaults", mem=mem, grid="profile-auto"))
+    # Windows PowerShell 5.1 emulation (Windows code paths taken, 6+ variables absent)
+    for l, p, m, loc in itertools.product(["start.ps1", "serve.ps1"], PROFILES, ["(unset)", "swap", "interpret", "auto"], ["en-US", "ja-JP"]):
+        J.append(job(l, p, m, loc, "optin", grid="ps51"))
     return J
 
 
@@ -195,8 +207,10 @@ def decoy_extra(kind):
                 shutil.rmtree(os.path.join(m, role), ignore_errors=True)
                 placeholder(os.path.join(m, role, "Qwen3.5-0.8B-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
                 placeholder(os.path.join(d, "models-inactive", role, DEFAULTS[role]), DEFAULTS[role])
-        elif kind == "hf-cache":
-            c = os.path.join(d, "hfcache", "models--someorg--Decoy-GGUF")
+        elif kind in ("hf-cache", "hf-home", "hf-hub-cache", "home-hf-cache"):
+            base = {"hf-cache": "hfcache", "hf-home": "hfhome/hub", "hf-hub-cache": "hfhub",
+                    "home-hf-cache": "home/.cache/huggingface/hub"}[kind]
+            c = os.path.join(d, base, "models--someorg--Decoy-GGUF")
             os.makedirs(os.path.join(c, "refs")); rev = "0123456789abcdef0123456789abcdef01234567"   # the cache needs a 40-hex commit
             open(os.path.join(c, "refs", "main"), "w").write(rev)
             placeholder(os.path.join(c, "snapshots", rev, "Decoy-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
@@ -205,11 +219,11 @@ def decoy_extra(kind):
 
 def jobs_decoy():
     J = []
-    kinds = ["role-dir", "top-level", "extra-dir", "mmproj", "draft", "stale-part", "inactive", "fallback-installed", "hf-cache"]
+    kinds = ["role-dir", "top-level", "extra-dir", "mmproj", "draft", "stale-part", "inactive", "fallback-installed",
+             "hf-cache", "hf-home", "hf-hub-cache", "home-hf-cache"]
     for l, k in itertools.product(["start.sh", "serve.sh", "start.ps1", "serve.ps1"], kinds):
-        e = {}
-        if k == "hf-cache":
-            e = {"LLAMA_CACHE": "@SANDBOX@/hfcache"}
+        e = {"hf-cache": {"LLAMA_CACHE": "@SANDBOX@/hfcache"}, "hf-home": {"HF_HOME": "@SANDBOX@/hfhome"},
+             "hf-hub-cache": {"HF_HUB_CACHE": "@SANDBOX@/hfhub"}, "home-hf-cache": {"HOME": "@SANDBOX@/home"}}.get(k, {})
         J.append(job(l, "default", "(unset)", "en_US", "defaults", grid="decoy", extra=k, env_extra=e, label=k))
     for l in ["start.sh", "serve.sh", "start.ps1", "serve.ps1"]:
         J.append(job(l, "default", "interpret", "ja_JP", "optin", grid="decoy", extra="language-dir", label="language-dir"))
@@ -231,13 +245,19 @@ def jobs_env():
              ("passthrough --models-dir", {}, ["--models-dir", "@SANDBOX@/other-models"]),
              ("passthrough --hf-repo", {}, ["--hf-repo", "someorg/Decoy-GGUF:Q4_K_M"]),
              ("passthrough -mu", {}, ["-mu", "https://example.invalid/decoy.gguf"]),
-             ("passthrough --models_preset", {}, ["--models_preset", "/tmp/x.ini"])]
+             ("passthrough --models_preset", {}, ["--models_preset", "/tmp/x.ini"]),
+             ("passthrough --MODEL=x", {}, ["--MODEL=/tmp/decoy.gguf"]),
+             ("passthrough --Hf_Repo", {}, ["--Hf_Repo", "someorg/Decoy-GGUF:Q4_K_M"]),
+             ("passthrough --Api_Key", {}, ["--Api_Key", "x"]),
+             ("passthrough --tools", {}, ["--tools", "read_file"])]
     for l in ["start.sh", "serve.sh", "start.ps1", "serve.ps1"]:
         for name, env, args in cases:
             if name == "PROFILE=lowram env":
                 J.append(job(l, "(env)", "(unset)", "en_US", "defaults", grid="env", env_extra=env, label=name))
             else:
                 J.append(job(l, "default", "(unset)", "en_US", "defaults", grid="env", env_extra=env, args_extra=args, label=name))
+    for l in ["start.ps1", "serve.ps1"]:   # a negative value after a serve.ps1 parameter (start.ps1 routes it)
+        J.append(job(l, "default", "(unset)", "en_US", "defaults", grid="env", args_extra=["-GpuLayers", "-1"], label="ps -GpuLayers -1"))
     for l in ["start.sh", "serve.sh"]:   # sh-only overrides
         J.append(job(l, "default", "(unset)", "en_US", "defaults", grid="env", label="MODELS_DIR=other",
                      env_extra={"MODELS_DIR": "@SANDBOX@/other-models"},
@@ -251,8 +271,10 @@ def jobs_env():
 
 def other_extra(kind):
     def f(d):
-        if kind == "other-models":
+        if kind == "other-models":   # a complete second model set whose coder is the 0.8B fallback
             placeholder(os.path.join(d, "other-models", "coder", "Qwen3.5-0.8B-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            for role in ("general", "decision"):
+                placeholder(os.path.join(d, "other-models", role, DEFAULTS[role]), DEFAULTS[role])
         elif kind == "other-preset":
             with open(os.path.join(d, "other.ini"), "w") as fh:
                 fh.write("version = 1\n[coder]\nmodel = /tmp/decoy.gguf\n")
@@ -280,7 +302,7 @@ def prepare(j, n, stubs):
         ex = other_extra(j["extra"])
     elif j["extra"]:
         ex = decoy_extra(j["extra"])
-    make_sandbox(d, j["install"], prefetched, ex)
+    make_sandbox(d, j["install"], prefetched, ex, ps51=j["ps51"])
     cap = os.path.join(d, "capture")
     env = {k: v.replace("@SANDBOX@", d) for k, v in j["env_extra"].items()}
     env.update({"CAPTURE_DIR": cap, "SHAMAP": os.path.join(WORK, "shamap.txt"), "NO_BROWSER": "1"})
@@ -326,7 +348,7 @@ def prepare(j, n, stubs):
                        argline=" ".join(argl), env=env, mem=j["mem"] or 16397616 * 1024, culture=culture, stubs=st)
         return j
     # bash launchers
-    base = {k: os.environ[k] for k in ("HOME", "TERM") if k in os.environ}
+    base = {k: os.environ[k] for k in ("HOME", "TERM") if k in os.environ and k not in env}
     path = st + ":" + os.environ["PATH"]
     env.update(base)
     env.update({"PORT": port, "TOOLS_RUNTIME": "host", "LLAMA_SERVER": os.path.join(st, "llama-server-stub")})
@@ -450,12 +472,14 @@ def _router_resolve(j):
     for i, a in enumerate(argv):
         if a == "--port":
             argv[i + 1] = str(port)
-    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), "LLAMA_API_KEY": "audit-key",
-           "LLAMA_CACHE": os.path.join(WORK, "empty-hf-cache")}
-    os.makedirs(env["LLAMA_CACHE"], exist_ok=True)
+    # HOME defaults to an empty directory, so the box's own ~/.cache/huggingface never shows up;
+    # LLAMA_CACHE / HF_* / HOME come from what the launcher really exported (envcap)
+    env = {"PATH": os.environ["PATH"], "HOME": os.path.join(WORK, "empty-home"), "LLAMA_API_KEY": "audit-key"}
+    os.makedirs(env["HOME"], exist_ok=True)
     for line in j["envcap"].splitlines():
         k, _, v = line.partition("=")
-        if k.startswith("LLAMA_ARG_") or k in ("LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT"):
+        if k.startswith("LLAMA_ARG_") or k in ("LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT", "HF_HOME", "HF_HUB_CACHE",
+                                               "HUGGINGFACE_HUB_CACHE", "XDG_CACHE_HOME", "HOME"):
             env[k] = v
     log = open(os.path.join(j["capture"], "router.log"), "w")
     p = subprocess.Popen([REAL_LLAMA] + argv, env=env, cwd=j["sandbox"], stdout=log, stderr=subprocess.STDOUT,
@@ -554,7 +578,8 @@ def main():
                    | {"envcap": j["envcap"].replace(j["sandbox"], "<ROOT>"), "argv": [a.replace(j["sandbox"], "<ROOT>") for a in j["argv"]],
                       "roles": roles, "extra_models": extra,
                       "router_error": (res or {}).get("error") if isinstance(res, dict) else None,
-                      "other_curl": [], "router_key": j.get("router_key")})
+                      "other_curl": [], "router_key": j.get("router_key"),
+                      "output": j["output"].replace(j["sandbox"], "<ROOT>")[-3000:]})
     json.dump(out, open(os.path.join(WORK, "results.json"), "w"), indent=1)
     print(f"[matrix] results: {os.path.join(WORK, 'results.json')}", file=sys.stderr)
     fails = assertions(out)
@@ -577,7 +602,7 @@ def main():
 #    and HY-MT installed; no other model is listed;
 #  - per-role ctx/parallel/models-max follow the profile;
 #  - a combination may only refuse to start with a language-mode error, and then starts nothing.
-ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto")
+ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51")
 DEF_URLS = sorted(f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default")
 PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "2"),
           "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "1")}
@@ -601,6 +626,7 @@ def effective_profile(r):
 
 def assertions(rows):
     fails = []
+    fails += assertions_decoy_env(rows) + assertions_parity(rows)
     for r in rows:
         if r["grid"] not in ASSERT_GRIDS:
             continue
@@ -614,8 +640,6 @@ def assertions(rows):
         need_optin = (mode == "swap") or (mode == "interpret")
         can_start = not need_optin or (r["install"] == "optin" and (mode == "interpret" or lc == "ja"))
         started = r["status"] == "ok"
-        if r["mode"] == "auto" and not started and "LANGUAGE_MODE=auto" in r["status"] and not r["argv"]:
-            continue   # serve.sh refuses LANGUAGE_MODE=auto for non-English locales (serve.ps1 runs it as native)
         if not can_start:
             if started:
                 fails.append(f"{tag}: started, but {mode} has no installed model")
@@ -651,6 +675,89 @@ def assertions(rows):
             got_max = next((a[i + 1] for i, x in enumerate(a) if x == "--models-max" and i + 1 < len(a)), None)
             if got_max != mmax:
                 fails.append(f"{tag}: models-max {got_max}, want {mmax} ({prof})")
+    return fails
+
+
+def check_started(r, tag, want, fails, ctx=None):
+    """r started a server whose router lists exactly general/coder/decision with the wanted files"""
+    if r["status"] != "ok" or r.get("router_error"):
+        fails.append(f"{tag}: did not start: {r['status'][:100]} {r.get('router_error') or ''}"); return
+    got = {k: (v or {}).get("model") for k, v in r["roles"].items()}
+    w = {"general": DEFAULTS["general"], "coder": DEFAULTS["coder"], "decision": DEFAULTS["decision"], "language": None} | want
+    if got != w:
+        fails.append(f"{tag}: models {got} != {w}")
+    if r["extra_models"]:
+        fails.append(f"{tag}: extra models listed: {r['extra_models']}")
+    for role, v in r["roles"].items():
+        if v and (v.get("mmproj") or v.get("draft") or v.get("hf")):
+            fails.append(f"{tag}: {role} has mmproj/draft/hf {v}")
+        if v and ctx and v.get("ctx") != ctx:
+            fails.append(f"{tag}: {role} ctx {v.get('ctx')}, want {ctx} (extra args apply to every role)")
+
+
+REFUSED = {"passthrough --Api_Key", "passthrough --tools", "passthrough -m", "passthrough --model", "passthrough -hf", "passthrough --models-preset", "passthrough --models-dir",
+           "passthrough --hf-repo", "passthrough -mu", "passthrough --models_preset", "passthrough --MODEL=x", "passthrough --Hf_Repo"}
+
+
+def assertions_decoy_env(rows):
+    """decoys (stray files, HF caches) never change the served models; env/flag overrides behave as documented"""
+    fails = []
+    for r in rows:
+        tag = f"{r['grid']}/{r['launcher']}/{r['label']}"
+        if r["grid"] == "decoy":
+            want = {}
+            if r["label"] == "fallback-installed" and r["launcher"].startswith("serve"):
+                # the user chose the 0.8B coder with fetch-models --fallback; start.* re-installs the defaults
+                want = {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"}
+            if r["label"] == "language-dir":
+                want = {"language": "HY-MT1.5-1.8B-Q4_K_M.gguf"}
+            check_started(r, tag, want, fails)
+        elif r["grid"] == "env":
+            lab = r["label"]
+            if lab in REFUSED:
+                # serve.ps1 -File: PowerShell itself rejects some before the script runs (-m is ambiguous,
+                # --model binds to the int -ModelsMax); either way nothing starts
+                if r["argv"] or not re.search(r"not allowed|is ambiguous|Cannot process argument transformation|would be read as",
+                                              r["status"] + r["output"]):
+                    fails.append(f"{tag}: not refused (status {r['status'][:80]})")
+            elif lab == "ps -GpuLayers -1":
+                check_started(r, tag, {}, fails)
+                a = r["argv"]
+                if "--n-gpu-layers" not in a or a[a.index("--n-gpu-layers") + 1] != "-1":
+                    fails.append(f"{tag}: --n-gpu-layers not -1: {a}")
+            elif lab == "passthrough --ctx-size":
+                check_started(r, tag, {}, fails, ctx="2048")
+            elif lab == "MODELS_DIR=other":
+                check_started(r, tag, {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"}, fails)
+            elif lab == "MODELS_PRESET=other":   # [coder] model = /tmp/decoy.gguf, which does not exist
+                if r["argv"] or "file not found" not in r["status"] + r["output"]:
+                    fails.append(f"{tag}: a missing custom model file was not refused ({r['status'][:80]})")
+            elif lab == "MANIFEST=other":   # start.sh fetches the new default coder; serve.sh keeps the installed 2B (still listed)
+                check_started(r, tag, {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"} if r["launcher"].startswith("start") else {}, fails)
+            else:
+                check_started(r, tag, {}, fails)
+                a = r["argv"]
+                mm = next((a[i + 1] for i, x in enumerate(a) if x == "--models-max" and i + 1 < len(a)), None)
+                if lab == "MODELS_MAX=3" and mm != "3":
+                    fails.append(f"{tag}: models-max {mm}, want 3 (MODELS_MAX)")
+                if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != "16384" or mm != "1"):
+                    fails.append(f"{tag}: PROFILE=lowram not applied (coder ctx {(r['roles']['coder'] or {}).get('ctx')}, models-max {mm})")
+            if "--models-dir" in r["argv"]:
+                fails.append(f"{tag}: --models-dir passed to the router")
+    return fails
+
+
+def assertions_parity(rows):
+    """every launcher writes the same effective preset for the same settings (byte for byte)"""
+    fails, groups = [], {}
+    for r in rows:
+        if r["grid"] in ("main", "tools", "locale-env", "ps51") and r["status"] == "ok" and r["preset"]:
+            loc = lang_code(r)
+            key = (r["profile"], r["mode"] if r["mode"] not in ("(unset)", "auto") else "native", loc, r["install"], r["tools"])
+            groups.setdefault(key, {}).setdefault(r["preset"], []).append(f"{r['grid']}/{r['launcher']}/{r['locale']}/{r['explicit_locale']}")
+    for key, variants in groups.items():
+        if len(variants) > 1:
+            fails.append(f"parity {key}: {len(variants)} different presets: " + " | ".join(v[0] + f" (+{len(v) - 1})" for v in variants.values()))
     return fails
 
 

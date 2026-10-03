@@ -3,7 +3,8 @@
 #  - no PowerShell 6+ syntax that Windows PowerShell 5.1 rejects (?:, ??, ??=, ?., &&, ||);
 #  - $IsWindows / $IsLinux / $IsMacOS / $IsCoreCLR only inside scripts/lib/common.ps1 (5.1 has
 #    no such variables, and reading one under Set-StrictMode throws: start.bat failed that way);
-#  - no Join-Path with more than one child path and no 6+-only parameters.
+#  - no Join-Path with more than one child path and no 6+-only parameters;
+#  - ASCII only (5.1 reads a .ps1 without BOM in the ANSI code page).
 #   pwsh -NoProfile -File tests/check-ps1.ps1        (tests/check-ps1.sh also runs the 5.1 emulation)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -17,6 +18,8 @@ foreach ($f in $files) {
     $tokens = $null; $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errs)
     foreach ($e in $errs) { $bad.Add("${rel}:$($e.Extent.StartLineNumber): parse error: $($e.Message)") }
+    # 5.1 reads a .ps1 without a byte order mark in the ANSI code page: keep them ASCII
+    $ln = 0; foreach ($l in [IO.File]::ReadAllLines($f.FullName)) { $ln++; if ($l -match '[^\x00-\x7F]') { $bad.Add("${rel}:${ln}: non-ASCII character (Windows PowerShell 5.1 would misread it)") } }
     $find = { param($pred) $ast.FindAll($pred, $true) }
     foreach ($n in (& $find { param($a) $a.GetType().Name -in @("TernaryExpressionAst", "PipelineChainAst") })) {
         $bad.Add("${rel}:$($n.Extent.StartLineNumber): PowerShell 7 only: $($n.GetType().Name -replace 'Ast$','') '$($n.Extent.Text.Substring(0, [Math]::Min(60, $n.Extent.Text.Length)))'")
