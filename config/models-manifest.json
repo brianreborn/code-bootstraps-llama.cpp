@@ -1,5 +1,5 @@
 {
-  "_comment": "Bootstrap model set. pick=default: approved and fetched by scripts/fetch-models.sh with no flags. pick=fallback / step-up: optional, only fetched with --fallback / --step-up. pick=language / language-small: interpreter for LANGUAGE_MODE=interpret (opt-in), only fetched with --language / --language-small; never by default. pick=locale-<lang>: language-native general model for LANGUAGE_MODE=swap, only fetched with --locale <lang>. The default LANGUAGE_MODE=native needs no extra model. role = models/<role>/ directory used by --models-dir (one .gguf per directory); dir = other directory (models-optional/...). revision = Hugging Face commit the file is downloaded from (resolve/<revision>/<file>); sha256 = Hugging Face LFS oid, checked before the file is moved into place. tested = verified end to end through scripts/serve.sh on llama.cpp b11374 (x86_64 CPU). notice = printed by fetch-models.sh before the download.",
+  "_comment": "Bootstrap model set. pick=default: approved and fetched by scripts/fetch-models.sh with no flags. pick=fallback / step-up: optional, only fetched with --fallback / --step-up. pick=language / language-small: interpreter for LANGUAGE_MODE=interpret (opt-in), only fetched with --language / --language-small; never by default. pick=locale-<lang>: language-native general model for LANGUAGE_MODE=swap, only fetched with --locale <lang>. The default LANGUAGE_MODE=native needs no extra model. role = models/<role>/ directory; scripts/serve.sh pins each role to the first installed entry of that role (manifest order) in the effective preset, so other files there are never served; dir = other directory (models-optional/...). revision = Hugging Face commit the file is downloaded from (resolve/<revision>/<file>); sha256 = Hugging Face LFS oid, checked before the file is moved into place. tested = verified end to end through scripts/serve.sh on llama.cpp b11374 (x86_64 CPU). notice = license notice printed by fetch-models.sh when the file is downloaded or restored.",
   "llama_cpp": {
     "tag": "b11374",
     "commit": "b92761a515ea31e852e7fbc1fad5f874b46f3718"
@@ -16,7 +16,8 @@
       "sha256": "b1b3de114215d9507409a662a501a631095a479a419584e8a2ded6304b19b4f5",
       "license": "lfm1.0 (LiquidAI custom)",
       "ctx": 128000,
-      "tested": true
+      "tested": true,
+      "notice": "LFM2.5-1.2B-Instruct (the default general model) is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE"
     },
     {
       "role": "coder",
@@ -58,7 +59,8 @@
       "license": "lfm1.0 (LiquidAI custom)",
       "ctx": 128000,
       "tested": false,
-      "note": "optional, untested: smallest general model for the weakest devices"
+      "note": "optional, untested: smallest general model for the weakest devices",
+      "notice": "LFM2.5-350M is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-350M/blob/main/LICENSE"
     },
     {
       "role": "coder",

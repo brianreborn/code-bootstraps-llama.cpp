@@ -43,10 +43,8 @@ detect_platform() {
 [[ -n "$platform" ]] || platform="$(detect_platform)"
 if [[ "$print_only" == 1 ]]; then echo "$platform"; exit 0; fi
 
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  else shasum -a 256 "$1" | cut -d' ' -f1; fi
-}
+# progress bar on a terminal; in a log (stderr redirected) only errors, not hundreds of bar lines
+progress=(--progress-bar); [[ -t 2 ]] || progress=(-sS)
 field() {   # top-level "key": "value" of the release manifest
   awk -v k="$1" '{ line = $0; sub(/^[ \t]*/, "", line) }
     index(line, "\"" k "\":") == 1 { v = substr(line, length(k) + 4); sub(/^[ \t]*"/, "", v); sub(/",?[ \t]*$/, "", v); print v; exit }' "$RELEASE"
@@ -68,7 +66,8 @@ fetch() {   # $1 file, $2 sha256
   local f="$1" want="$2" got
   if [[ -f ".cache/dl/$f" && "$(sha256_of ".cache/dl/$f")" == "$want" ]]; then echo "fetch-llama.sh: $f already downloaded and verified" >&2; return 0; fi
   echo "fetch-llama.sh: $base$f" >&2
-  curl -fL --progress-bar --proto '=https' --proto-redir '=https' --retry 3 -o ".cache/dl/$f.part" "$base$f"
+  # -C -: an interrupted download resumes (the sha256 check below catches a bad resume)
+  curl -fL "${progress[@]}" --proto '=https' --proto-redir '=https' --retry 3 -C - -o ".cache/dl/$f.part" "$base$f"
   got="$(sha256_of ".cache/dl/$f.part")"
   if [[ "$got" != "$want" ]]; then
     mv -f ".cache/dl/$f.part" ".cache/dl/$f.bad"
@@ -77,8 +76,11 @@ fetch() {   # $1 file, $2 sha256
   mv ".cache/dl/$f.part" ".cache/dl/$f"
   echo "fetch-llama.sh: OK sha256 $f" >&2
 }
+UNPACK_TMP=""
+trap 'if [[ -n "$UNPACK_TMP" ]]; then rm -rf "$UNPACK_TMP"; fi' EXIT   # interrupted unpack: no .cache/unpack.* left
+trap 'exit 130' INT; trap 'exit 143' TERM HUP
 unpack() {   # $1 archive -> $dest (top-level directory stripped); mv keeps the .so symlinks
-  local tmp; tmp="$(mktemp -d "$ROOT/.cache/unpack.XXXXXX")"
+  local tmp; tmp="$(mktemp -d "$ROOT/.cache/unpack.XXXXXX")"; UNPACK_TMP="$tmp"
   case "$1" in
     *.tar.gz) tar -xzf ".cache/dl/$1" -C "$tmp" ;;
     *.zip) if command -v unzip >/dev/null 2>&1; then unzip -q ".cache/dl/$1" -d "$tmp"; else tar -xf ".cache/dl/$1" -C "$tmp"; fi ;;
@@ -86,12 +88,12 @@ unpack() {   # $1 archive -> $dest (top-level directory stripped); mv keeps the 
   local top src e; top="$(find "$tmp" -mindepth 1 -maxdepth 1)"
   if [[ "$(echo "$top" | wc -l)" -eq 1 && -d "$top" ]]; then src="$top"; else src="$tmp"; fi
   for e in "$src"/* "$src"/.[!.]*; do [[ -e "$e" || -L "$e" ]] && mv -f "$e" "$dest"/; done
-  rm -rf "$tmp"
+  rm -rf "$tmp"; UNPACK_TMP=""
 }
 
 fetch "$file" "$sha"
 [[ "$extra" == "-" ]] || fetch "$extra" "$extra_sha"
-# the stamp lists every unpacked file (size) and symlink (target); a missing or changed
+# the stamp lists every unpacked file (size, sha256) and symlink (target); a missing or changed
 # file makes the archive unpack again
 stamp="$dest/.verified-$sha"
 if [[ ! -f "$stamp" || "$(tree_manifest "$dest")" != "$(cat "$stamp")" ]]; then

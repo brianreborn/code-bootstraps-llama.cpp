@@ -11,9 +11,10 @@
 #   scripts/fetch-models.sh --role coder ...   # limit to one role
 # The interpreter and locale models are never fetched without their flag; the default
 # LANGUAGE_MODE=native needs no extra model.
-# The router serves ONE .gguf per models/<role>/ directory, so installing another pick
-# for a role moves the previous .gguf to models-inactive/<role>/ (nothing is deleted);
-# running the script again with another pick moves it back instead of re-downloading.
+# serve.sh serves ONE manifest file per role (pinned in the effective preset), so installing
+# another pick for a role moves the previous .gguf to models-inactive/<role>/ (nothing is
+# deleted); running the script again with another pick moves it back instead of re-downloading.
+# A license notice (manifest "notice") is printed when such a file is downloaded or restored.
 # Files come from the exact Hugging Face commit pinned in the manifest ("revision"),
 # over HTTPS only, and are checked against the manifest sha256 BEFORE they are moved
 # into place; a mismatching download is kept as <file>.bad for inspection.
@@ -45,10 +46,9 @@ done
 # re-hashing an unchanged file on every start
 # shellcheck source=lib/common.sh
 . "$ROOT/scripts/lib/common.sh"
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  else shasum -a 256 "$1" | cut -d' ' -f1; fi
-}
+
+# progress bar on a terminal; in a log (stderr redirected) only errors
+progress=(--progress-bar); [[ -t 2 ]] || progress=(-sS)
 
 entries="$(awk -v match_kv="pick=$pick${role:+ role=$role}" \
   -v fields="role repo revision file sha256 tested dir notice" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
@@ -59,7 +59,6 @@ entries="$(awk -v match_kv="pick=$pick${role:+ role=$role}" \
 [[ -n "$entries" ]] || { echo "fetch-models.sh: no manifest entries for pick='$pick'${role:+ role='$role'}" >&2; exit 1; }
 
 while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
-  [[ "$notice" == "-" ]] || echo "fetch-models.sh: LICENSE NOTICE: $notice" >&2
   inactive="models-inactive/${dir#*/}"
   mkdir -p "$dir"
   fresh=0
@@ -67,11 +66,13 @@ while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
   if [[ -f "$dir/$file" ]]; then
     echo "fetch-models.sh: $dir/$file exists"
   elif [[ -f "$inactive/$file" ]]; then
+    [[ "$notice" == "-" ]] || echo "fetch-models.sh: LICENSE NOTICE: $notice" >&2
     echo "fetch-models.sh: restoring $inactive/$file"; mv "$inactive/$file" "$dir/"
   else
+    [[ "$notice" == "-" ]] || echo "fetch-models.sh: LICENSE NOTICE: $notice" >&2
     url="https://huggingface.co/$repo/resolve/$rev/$file"
     echo "fetch-models.sh: $url -> $dir/$file"
-    curl -fL --progress-bar --proto '=https' --proto-redir '=https' --retry 3 -C - -o "$dir/$file.part" "$url"
+    curl -fL "${progress[@]}" --proto '=https' --proto-redir '=https' --retry 3 -C - -o "$dir/$file.part" "$url"
     got="$(sha256_of "$dir/$file.part")"
     if [[ "$got" != "$sha" ]]; then
       mv -f "$dir/$file.part" "$dir/$file.bad"
@@ -97,4 +98,4 @@ while IFS=$'\t' read -r r repo rev file sha tested dir notice; do
   mkdir -p .cache/verified; fingerprint "$dir/$file" > "$stamp"
   echo "fetch-models.sh: OK $r = $file"
 done <<< "$entries"
-echo "fetch-models.sh: done. A running server picks up swaps via GET /models?reload=1 (or restart scripts/serve.sh)."
+echo "fetch-models.sh: done. Restart scripts/serve.sh (or start.sh) to serve a newly installed model."

@@ -2,7 +2,8 @@
 # models\<role>\ from the Hugging Face commit pinned in config\models-manifest.json and check
 # their sha256 before moving them into place. Same picks and rules as the shell script:
 #   powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 [-Pick default|fallback|step-up|language|language-small|locale-ja] [-Role coder]
-# One .gguf per role directory: another pick's file is parked in models-inactive\<role>\ (never deleted).
+# serve.ps1 serves ONE manifest file per role: another pick's file is parked in
+# models-inactive\<role>\ (never deleted). License notices print when a file is downloaded or restored.
 # An unchanged file (same size and modification time as at its last check) is not re-hashed
 # unless -FullVerify.
 param(
@@ -27,8 +28,7 @@ $verified = Join-Path $Root ".cache\verified"
 New-Item -ItemType Directory -Force -Path $verified | Out-Null
 
 foreach ($e in $entries) {
-    $notice = Get-Field $e "notice"
-    if ($notice) { Write-Warning "fetch-models: LICENSE NOTICE: $notice" }
+    $notice = Get-Field $e "notice"   # printed when the file is downloaded or restored
     $dirRel = Get-Field $e "dir"; if (-not $dirRel) { $dirRel = "models/$($e.role)" }
     $dir = Join-Path $Root ($dirRel -replace '/', '\')
     $inactive = Join-Path $Root ("models-inactive\" + (($dirRel -split '/', 2)[1] -replace '/', '\'))
@@ -38,9 +38,11 @@ foreach ($e in $entries) {
     $fresh = $false
     if (Test-Path -LiteralPath $path) { Write-Host "fetch-models: $path exists" }
     elseif (Test-Path -LiteralPath (Join-Path $inactive $e.file)) {
+        if ($notice) { Write-Warning "fetch-models: LICENSE NOTICE: $notice" }
         Write-Host "fetch-models: restoring $(Join-Path $inactive $e.file)"
         Move-Item -LiteralPath (Join-Path $inactive $e.file) -Destination $dir
     } else {
+        if ($notice) { Write-Warning "fetch-models: LICENSE NOTICE: $notice" }
         $url = "https://huggingface.co/$($e.repo)/resolve/$($e.revision)/$($e.file)"
         Write-Host "fetch-models: $url -> $path"
         Get-VerifiedFile -Url $url -Dest $path -Sha256 $e.sha256 -Tag "fetch-models"
@@ -67,4 +69,4 @@ foreach ($e in $entries) {
     Write-TextFile $stamp (Get-Fingerprint $path)
     Write-Host "fetch-models: OK $($e.role) = $($e.file)"
 }
-Write-Host "fetch-models: done. A running server picks up swaps via GET /models?reload=1 (or restart scripts\serve.ps1)."
+Write-Host "fetch-models: done. Restart scripts\serve.ps1 (or start.bat) to serve a newly installed model."
