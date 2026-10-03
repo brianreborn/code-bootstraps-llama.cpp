@@ -7,17 +7,84 @@ shell commands happen wherever the server's --tools-runtime puts them.
 
   python3 scripts/agent.py --cwd ./workspace "create hello.py that prints hi, then run it"
 
-Tools that need the "write" permission ask before running unless --yes.
+Tools that need the "write" permission, and every tool that is not a read-only
+built-in (MCP tools included), ask before running unless --yes.
+
+Languages (see README "Languages"). scripts/serve.sh records the locale and mode it
+started with in .cache/language.json (LOCALE / LANGUAGE_MODE / --language-mode override).
+Each prompt's language is detected from its Unicode script and common words; when that
+gives no clue, the system locale is used. English prompts get no language handling.
+  native     (default) the coder works in the user's language directly; the agent only
+             asks for answers in that language. No extra model.
+  swap       same, while the server runs a language-native model as "general".
+  interpret  opt-in: the router's "language" model (HY-MT1.5-1.8B; license not valid in
+             the EU, UK and South Korea) translates a non-English prompt to English for
+             the coder and the final answer back. Code spans (`...`) and fenced blocks are
+             replaced by placeholders and restored byte for byte.
+  off        (also any English locale): no language handling.
+
+  LOCALE=auto python3 scripts/agent.py "arregla el test que falla en `tests/test_api.py`"
+  python3 scripts/agent.py --localize docs/guide.md --to ja > docs/guide.ja.md
 """
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# built-in tools that only read; everything else (write tools, MCP tools) needs confirmation
+READ_ONLY_BUILTINS = {"read_file", "file_glob_search", "grep_search", "get_info"}
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+# --- language slot -------------------------------------------------------------
+LANGS = {"en": "English", "es": "Spanish", "pt": "Portuguese", "de": "German", "fr": "French", "it": "Italian",
+         "ru": "Russian", "zh": "Simplified Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi", "ar": "Arabic"}
+INTERPRETER = ("You are a translator for a coding assistant. Translate the user's text into {tgt}. "
+               "Copy every placeholder like \u27e6C0\u27e7 exactly where it belongs; they stand for code. "
+               "Keep file paths, commands, identifiers, URLs and numbers unchanged. Keep the meaning; do not answer, "
+               "explain or add anything. Output only the translation.")
+CODE_RE = re.compile(r"```.*?```|`[^`\n]+`", re.S)
+
+
+def mask_code(text):
+    """replace fenced blocks and inline code spans with placeholders"""
+    spans = []
+    def sub(m):
+        spans.append(m.group(0))
+        return f"\u27e6C{len(spans) - 1}\u27e7"
+    return CODE_RE.sub(sub, text), spans
+
+
+def unmask_code(text, spans):
+    """put the code back; returns (text, ok) where ok means every placeholder appeared exactly once"""
+    ok = True
+    for i, code in enumerate(spans):
+        ph = f"\u27e6C{i}\u27e7"
+        if text.count(ph) != 1:
+            ok = False
+        text = text.replace(ph, code)
+    return text, ok and not re.search("\u27e6C\\d+\u27e7", text)
+
+
+PATH_KEYS = ("path", "file_path", "filepath", "dir", "directory", "cwd")
+def outside_path(cwd, params):
+    """first path argument that resolves outside cwd (host paths only), else None.
+    Not a sandbox: exec_shell_command can still reach anything; use the container runtime for that."""
+    if not cwd or not os.path.isdir(cwd) or not isinstance(params, dict):
+        return None
+    root = os.path.realpath(cwd)
+    for k in PATH_KEYS:
+        v = params.get(k)
+        if isinstance(v, str) and v:
+            full = os.path.realpath(os.path.join(root, os.path.expanduser(v)))
+            if full != root and not full.startswith(root + os.sep):
+                return v
+    return None
 
 
 def read_key(path):
@@ -34,6 +101,9 @@ def read_key(path):
 class Client:
     def __init__(self, url, key, cwd=None):
         self.url, self.key, self.cwd = url.rstrip("/"), key, cwd
+        u = urllib.parse.urlparse(self.url)
+        if key and u.scheme == "http" and (u.hostname or "") not in LOOPBACK:
+            raise SystemExit(f"refusing to send the API key over plain http to {u.hostname}; use https or a loopback URL")
 
     def req(self, method, path, body=None, timeout=3600):
         headers = {"Content-Type": "application/json"}
@@ -50,6 +120,110 @@ class Client:
             raise SystemExit(f"HTTP {e.code} on {path}: {e.read().decode(errors='replace')}")
 
 
+def translate(c, text, target, style="sys", tries=2):
+    """translate text with the router's "language" model, code spans protected by placeholders"""
+    masked, spans = mask_code(text)
+    tgt = LANGS.get(target, target)
+    for _ in range(tries):
+        if style == "hy":   # HY-MT official prompt (no system prompt)
+            p = (f"将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n{masked}" if target == "zh"
+                 else f"Translate the following segment into {tgt}, without additional explanation.\n\n{masked}")
+            msgs = [{"role": "user", "content": p}]
+        else:
+            msgs = [{"role": "system", "content": INTERPRETER.format(tgt=tgt)}, {"role": "user", "content": masked}]
+        res = c.req("POST", "/v1/chat/completions", {"model": "language", "messages": msgs, "temperature": 0,
+                                                     "max_tokens": 2048, "chat_template_kwargs": {"enable_thinking": False}})
+        out, ok = unmask_code((res["choices"][0]["message"]["content"] or "").strip(), spans)
+        if ok:
+            return out, True
+    return out, False
+
+
+def localize_text(c, text, target, style="sys"):
+    """translate prose only: fenced blocks stay verbatim, each paragraph is translated on its own
+    (inline `code` masked); a paragraph whose placeholders get lost is kept in the original.
+    Returns (text, number of paragraphs kept in the original)."""
+    out, failed = [], 0
+    for part in re.split(r"(```.*?```)", text, flags=re.S):
+        if part.startswith("```"):
+            out.append(part); continue
+        paras = []
+        for para in part.split("\n\n"):
+            if para.strip():
+                t, ok = translate(c, para.strip("\n"), target, style)
+                if not ok:
+                    failed += 1; t = para.strip("\n")
+                # keep the paragraph's leading/trailing newlines
+                para = para[:len(para) - len(para.lstrip("\n"))] + t + para[len(para.rstrip("\n")):]
+            paras.append(para)
+        out.append("\n\n".join(paras))
+    return "".join(out), failed
+
+
+SCRIPTS = [("ja", r"[\u3040-\u30ff]"), ("ko", r"[\uac00-\ud7af\u1100-\u11ff]"), ("zh", r"[\u4e00-\u9fff]"),
+           ("hi", r"[\u0900-\u097f]"), ("ar", r"[\u0600-\u06ff]"), ("ru", r"[\u0400-\u04ff]")]
+STOP = {   # generic function words + thanks/please only (no words taken from the test items)
+ "en": "the a an and or is are was to of in on at it that this these can could you your with for from not do does what how why please thanks thank yes ok".split(),
+ "es": "el la los las un una y o es son que en de del al por para con no se lo le su mi tu como pero gracias porfavor está".split(),
+ "pt": "o os as um uma e ou é são que em de do da dos das no na por para com não se seu sua meu você como mas obrigado obrigada está".split(),
+ "de": "der die das den dem ein eine und oder ist sind zu in im mit von für nicht es ich du sie wie aber bitte danke auch".split(),
+ "fr": "le la les un une et ou est sont que en de du des pour avec ne pas se il elle je vous comme mais merci".split(),
+ "it": "il lo la gli le un una e o è sono che in di del per con non si io tu come ma grazie".split(),
+}
+NON_LATIN = {l for l, _ in SCRIPTS}
+ACCENT = {"es": "ñ¿¡", "pt": "ãõ", "de": "äöüß"}
+def detect_heuristic(text):
+    """Unicode script, then function words for Latin-script languages; (lang, confidence), confidence 0 = no clue"""
+    t = CODE_RE.sub(" ", text)
+    letters = len(re.findall(r"[^\W\d_]", t))
+    if letters == 0: return "en", 0.0
+    kana = len(re.findall(SCRIPTS[0][1], t))
+    for lang, rx in SCRIPTS:
+        n = len(re.findall(rx, t))
+        if lang == "zh" and kana: continue
+        if n / letters >= 0.3 or (lang == "ja" and kana >= 2):
+            return lang, min(1.0, n / letters + 0.3)
+    words = re.findall(r"[a-zà-ÿ']+", t.lower())
+    score = {l: sum(w in s for w in words) for l, s in STOP.items()}
+    for l, chars in ACCENT.items(): score[l] += 2 * sum(t.lower().count(c) for c in chars)
+    best = max(score, key=score.get)
+    tot = sum(score.values())
+    if score[best] == 0: return "en", 0.0
+    return best, score[best] / tot
+
+
+def server_language():
+    """what scripts/serve.sh started with (.cache/language.json), overridable by LOCALE / LANGUAGE_MODE"""
+    info = {"locale": "en", "mode": "off", "swapped": ""}
+    try:
+        with open(os.path.join(ROOT, ".cache", "language.json"), encoding="utf-8") as f:
+            info.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+    return info
+
+
+def resolve_language(a, text):
+    """returns (mode, lang): mode in off|native|swap|interpret; lang = language to answer in.
+    Detection: script + common-word heuristic on the prompt, the system locale when it gives no clue."""
+    info = server_language()
+    mode = info["mode"] if a.language_mode == "auto" else a.language_mode
+    loc = info["locale"] if a.locale == "auto" else a.locale.lower().replace("_", "-").split("-")[0]
+    if mode == "off" or loc in ("en", "c", "posix", ""):
+        return "off", None
+    lang, p = detect_heuristic(text)
+    latin = not re.search(r"[^\x00-\u024f]", CODE_RE.sub(" ", text))
+    if p == 0.0:          # no clue (one Latin word, only code): the locale's language, unless the
+        # locale uses another script and the user typed Latin letters (then it is English)
+        lang, p = ("en", 1.0) if latin and text.strip() and loc in NON_LATIN and CODE_RE.sub("", text).strip() else (loc, 1.0)
+    if lang == "zh" and loc == "ja":   # kanji only: a Japanese user writing Japanese
+        lang = "ja"
+    print(f"[agent] detected language: {lang} (p={p:.2f}; locale {loc})", file=sys.stderr)
+    if lang == "en" or p < a.detect_min_p:   # English or unsure: plain English handling
+        return "off", None
+    return mode, lang
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prompt")
@@ -59,8 +233,20 @@ def main():
     ap.add_argument("--cwd", default=None, help="tool working directory (host path, or /work inside a container runtime)")
     ap.add_argument("--max-steps", type=int, default=12)
     ap.add_argument("--max-tokens", type=int, default=1024)
+    ap.add_argument("--allow-outside", action="store_true",
+                    help="let file tools use paths outside --cwd (default: refused; exec_shell_command is never confined)")
     ap.add_argument("--yes", action="store_true", help="do not ask before tools that write")
     ap.add_argument("--json-log", default=None, help="append every step as JSON lines to this file")
+    ap.add_argument("--locale", default=os.environ.get("LOCALE", "auto"),
+                    help="user language: auto (what serve.sh detected), en (off), es, zh, ja, ...")
+    ap.add_argument("--language-mode", default=os.environ.get("LANGUAGE_MODE", "auto"),
+                    choices=["auto", "native", "swap", "interpret", "off"],
+                    help="auto = the mode scripts/serve.sh started with (default native)")
+    ap.add_argument("--language-prompt", default=os.environ.get("LANGUAGE_PROMPT", "sys"), choices=["sys", "hy"],
+                    help="prompt style of the language model: sys (system prompt) or hy (HY-MT template)")
+    ap.add_argument("--detect-min-p", type=float, default=float(os.environ.get("DETECT_MIN_P", "0.3")))
+    ap.add_argument("--localize", metavar="FILE", help="translate the prose of a text/Markdown FILE (code untouched) and print it")
+    ap.add_argument("--to", default=None, help="target language for --localize (default: LOCALE)")
     a = ap.parse_args()
 
     cwd = a.cwd
@@ -68,16 +254,40 @@ def main():
         cwd = os.path.abspath(cwd)
     c = Client(a.url, read_key(a.key_file), cwd)
 
+    if a.localize:   # localize docs/comments/strings: prose translated, code blocks and `spans` kept
+        target = (a.to or (server_language()["locale"] if a.locale == "auto" else a.locale)).split("-")[0].lower()
+        if not target or target in ("auto", "en"):
+            raise SystemExit("--localize needs --to LANG (or LOCALE) other than en")
+        with open(a.localize, encoding="utf-8") as f:
+            out, failed = localize_text(c, f.read(), target, a.language_prompt)
+        if failed:
+            print(f"[localize] {failed} paragraph(s) lost code placeholders and were kept in the original", file=sys.stderr)
+        sys.stdout.write(out)
+        return 0
+
+    lang_mode, user_lang = resolve_language(a, a.prompt)
+    prompt = a.prompt
+    if lang_mode == "interpret":
+        prompt, ok = translate(c, a.prompt, "en", a.language_prompt)
+        print(f"[agent] interpreted ({user_lang} -> en): {prompt}", file=sys.stderr)
+        if not ok:   # never lose code: give the coder the original too
+            prompt += "\n\n(Original message, code spans authoritative:)\n" + a.prompt
+
     tools = c.req("GET", "/tools")
     defs = [t["definition"] for t in tools]
-    needs_write = {t["tool"] for t in tools if (t.get("permissions") or {}).get("write")}
+    needs_write = {t["tool"] for t in tools
+                   if (t.get("permissions") or {}).get("write") or t["tool"] not in READ_ONLY_BUILTINS}
     names = [t["tool"] for t in tools]
     print(f"[agent] model={a.model} tools={','.join(names)} cwd={cwd or '(server cwd)'}", file=sys.stderr)
 
+    system = ("You are a careful coding agent. Use the tools to inspect, create, edit and run files. "
+              "Use relative paths. Keep answers short. When the task is done, reply with a one-line summary.")
+    if lang_mode in ("native", "swap"):
+        system += (f" The user writes in {LANGS.get(user_lang, user_lang)}: reply in that language, but keep code, "
+                   "file paths, commands and identifiers unchanged.")
     messages = [
-        {"role": "system", "content": "You are a careful coding agent. Use the tools to inspect, create, edit and run files. "
-                                      "Use relative paths. Keep answers short. When the task is done, reply with a one-line summary."},
-        {"role": "user", "content": a.prompt},
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt},
     ]
     log = open(a.json_log, "a", encoding="utf-8") if a.json_log else None
     for step in range(1, a.max_steps + 1):
@@ -94,7 +304,12 @@ def main():
         calls = msg.get("tool_calls") or []
         messages.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls", "reasoning_content")})
         if not calls:
-            print(msg.get("content") or "")
+            answer = msg.get("content") or ""
+            if lang_mode == "interpret":
+                answer, failed = localize_text(c, answer, user_lang, a.language_prompt)
+                if failed:   # those paragraphs stay in English rather than risk changed code
+                    answer += f"\n\n[agent] ({failed} paragraph(s) kept in English: translation dropped code spans)"
+            print(answer)
             return 0
         for call in calls:
             fn = call["function"]["name"]
@@ -104,6 +319,12 @@ def main():
                 out = json.dumps({"error": f"invalid JSON arguments: {e}"})
             else:
                 print(f"[tool] {fn} {json.dumps(params)[:300]}", file=sys.stderr)
+                bad = None if a.allow_outside else outside_path(cwd, params)
+                if bad:   # keeps the model in the project (it wandered over / in tests; a grep there OOM-killed the server)
+                    out = json.dumps({"error": f"path {bad!r} is outside the project directory; use paths relative to it"})
+                    print(f"[tool] -> {out}", file=sys.stderr)
+                    messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                    continue
                 if fn in needs_write and not a.yes:
                     if input(f"allow {fn}? [y/N] ").strip().lower() != "y":
                         out = json.dumps({"error": "denied by user"})

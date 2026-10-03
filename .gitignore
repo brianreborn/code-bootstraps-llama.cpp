@@ -34,3 +34,9 @@ desktop.ini
 
 # Default agent working directory (scripts/serve.sh WORKDIR)
 workspace/
+
+# runtime caches and optional models
+.cache/
+models-optional/
+__pycache__/
+*.pyc
