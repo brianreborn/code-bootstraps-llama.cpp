@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "example": {
+      "command": "python3",
+      "args": ["scripts/mcp-example-server.py"],
+      "timeout_ms": 10000
+    }
+  }
+}

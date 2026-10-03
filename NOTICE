@@ -1,0 +1,16 @@
+code-bootstraps-llama.cpp
+Copyright (c) 2026 Brian Fundakowski Feldman. Licensed under the MIT License (see LICENSE).
+
+This project includes, as a git submodule (llama.cpp/), unmodified source code of:
+
+  llama.cpp - https://github.com/ggml-org/llama.cpp
+  Copyright (c) 2023-2026 The ggml authors
+  Licensed under the MIT License, see llama.cpp/LICENSE.
+  Pinned at tag b11374, commit b92761a515ea31e852e7fbc1fad5f874b46f3718.
+  llama.cpp bundles third-party code under its own licenses, see llama.cpp/licenses/
+  and llama.cpp/vendor/.
+
+Model weights are NOT part of this repository. Each model listed in
+config/models-manifest.json is downloaded from Hugging Face and is governed by
+its own license (for example apache-2.0, cc-by-nc-4.0 or the LiquidAI lfm1.0
+license); check the model card before use or redistribution.
