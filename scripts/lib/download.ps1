@@ -1,5 +1,5 @@
 # Shared by scripts\fetch-llama.ps1 and scripts\fetch-models.ps1: HTTPS download + sha256 check.
-function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
+# (Get-Sha256 is in common.ps1, dot-sourced first.)
 
 # Download $Url to $Dest via $Dest.part; the file only gets its final name once its sha256 matches.
 # A mismatch is kept as $Dest.bad. curl.exe (Windows 10 1803+) resumes and shows progress;
@@ -9,7 +9,9 @@ function Get-VerifiedFile([string]$Url, [string]$Dest, [string]$Sha256, [string]
     $part = "$Dest.part"
     $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
     if ($curl) {
-        & $curl.Source -fL --progress-bar --proto '=https' --proto-redir '=https' --retry 3 -C - -o $part $Url
+        # progress bar in a console; in a log (output redirected) only errors
+        $progress = if ([Console]::IsErrorRedirected -or [Console]::IsOutputRedirected) { "-sS" } else { "--progress-bar" }
+        & $curl.Source -fL $progress --proto '=https' --proto-redir '=https' --retry 3 -C - -o $part $Url
         if ($LASTEXITCODE -ne 0) { throw "${Tag}: download failed (curl exit $LASTEXITCODE): $Url" }
     } else {
         $old = $ProgressPreference; $ProgressPreference = "SilentlyContinue"   # the progress bar makes IWR very slow

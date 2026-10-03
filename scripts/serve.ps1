@@ -1,30 +1,38 @@
-# code-bootstraps-llama.cpp: Windows launcher (UNTESTED on Windows).
+# code-bootstraps-llama.cpp: Windows launcher (Windows PowerShell 5.1 and PowerShell 7).
 # Same behaviour as scripts/serve.sh: router mode on 127.0.0.1, API key through
 # LLAMA_API_KEY (children inherit it), tools + MCP given to the router only through
-# LLAMA_ARG_* env vars, profile overlay and the optional language slot.
-#   powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 [-ToolsRuntime auto|host|docker-container:<id>|ssh:<target>] [-- extra llama-server args]
+# LLAMA_ARG_* env vars, every role pinned to one sha256-checked file, profile overlay and
+# the optional language slot.
+#   powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 [-RamProfile lowram] [-Tools lean] [-ToolsRuntime auto|host|docker-container:<id>|ssh:<target>] [llama-server flags, e.g. --ctx-size 8192]
+# Parameters default to the environment variables serve.sh reads (PORT, HOST, PROFILE,
+# MODELS_MAX, TOOLS, TOOLS_RUNTIME, THREADS, THREADS_BATCH, GPU_LAYERS, REPACK, LOAD_MODE,
+# WORKDIR, MCP_CONFIG, LOCALE, LANGUAGE_MODE, SWAP_CODER, LLAMA_SERVER, MODELS_PRESET,
+# MANIFEST, MODELS_DIR, LANGUAGE_DIR); a parameter given on the command line wins.
+# Extra llama-server flags apply to EVERY role; flags that pick a model, tools, MCP or the key
+# are refused (see serve.sh).
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [string]$BindHost = "127.0.0.1",
-    [int]$Port = 9931,
-    [ValidateSet("auto", "default", "lowram")][string]$RamProfile = "auto",   # auto: lowram under 6 GB RAM
-    [int]$ModelsMax = 0,                  # 0 = profile default (2, lowram 1)
-    [string]$ToolsRuntime = "auto",
+    [string]$BindHost = $(if ($env:HOST) { $env:HOST } else { "127.0.0.1" }),
+    [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
+    [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | default | lowram
+    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # 0 = profile default (2, lowram 1)
+    [string]$ToolsRuntime = $(if ($env:TOOLS_RUNTIME) { $env:TOOLS_RUNTIME } else { "auto" }),
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
-    [string]$ToolsImage = "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
-    [string]$WorkDir = "",
-    [string]$Tools = "auto",   # auto (full; lean on lowram) | full | lean | comma list | "" (none)
-    [string]$McpConfig = "",
-    [string]$Threads = "auto",        # generation threads: auto = physical cores
-    [string]$ThreadsBatch = "auto",   # prompt/batch threads: auto = logical CPUs
-    [string]$GpuLayers = "auto",      # -ngl auto + --fit on: GPU if a backend DLL finds one, else CPU
-    [ValidateSet("on", "off")][string]$Repack = "on",
-    [string]$LoadMode = "auto",
-    # languages (README "Languages"): Locale auto = Windows culture (Get-Culture); LanguageMode native (default),
+    [string]$ToolsImage = $(if ($env:TOOLS_IMAGE) { $env:TOOLS_IMAGE } else { "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016" }),
+    [string]$WorkDir = $(if ($env:WORKDIR) { $env:WORKDIR } else { "" }),
+    [string]$Tools = $(if ($null -ne $env:TOOLS) { $env:TOOLS } else { "auto" }),   # auto (full; lean on lowram) | full | lean | comma list | "" (none)
+    [string]$McpConfig = $(if ($env:MCP_CONFIG) { $env:MCP_CONFIG } else { "" }),
+    [string]$Threads = $(if ($env:THREADS) { $env:THREADS } else { "auto" }),               # generation threads: auto = physical cores
+    [string]$ThreadsBatch = $(if ($env:THREADS_BATCH) { $env:THREADS_BATCH } else { "auto" }), # prompt/batch threads: auto = logical CPUs
+    [string]$GpuLayers = $(if ($env:GPU_LAYERS) { $env:GPU_LAYERS } else { "auto" }),        # -ngl auto + --fit on: GPU if a backend DLL finds one, else CPU
+    [string]$Repack = $(if ($env:REPACK) { $env:REPACK } else { "on" }),
+    [string]$LoadMode = $(if ($env:LOAD_MODE) { $env:LOAD_MODE } else { "auto" }),
+    # languages (README "Languages"): Locale auto = Windows culture (Get-Culture); LanguageMode native (default; auto = native),
     # swap (locale model as general), interpret (opt-in HY-MT, license not valid in EU/UK/South Korea), off
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
-    [ValidateSet("native", "swap", "interpret", "off")][string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
-    [switch]$SwapCoder,               # swap mode: also replace the coder with the locale model
-    [string]$LlamaServer = "",        # explicit path to llama-server.exe
+    [string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
+    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),   # swap mode: also replace the coder with the locale model
+    [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
 )
 Set-StrictMode -Version Latest
@@ -32,17 +40,32 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
+Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "serve.ps1" $PSCommandPath
+function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $Root $p } }
+
+# parameters that may come from the environment are checked here (ValidateSet skips defaults)
+if ($RamProfile -notin @("auto", "default", "lowram")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|default|lowram)" }
+if ($Repack -notin @("on", "off")) { throw "unknown REPACK / -Repack '$Repack' (on|off)" }
+$mode = $LanguageMode.ToLowerInvariant()
+if ($mode -eq "auto") { $mode = "native" }
+if ($mode -notin @("native", "swap", "interpret", "off")) { throw "unknown LANGUAGE_MODE / -LanguageMode '$LanguageMode' (native|swap|interpret|off)" }
+
+# refuse pass-through args that would widen what the instances can do or pick another model
+# (same list as serve.sh; case-insensitive, _ = -). Other llama-server flags apply to EVERY role.
+foreach ($a in $Extra) {
+    $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant()
+    if ($n -match '^(--tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy|--api-key|--api-key-file)$') {
+        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig (the API key is in .secrets\api-keys)"
+    }
+    if ($n -match '^(-m|--model|-mu|--model-url|-dr|--docker-repo|-hf|-hfr|--hf-repo|-hff|--hf-file|-hfd|-hfrd|--hf-repo-draft|-hfv|-hfrv|--hf-repo-v|-hffv|--hf-file-v|-mv|--model-vocoder|-md|--model-draft|--spec-draft-model|--spec-draft-hf|--models-dir|--models-preset|--lora|--lora-scaled|--control-vector|--control-vector-scaled|-mm|--mmproj|-mmu|--mmproj-url|-a|--alias|--path|--media-path|--embd-.*-default|--fim-.*-default|--fim-.*-spec|--gpt-oss-.*-default|--vision-.*-default)$') {
+        throw "argument '$a' is not allowed here: the models come from config\models-manifest.json and the preset (a [<role>] section may set 'model = <file>'; see README Models)"
+    }
+}
+if ($Extra.Count -gt 0) { Write-Host "serve.ps1: extra llama-server arguments apply to EVERY role (general, coder, decision): $($Extra -join ' ')" }
+
 if (-not $WorkDir) { $WorkDir = Join-Path $Root "workspace" }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $WorkDir = (Resolve-Path $WorkDir).Path
-
-# refuse pass-through args that would widen what the instances can do (see serve.sh)
-foreach ($a in $Extra) {
-    $n = $a -replace '_', '-'   # llama-server also accepts --api_key, --mcp_servers_json, ...
-    if ($n -match '^(--tools(-runtime)?(=.*)?|-ag|--(no-)?agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy.*|--api-key.*|--models-preset.*)$') {
-        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig"
-    }
-}
 
 # llama-server.exe: explicit path, else the Release output of scripts\build-windows.ps1
 if (-not $LlamaServer) {
@@ -52,52 +75,124 @@ if (-not $LlamaServer) {
     if (-not (Test-Path $LlamaServer) -and (Test-Path $relPath)) { $LlamaServer = (Get-Content $relPath -TotalCount 1).Trim() }
 }
 if (-not (Test-Path $LlamaServer -PathType Leaf)) { throw "llama-server.exe not found at $LlamaServer; run scripts\build-windows.ps1 or pass -LlamaServer" }
+$LlamaServer = (Resolve-Path -LiteralPath (Get-RepoPath $LlamaServer)).Path
 
 # CPU topology (physical cores vs logical processors) and RAM
 $cpus = Get-CimInstance Win32_Processor
-if ($Threads -eq "auto")      { $Threads = ($cpus | Measure-Object -Property NumberOfCores -Sum).Sum }
+$cores = [int](($cpus | Measure-Object -Property NumberOfCores -Sum).Sum)
+if ($Threads -eq "auto")      { $Threads = $cores }
 if ($ThreadsBatch -eq "auto") { $ThreadsBatch = ($cpus | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum }
 $memMB = [int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)
-if ($RamProfile -eq "auto") { $RamProfile = if ($memMB -lt 6144) { "lowram" } else { "default" } }
-$overlay = @{}
+# A weak CPU (2 cores or fewer, or no AVX2) reads prompts at 1-3 tokens/s: auto picks lowram.
+$weak = ""
+if ($cores -gt 0 -and $cores -le 2) { $weak = "$cores CPU cores" }
+elseif ((Test-Windows) -and $env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
+    try {
+        if (-not ("CodeBootstraps.Cpu" -as [type])) {
+            Add-Type -Namespace CodeBootstraps -Name Cpu -MemberDefinition '[DllImport("kernel32.dll")] public static extern bool IsProcessorFeaturePresent(uint feature);'
+        }
+        if (-not [CodeBootstraps.Cpu]::IsProcessorFeaturePresent(40)) { $weak = "no AVX2" }   # 40 = PF_AVX2_INSTRUCTIONS_AVAILABLE
+    } catch { }
+}
+if ($RamProfile -eq "auto") {
+    if ($memMB -lt 6144) { $RamProfile = "lowram" }
+    elseif ($weak) { $RamProfile = "lowram"; Write-Warning "slow CPU ($weak): using the lowram profile (lean tools, smaller contexts); the first answer can still take minutes" }
+    else { $RamProfile = "default" }
+} elseif ($weak -and $RamProfile -eq "default") {
+    Write-Warning "slow CPU ($weak): -RamProfile default is heavy here; -RamProfile lowram (or -Tools lean) answers much sooner"
+}
+# same keys in the same order as OVERLAY in serve.sh, so both write the same preset
+$overlay = [ordered]@{}
 if ($RamProfile -eq "lowram") {
     if ($ModelsMax -eq 0) { $ModelsMax = 1 }
-    $overlay = @{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
+    $overlay = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
                   "general.parallel" = "1"; "general.ctx-size" = "8192"; "decision.parallel" = "1"; "decision.ctx-size" = "4096";
                   "language.parallel" = "1"; "language.ctx-size" = "4096" }
 } elseif ($ModelsMax -eq 0) { $ModelsMax = 2 }
 
-# language: locale -> primary language code; swap / interpret / off (same rules as serve.sh)
-$presetPath = Join-Path $Root "config\models-preset.ini"
-$presetLines = Get-Content $presetPath
-if ($Locale -eq "auto") { $Locale = (Get-Culture).Name }          # e.g. ja-JP
-$langCode = ($Locale -split '[-_.@]')[0].ToLower()
-if (-not $langCode -or $langCode -in @("c", "posix")) { $langCode = "en" }
-function Get-LocaleModel([string]$role) {
+# --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------
+$presetPath = Get-RepoPath $(if ($env:MODELS_PRESET) { $env:MODELS_PRESET } else { "config\models-preset.ini" })
+$manifestPath = Get-RepoPath $(if ($env:MANIFEST) { $env:MANIFEST } else { "config\models-manifest.json" })
+$modelsDir = Get-RepoPath $(if ($env:MODELS_DIR) { $env:MODELS_DIR } else { "models" })
+$languageDir = Get-RepoPath $(if ($env:LANGUAGE_DIR) { $env:LANGUAGE_DIR } else { "models-optional\language" })
+if (-not (Test-Path -LiteralPath $presetPath -PathType Leaf)) { throw "preset $presetPath not found" }
+$presetLines = @(Get-Content -LiteralPath $presetPath)
+$manifest = @((Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json).candidates)
+function Get-Field($o, [string]$name) { if ($o.PSObject.Properties.Name -contains $name) { $o.$name } else { $null } }
+function Get-ManifestSha([string]$file) { foreach ($c in $manifest) { if ($c.file -eq $file) { return $c.sha256 } }; return $null }
+function Assert-Model([string]$path, [string]$sha) {
+    $stamp = Join-Path $Root ".cache\verified\$sha"
+    if ($env:FULL_VERIFY -ne "1" -and (Test-Path -LiteralPath $stamp) -and ((Get-Content -LiteralPath $stamp -TotalCount 1) -eq (Get-Fingerprint $path))) { return }
+    Write-Host "serve.ps1: checking the sha256 of $path"
+    $got = Get-Sha256 $path
+    if ($got -ne $sha) { throw "sha256 mismatch for $path (got $got, want $sha from $manifestPath): run scripts\fetch-models.ps1" }
+    New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache\verified") | Out-Null
+    Write-TextFile $stamp (Get-Fingerprint $path)
+}
+function Test-Model([string]$path, [string]$what) {   # manifest file: sha256-checked; other files: warning
+    $sha = Get-ManifestSha (Split-Path -Leaf $path)
+    if ($sha) { Assert-Model $path $sha } else { Write-Warning "${what}: $path is not in $manifestPath, so its sha256 is not checked" }
+}
+function Get-SectionValue([string]$section, [string]$key) {
     $sec = ""
     foreach ($l in $presetLines) {
         if ($l -match '^\[(.*)\]') { $sec = $Matches[1]; continue }
-        if ($sec -eq "locale.$langCode.$role" -and $l -match '^model\s*=\s*(.+)$') {
-            $f = $Matches[1].Trim(); if (-not [System.IO.Path]::IsPathRooted($f)) { $f = Join-Path $Root $f }
-            if (Test-Path $f -PathType Leaf) { return $f } else { return $null }
-        }
+        if ($sec -eq $section -and $l -match "^$key\s*=\s*(.*)$") { $v = $Matches[1].Trim(); if ($v) { return (Get-RepoPath $v) } else { return "" } }
     }
+    return ""
+}
+function Get-RoleModel([string]$role) {
+    $f = Get-SectionValue $role "model"
+    if ($f) {
+        if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "[$role] model = $f in ${presetPath}: file not found" }
+        Test-Model $f "[$role] model"; return $f
+    }
+    foreach ($c in $manifest) {
+        if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
+        $p = Join-Path (Join-Path $modelsDir $role) $c.file
+        if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+    }
+    throw "no model for the $role role in $(Join-Path $modelsDir $role) (none of the manifest files for it is there): run scripts\fetch-models.ps1"
+}
+$roleModel = [ordered]@{}
+foreach ($r in @("general", "coder", "decision")) {
+    $roleModel[$r] = Get-RoleModel $r
+    Get-ChildItem -LiteralPath (Join-Path $modelsDir $r) -Filter *.gguf -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -ne $roleModel[$r] } |
+        ForEach-Object { Write-Host "serve.ps1: note: $($_.FullName) is ignored (the $r role serves $(Split-Path -Leaf $roleModel[$r]))" }
+}
+
+# --- language: locale -> primary language code; swap / interpret / off (same rules as serve.sh)
+if ($Locale -eq "auto") { $Locale = (Get-Culture).Name }          # e.g. ja-JP
+$langCode = (($Locale -split '[-_.@]')[0].ToLowerInvariant()) -replace '[^a-z0-9]', ''
+if (-not $langCode -or $langCode -in @("c", "posix")) { $langCode = "en" }
+function Get-LocaleModel([string]$role) {
+    $f = Get-SectionValue "locale.$langCode.$role" "model"
+    if ($f -and (Test-Path -LiteralPath $f -PathType Leaf)) { return $f }
     return $null
 }
-$langModel = $null; $swapRoles = @(); $mode = $LanguageMode
+$langModel = ""; $swapRoles = @()
 if ($langCode -eq "en" -or $mode -eq "off") { $mode = "off" } else {
-    $langFile = Get-ChildItem -Path (Join-Path $Root "models-optional\language") -Filter *.gguf -ErrorAction SilentlyContinue | Select-Object -First 1
-    $swapOk = [bool](Get-LocaleModel "general")
     if ($mode -eq "swap") {
-        if (-not $swapOk) { throw "LanguageMode swap: no installed model for [locale.$langCode.general]" }
-        $swapRoles = @("general")
-        if ($SwapCoder) { if (Get-LocaleModel "coder") { $swapRoles += "coder"; Write-Warning "-SwapCoder: the coder role now uses the locale model; it must emit tool calls (the ja model made 0 in 12 agent runs, see README Languages)" } else { Write-Warning "-SwapCoder: no installed [locale.$langCode.coder] model" } }
+        $lm = Get-LocaleModel "general"
+        if (-not $lm) { throw "LANGUAGE_MODE=swap: no installed model for [locale.$langCode.general] (scripts\fetch-models.ps1 -Pick locale-$langCode)" }
+        $swapRoles = @("general"); Test-Model $lm "[locale.$langCode.general] model"
+        if ($SwapCoder) {
+            $lc = Get-LocaleModel "coder"
+            if ($lc) { $swapRoles += "coder"; Test-Model $lc "[locale.$langCode.coder] model"; Write-Warning "-SwapCoder: the coder role now uses the locale model; it must emit tool calls (the ja model made 0 in 12 agent runs, see README Languages)" }
+            else { Write-Warning "-SwapCoder: no installed [locale.$langCode.coder] model; coder unchanged" }
+        }
     }
-    if ($mode -eq "interpret") {
-        if (-not $langFile) { throw "LanguageMode interpret: no .gguf in models-optional\language" }
-        $langModel = $langFile
+    if ($mode -eq "interpret") {   # the manifest's interpreter entries, in manifest order
+        foreach ($c in $manifest) {
+            if ($c.role -ne "language") { continue }
+            $p = Join-Path $languageDir $c.file
+            if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; $langModel = $p; break }
+        }
+        if (-not $langModel) { throw "LANGUAGE_MODE=interpret: no interpreter model from $manifestPath in $languageDir (scripts\fetch-models.ps1 -Pick language)" }
     }
 }
+if ($langModel) { $roleModel["language"] = $langModel }
 # keys of [locale.<lang>.<role>] for the swapped roles
 $localeKeys = @{}; $localeOrder = @{}; $sec = ""
 foreach ($l in $presetLines) {
@@ -105,56 +200,69 @@ foreach ($l in $presetLines) {
     $p = $sec -split '\.'
     if ($p.Count -eq 3 -and $p[0] -eq "locale" -and $p[1] -eq $langCode -and $swapRoles -contains $p[2] -and $l -match '^([A-Za-z0-9_-]+)\s*=\s*(.*)$') {
         $k = $Matches[1]; $v = $Matches[2].Trim()
-        if ($k -eq "model" -and -not [System.IO.Path]::IsPathRooted($v)) { $v = Join-Path $Root $v }
+        if ($k -eq "model") { $v = Get-RepoPath $v }
         $localeKeys["$($p[2]).$k"] = $v
         if (-not $localeOrder.ContainsKey($p[2])) { $localeOrder[$p[2]] = New-Object System.Collections.Generic.List[string] }
         $localeOrder[$p[2]].Add($k)
     }
 }
 
-# effective preset (same rules as the awk filter in serve.sh)
+# effective preset (same rules and output as the awk filter in serve.sh)
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 $effective = Join-Path $Root ".cache\models-preset.effective.ini"
-$out = New-Object System.Collections.Generic.List[string]; $sec = ""; $skip = $false; $seen = @{}
+$out = New-Object System.Collections.Generic.List[string]; $script:sec = ""; $script:skip = $false; $seen = @{}; $had = @{}
 function Close-Section {
-    if ($script:sec -eq "" -or $script:skip) { return }
-    if ($localeOrder.ContainsKey($script:sec)) { foreach ($k in $localeOrder[$script:sec]) { if (-not $seen.ContainsKey("$($script:sec).$k")) { $out.Add("$k = $($localeKeys["$($script:sec).$k"])") } } }
-    foreach ($k in $overlay.Keys) { if ($k.StartsWith("$($script:sec).") -and -not $seen.ContainsKey($k)) { $out.Add("$($k.Substring($script:sec.Length + 1)) = $($overlay[$k])") } }
-    if ($script:sec -eq "language" -and $langModel) { $out.Add("model = $($langModel.FullName)") }
+    $s = $script:sec
+    if ($s -eq "" -or $script:skip) { return }
+    if ($localeOrder.ContainsKey($s)) { foreach ($k in $localeOrder[$s]) { if (-not $seen.ContainsKey("$s.$k")) { $out.Add("$k = $($localeKeys["$s.$k"])") } } }
+    foreach ($k in $overlay.Keys) { if ($k.StartsWith("$s.") -and -not $seen.ContainsKey($k)) { $out.Add("$($k.Substring($s.Length + 1)) = $($overlay[$k])") } }
+    if ($roleModel.Contains($s) -and -not $seen.ContainsKey("$s.model") -and -not $localeKeys.ContainsKey("$s.model")) { $out.Add("model = $($roleModel[$s])") }
 }
-$script:sec = ""
 foreach ($line in $presetLines) {
-    if ($line -match '^\[(.*)\]') { Close-Section; $script:sec = $Matches[1]; $script:skip = ($script:sec -like "locale.*") -or ($script:sec -eq "language" -and -not $langModel); if (-not $script:skip) { $out.Add($line) }; continue }
+    if ($line -match '^\[.*\]') {
+        Close-Section; $script:sec = $line.Substring(1, $line.IndexOf(']') - 1); $had[$script:sec] = $true
+        $script:skip = ($script:sec -like "locale.*") -or ($script:sec -eq "language" -and -not $langModel)
+        if (-not $script:skip) { $out.Add($line) }; continue
+    }
     if ($script:skip) { continue }
     if ($line -match '^([A-Za-z0-9_-]+)\s*=') { $k = $Matches[1]; $key = "$($script:sec).$k"   # (later -match calls overwrite $Matches)
         if ($localeKeys.ContainsKey($key)) { $out.Add("$k = $($localeKeys[$key])"); $seen[$key] = $true; continue }
-        if ($overlay.ContainsKey($key)) { $out.Add("$k = $($overlay[$key])"); $seen[$key] = $true; continue }
+        if ($overlay.Contains($key)) { $out.Add("$k = $($overlay[$key])"); $seen[$key] = $true; continue }
+        if ($k -eq "model" -and $roleModel.Contains($script:sec)) { $out.Add("model = $($roleModel[$script:sec])"); $seen[$key] = $true; continue }
         # path-valued keys: relative to the repository (the server runs in WorkDir)
-        if ($k -match '^(model|mmproj)$|-(file|config|dir|path)$') { $v = ($line -replace '^[^=]*=\s*', '').Trim()
+        if ($k -match '^(model|mmproj)$|-(file|config|dir|path)$') { $v = ($line -replace '^[^=]*=\s*', '')
             if ($v -and -not [System.IO.Path]::IsPathRooted($v)) { $out.Add("$k = $(Join-Path $Root $v)"); continue } } }
     $out.Add($line)
 }
 Close-Section
+foreach ($r in @("general", "coder", "decision", "language")) {
+    if ($roleModel.Contains($r) -and -not $had.ContainsKey($r)) { $out.Add(""); $out.Add("[$r]"); $out.Add("model = $($roleModel[$r])") }
+}
 Write-TextFile $effective $out
-# for scripts/agent.py: what the server was started with
-Write-TextFile (Join-Path $Root ".cache\language.json") (@{ locale = $langCode; mode = $mode; swapped = ($swapRoles -join " ") } | ConvertTo-Json -Compress)
+# for scripts/agent.py: what the server was started with (same format as serve.sh)
+Write-TextFile (Join-Path $Root ".cache\language.json") ('{{"locale": "{0}", "mode": "{1}", "swapped": "{2}"}}' -f $langCode, $mode, ($swapRoles -join " "))
 
-# API key file, generated once (.secrets\ is git-ignored), readable by this user only
+# API key file, generated once (.secrets\ is git-ignored), readable by this user only. The
+# directory and the empty file get their ACL BEFORE the key is written into it.
 $keyDir = Join-Path $Root ".secrets"; $keyFile = Join-Path $keyDir "api-keys"
 New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
-if (-not (Test-Path $keyFile)) {
+function Set-Private([string]$path, [bool]$dir) {
+    if (Test-Windows) {
+        $grant = if ($dir) { "$($env:USERNAME):(OI)(CI)F" } else { "$($env:USERNAME):F" }
+        icacls $path /inheritance:r /grant:r $grant | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $path (exit $LASTEXITCODE); the API key would be readable by others" }
+    } else { chmod $(if ($dir) { "700" } else { "600" }) $path }
+}
+Set-Private $keyDir $true
+if (-not (Test-Path -LiteralPath $keyFile) -or (Get-Item -LiteralPath $keyFile).Length -eq 0) {
+    New-Item -ItemType File -Force -Path $keyFile | Out-Null
+    Set-Private $keyFile $false
     $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     Write-TextFile $keyFile @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
     Write-Host "serve.ps1: generated API key in $keyFile"
 }
-# remove inherited ACLs, grant only the current user
-if (Test-Windows) {
-    icacls $keyDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $keyDir (exit $LASTEXITCODE); the API key would be readable by others" }
-    icacls $keyFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $keyFile (exit $LASTEXITCODE); the API key would be readable by others" }
-}
-$keys = (Get-Content $keyFile | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
+Set-Private $keyFile $false
+$keys = (Get-Content $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
 if (-not $keys) { throw "no key in $keyFile" }
 
 # Tools: every definition is in every prompt (Qwen3.5 template: full 1732 tokens, lean 843)
@@ -165,15 +273,22 @@ if ($Tools -eq "lean") {
     if (-not $McpConfig) { $McpConfig = "config\mcp-servers.empty.json"; Write-Host "serve.ps1: -Tools lean: example MCP server off (pass -McpConfig to use one)" }
 }
 
-# MCP: the example server needs a working Python (the Store alias "python3" may exist but not run)
-if (-not $McpConfig) {
-    $py = $false
-    try { & python3 -c "import sys" 2>$null; $py = ($LASTEXITCODE -eq 0) } catch { $py = $false }
-    if ($py) { $McpConfig = "config\mcp-servers.json" }
-    else { Write-Warning "python3 does not run: MCP example disabled (config\mcp-servers.empty.json)"; $McpConfig = "config\mcp-servers.empty.json" }
+# MCP: the example server needs a Python that really runs. "python3" on Windows is often the
+# Microsoft Store placeholder, so python3, python and the py launcher are each tried.
+$pyCmd = $null
+if (-not $McpConfig -or $McpConfig -eq "config\mcp-servers.json") {
+    $eap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    foreach ($cand in @(@("python3"), @("python"), @("py", "-3"))) {
+        if (-not (Get-Command $cand[0] -ErrorAction SilentlyContinue)) { continue }
+        $pre = @($cand | Select-Object -Skip 1)
+        try { $v = & $cand[0] @pre -c "import sys; print(sys.version_info[0])" 2>$null; if ($LASTEXITCODE -eq 0 -and "$v".Trim() -eq "3") { $pyCmd = $cand; break } } catch { }
+    }
+    $ErrorActionPreference = $eap
+    if ($pyCmd) { $McpConfig = "config\mcp-servers.json" }
+    else { Write-Host "serve.ps1: note: no working Python 3 (python3, python, py -3): the example MCP server is off; the built-in tools still work"; $McpConfig = "config\mcp-servers.empty.json" }
 }
 
-# Tools runtime: Docker Desktop if it answers, else the host (with a loud warning)
+# Tools runtime: Docker Desktop if it answers, else the host
 $container = $null; $runtime = ""
 if ($ToolsRuntime -eq "auto") {
     $docker = Get-Command docker -ErrorAction SilentlyContinue
@@ -183,37 +298,89 @@ if ($ToolsRuntime -eq "auto") {
         if ($LASTEXITCODE -ne 0) { throw "docker run failed" }
         $runtime = "docker-container:$container"
     } else {
-        Write-Warning "no working Docker: tools run on the HOST with this user's permissions (read/write/execute anything this account can). Use -Tools '' to disable."
+        Write-Host "serve.ps1: note: Docker is not running, so the agent's tools run directly on this computer as your user."
+        Write-Host "serve.ps1:   They start in $WorkDir but can reach any file your account can; review what the agent does."
+        Write-Host "serve.ps1:   -Tools lean offers fewer tools, -Tools '' none; Docker Desktop keeps them in a container."
     }
 } elseif ($ToolsRuntime -ne "host") { $runtime = $ToolsRuntime }
 
 # Only the LLAMA_* variables set here reach llama-server (router and children read them)
 # (also the router/child internals, tracing and model download endpoints)
 $clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_SERVER_CHILD_MODE",
-           "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "HF_ENDPOINT", "MODEL_ENDPOINT")
+           "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT")
 Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
+# The router also lists every GGUF in the Hugging Face cache (%USERPROFILE%\.cache\huggingface\hub,
+# HF_HUB_CACHE, HF_HOME); LLAMA_CACHE wins over those, so an empty repo-local directory keeps
+# the list to our roles.
+$llamaCache = Join-Path $Root ".cache\llama-cache"
+New-Item -ItemType Directory -Force -Path $llamaCache | Out-Null
+$env:LLAMA_CACHE = $llamaCache
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
 if ($McpConfig) {
     # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
-    if (-not [System.IO.Path]::IsPathRooted($McpConfig)) { $McpConfig = Join-Path $Root $McpConfig }
+    $McpConfig = Get-RepoPath $McpConfig
     $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
-    Write-TextFile $mcpEff ((Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd())
+    $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd()
+    if ($pyCmd -and $pyCmd[0] -ne "python3") {   # the example config says "python3"
+        $json = $json.Replace('"command": "python3"', '"command": "' + $pyCmd[0] + '"')
+        if ($pyCmd.Count -gt 1) { $json = $json.Replace('"args": ["scripts/', '"args": ["' + $pyCmd[1] + '", "scripts/') }
+    }
+    Write-TextFile $mcpEff $json
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
 
 $srvArgs = @("--host", $BindHost, "--port", $Port,
-          "--models-dir", (Join-Path $Root "models"), "--models-preset", $effective,
+          "--models-preset", $effective,
           "--models-max", $ModelsMax,
           "--threads", $Threads, "--threads-batch", $ThreadsBatch,
           "--n-gpu-layers", $GpuLayers, "--fit", "on", "--load-mode", $LoadMode)
 if ($Repack -eq "off") { $srvArgs += "--no-repack" }
 $srvArgs += $Extra
-Write-Host "serve.ps1: starting on http://${BindHost}:$Port"
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
-Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel.FullName } else { '-' })"
+Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
+Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
+
+# Ready = OUR llama-server listens on the port (Windows: the listening socket's process is a
+# child of this PowerShell running $LlamaServer) and answers /health. Then .cache\serve.ready
+# gets "<port> <pid>"; scripts\lib\open-ui.ps1 waits for that file. Checked in a background
+# runspace of this process, which ends with the server.
+$readyFile = Join-Path $Root ".cache\serve.ready"
+Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
+$probeHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } elseif ($BindHost -match ':') { "[$BindHost]" } else { $BindHost }
+$sync = [hashtable]::Synchronized(@{ Stop = $false })
+$watch = [powershell]::Create()
+[void]$watch.AddScript({
+    param($sync, $port, $probeHost, $exe, $parentPid, $readyFile, $onWindows)
+    for ($i = 0; $i -lt 2400 -and -not $sync.Stop; $i++) {
+        Start-Sleep -Milliseconds 500
+        $owner = 0
+        if ($onWindows) {
+            try {
+                foreach ($c in @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop)) {
+                    $p = Get-CimInstance Win32_Process -Filter "ProcessId = $($c.OwningProcess)"
+                    if ($p -and $p.ParentProcessId -eq $parentPid -and $p.ExecutablePath -eq $exe) { $owner = $c.OwningProcess }
+                }
+            } catch { }
+            if (-not $owner) { continue }
+        }
+        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://${probeHost}:$port/health" | Out-Null } catch { continue }
+        [IO.File]::WriteAllText($readyFile, "$port $owner`n")
+        [Console]::Out.WriteLine("serve.ps1: listening on http://${probeHost}:$port$(if ($owner) { " (pid $owner)" })")
+        return
+    }
+})
+[void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows))
 # the server runs in WorkDir: with the host runtime that is the web UI's default tool directory
-if (-not [System.IO.Path]::IsPathRooted($LlamaServer)) { $LlamaServer = Join-Path $Root $LlamaServer }
 Push-Location $WorkDir
-try { & $LlamaServer @srvArgs } finally { Pop-Location; if ($container) { docker rm -f $container *> $null } }
+try {
+    [void]$watch.BeginInvoke()
+    & $LlamaServer @srvArgs
+} finally {
+    $sync.Stop = $true
+    try { $watch.Stop(); $watch.Dispose() } catch { }
+    Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
+    Pop-Location
+    if ($container) { docker rm -f $container *> $null }
+}

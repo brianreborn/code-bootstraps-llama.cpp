@@ -1,22 +1,26 @@
-# Started by scripts\start.ps1 in the same console: waits until the router answers with the
-# API key, prints the URL and the key (-CopyKey: also to the clipboard), then opens the browser.
+# Started by scripts\start.ps1 in the same console: waits until serve.ps1 reports its own
+# server ready (.cache\serve.ready: "<port> <pid>"), prints the URL and the key (-CopyKey: also
+# to the clipboard), then opens the browser. The server is not probed with the key.
 param([int]$Port = 9931, [switch]$NoBrowser, [switch]$CopyKey, [int]$ParentPid = 0)
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $keyFile = Join-Path $Root ".secrets\api-keys"
-$url = "http://127.0.0.1:$Port/?model=coder"
-$key = $null; $ready = $false
-for ($i = 0; $i -lt 600; $i++) {   # up to 10 min (first model load on a slow disk)
+$readyFile = Join-Path $Root ".cache\serve.ready"
+$ready = $false
+for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow disk)
     if ($ParentPid -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { exit 0 }   # launcher gone
-    if (Test-Path -LiteralPath $keyFile) {
-        $key = Get-Content -LiteralPath $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | Select-Object -First 1
+    if (Test-Path -LiteralPath $readyFile) {
+        $f = (Get-Content -LiteralPath $readyFile -TotalCount 1) -split ' '
+        if ($f.Count -ge 2 -and $f[0] -match '^\d+$') {
+            $Port = [int]$f[0]
+            if ([int]$f[1] -eq 0 -or (Get-Process -Id ([int]$f[1]) -ErrorAction SilentlyContinue)) { $ready = $true; break }
+        }
     }
-    if ($key) {
-        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://127.0.0.1:$Port/models" -Headers @{ Authorization = "Bearer $($key.Trim())" } | Out-Null; $ready = $true; break }
-        catch { }
-    }
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 500
 }
 if (-not $ready) { exit 0 }
+$url = "http://127.0.0.1:$Port/?model=coder"
+$key = Get-Content -LiteralPath $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | Select-Object -First 1
+if (-not $key) { exit 0 }
 $key = $key.Trim()
 $copied = $false
 if ($CopyKey) { try { Set-Clipboard -Value $key -ErrorAction Stop; $copied = $true } catch { } }

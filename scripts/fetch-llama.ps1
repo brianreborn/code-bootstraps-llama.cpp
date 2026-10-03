@@ -17,7 +17,7 @@ Set-Location $Root
 
 if (-not $Platform) {
     $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
-    $os = if ($IsLinux) { "linux" } elseif ($IsMacOS) { "macos" } else { "windows" }   # $IsLinux/$IsMacOS: pwsh only
+    $os = Get-OsName   # (not $IsLinux / $IsMacOS: Windows PowerShell 5.1 does not have them)
     if (-not $arch) { $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
     $Platform = "$os-" + $(switch -regex ($arch) { '^(AMD64|X64)$' { "x64" } '^(ARM64|Arm64)$' { "arm64" } default { $arch.ToLower() } })
 }
