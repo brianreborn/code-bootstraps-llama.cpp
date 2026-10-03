@@ -39,6 +39,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # built-in tools that only read; everything else (write tools, MCP tools) needs confirmation
 READ_ONLY_BUILTINS = {"read_file", "file_glob_search", "grep_search", "get_info"}
+LEAN_TOOLS = ["read_file", "write_file", "edit_file", "exec_shell_command"]
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 # --- language slot -------------------------------------------------------------
@@ -233,6 +234,9 @@ def main():
     ap.add_argument("--cwd", default=None, help="tool working directory (host path, or /work inside a container runtime)")
     ap.add_argument("--max-steps", type=int, default=12)
     ap.add_argument("--max-tokens", type=int, default=1024)
+    ap.add_argument("--tools", default=os.environ.get("AGENT_TOOLS", ""),
+                    help="comma-separated subset of the server's tools to offer the model (fewer tools = shorter "
+                         "prompt; each costs 30-340 tokens), or 'lean' = read_file,write_file,edit_file,exec_shell_command")
     ap.add_argument("--allow-outside", action="store_true",
                     help="let file tools use paths outside --cwd (default: refused; exec_shell_command is never confined)")
     ap.add_argument("--yes", action="store_true", help="do not ask before tools that write")
@@ -274,6 +278,12 @@ def main():
             prompt += "\n\n(Original message, code spans authoritative:)\n" + a.prompt
 
     tools = c.req("GET", "/tools")
+    if a.tools:
+        want = LEAN_TOOLS if a.tools == "lean" else [t.strip() for t in a.tools.split(",") if t.strip()]
+        missing = [t for t in want if t not in {x["tool"] for x in tools}]
+        if missing:
+            print(f"[agent] not on the server, skipped: {','.join(missing)}", file=sys.stderr)
+        tools = [t for t in tools if t["tool"] in want]
     defs = [t["definition"] for t in tools]
     needs_write = {t["tool"] for t in tools
                    if (t.get("permissions") or {}).get("write") or t["tool"] not in READ_ONLY_BUILTINS}
@@ -281,7 +291,8 @@ def main():
     print(f"[agent] model={a.model} tools={','.join(names)} cwd={cwd or '(server cwd)'}", file=sys.stderr)
 
     system = ("You are a careful coding agent. Use the tools to inspect, create, edit and run files. "
-              "Use relative paths. Keep answers short. When the task is done, reply with a one-line summary.")
+              "Use relative paths. Keep answers short. As soon as the task is done (for example the program "
+              "ran and printed what was asked), stop calling tools and reply with a one-line summary.")
     if lang_mode in ("native", "swap"):
         system += (f" The user writes in {LANGS.get(user_lang, user_lang)}: reply in that language, but keep code, "
                    "file paths, commands and identifiers unchanged.")
@@ -290,11 +301,24 @@ def main():
         {"role": "user", "content": prompt},
     ]
     log = open(a.json_log, "a", encoding="utf-8") if a.json_log else None
+    # repeat guard: small coders (Qwen3.5-2B, measured) sometimes re-run the same call until the
+    # step limit. An identical call is skipped when nothing changed since it last ran (tools that
+    # write, MCP tools and shell commands bump the epoch) or when it already ran twice.
+    # A model that repeats again after being told gets no tools on its next step.
+    seen, runs, epoch, skips = {}, {}, 0, 0
     for step in range(1, a.max_steps + 1):
         t0 = time.time()
-        res = c.req("POST", "/v1/chat/completions", {
-            "model": a.model, "messages": messages, "tools": defs, "max_tokens": a.max_tokens,
-        })
+        body = {"model": a.model, "messages": messages, "tools": defs, "max_tokens": a.max_tokens}
+        # tool_choice none keeps the tool definitions in the prompt (cached prefix) but parses the reply as text
+        if step == a.max_steps:   # last step: no more tools, the model has to answer
+            body["tool_choice"] = "none"
+            messages.append({"role": "user", "content": "Step limit reached: do not call tools; summarize what was done and what is left."})
+        elif skips >= 2:
+            body["tool_choice"] = "none"
+            messages.append({"role": "user", "content": "You are repeating the same tool call. Do not call tools now: "
+                                                        "reply with a one-line summary of what was done and what is left, if anything."})
+            skips = 0
+        res = c.req("POST", "/v1/chat/completions", body)
         msg = res["choices"][0]["message"]
         timings = res.get("timings") or {}
         print(f"[agent] step {step}: {time.time()-t0:.1f}s, gen {timings.get('predicted_per_second', 0):.1f} tok/s, "
@@ -319,6 +343,14 @@ def main():
                 out = json.dumps({"error": f"invalid JSON arguments: {e}"})
             else:
                 print(f"[tool] {fn} {json.dumps(params)[:300]}", file=sys.stderr)
+                key = (fn, json.dumps(params, sort_keys=True))
+                if seen.get(key) == epoch or runs.get(key, 0) >= 2:
+                    out = ("Not run again: this exact call already ran and its result is above. "
+                           "If the task is done, do not call more tools: reply with a one-line summary.")
+                    skips += 1
+                    print(f"[tool] -> skipped repeat", file=sys.stderr)
+                    messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                    continue
                 bad = None if a.allow_outside else outside_path(cwd, params)
                 if bad:   # keeps the model in the project (it wandered over / in tests; a grep there OOM-killed the server)
                     out = json.dumps({"error": f"path {bad!r} is outside the project directory; use paths relative to it"})
@@ -331,12 +363,15 @@ def main():
                         messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
                         continue
                 r = c.req("POST", "/tools", {"tool": fn, "params": params})
+                if fn in needs_write:
+                    epoch += 1
+                seen[key] = epoch; runs[key] = runs.get(key, 0) + 1
                 out = r["plain_text_response"] if "plain_text_response" in r else json.dumps(r)
             print(f"[tool] -> {out[:300]!r}", file=sys.stderr)
             if log:
                 log.write(json.dumps({"step": step, "tool": fn, "result": out[:4000]}) + "\n")
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
-    print("[agent] max steps reached", file=sys.stderr)
+    print("[agent] max steps reached", file=sys.stderr)   # unreachable unless the model ignores tool_choice
     return 1
 
 

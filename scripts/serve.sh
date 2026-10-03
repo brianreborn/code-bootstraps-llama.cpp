@@ -19,7 +19,12 @@ PROFILE="${PROFILE:-auto}"                      # auto | default | lowram (auto:
 MODELS_MAX="${MODELS_MAX:-}"                    # models kept loaded at once (LRU); default 2, lowram 1
 API_KEY_FILE="${API_KEY_FILE:-$ROOT/.secrets/api-keys}"
 MCP_CONFIG="${MCP_CONFIG-$ROOT/config/mcp-servers.json}"   # set to "" to disable MCP
-TOOLS="${TOOLS-read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info}"
+# TOOLS: auto | full | lean | comma list | "" (none). Every tool definition is in every prompt
+# (Qwen3.5 template, measured: 7 built-ins + 2 MCP examples = 1732 tokens, lean = 843), which a slow
+# CPU pays on its first request. auto = full, lean on the lowram profile.
+TOOLS="${TOOLS-auto}"
+TOOLS_FULL="read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info"
+TOOLS_LEAN="read_file,write_file,edit_file,exec_shell_command"
 # TOOLS_RUNTIME: auto | host | podman:<image> | docker:<image> | podman-container:<id> | docker-container:<id> | ssh:<target>
 TOOLS_RUNTIME="${TOOLS_RUNTIME:-auto}"
 # python:3.12-slim multi-arch index, pinned by digest (2026-10-03); override to update
@@ -131,6 +136,14 @@ case "$PROFILE" in
            OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096" ;;
   *) die "unknown PROFILE=$PROFILE (auto|default|lowram)" ;;
 esac
+if [[ "$TOOLS" == "auto" ]]; then
+  if [[ "$PROFILE" == lowram ]]; then TOOLS=lean; else TOOLS=full; fi
+fi
+if [[ "$TOOLS" == lean && "$MCP_CONFIG" == "$ROOT/config/mcp-servers.json" ]]; then
+  MCP_CONFIG=""   # the example MCP tools are another ~85 prompt tokens
+  echo "serve.sh: TOOLS=lean: example MCP server off (set MCP_CONFIG to use one)" >&2
+fi
+case "$TOOLS" in full) TOOLS="$TOOLS_FULL" ;; lean) TOOLS="$TOOLS_LEAN" ;; esac
 
 # --- language -------------------------------------------------------------------
 # system locale -> primary language code (ja-JP, ja_JP.UTF-8 -> ja); C/POSIX/unset -> en

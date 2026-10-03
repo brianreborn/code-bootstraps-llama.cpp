@@ -12,7 +12,7 @@ param(
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
     [string]$ToolsImage = "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
     [string]$WorkDir = "",
-    [string]$Tools = "read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info",
+    [string]$Tools = "auto",   # auto (full; lean on lowram) | full | lean | comma list | "" (none)
     [string]$McpConfig = "",
     [string]$Threads = "auto",        # generation threads: auto = physical cores
     [string]$ThreadsBatch = "auto",   # prompt/batch threads: auto = logical CPUs
@@ -150,6 +150,14 @@ icacls $keyDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
 icacls $keyFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
 $keys = (Get-Content $keyFile | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
 if (-not $keys) { throw "no key in $keyFile" }
+
+# Tools: every definition is in every prompt (Qwen3.5 template: full 1732 tokens, lean 843)
+if ($Tools -eq "auto") { $Tools = if ($RamProfile -eq "lowram") { "lean" } else { "full" } }
+if ($Tools -eq "full") { $Tools = "read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info" }
+if ($Tools -eq "lean") {
+    $Tools = "read_file,write_file,edit_file,exec_shell_command"
+    if (-not $McpConfig) { $McpConfig = "config\mcp-servers.empty.json"; Write-Host "serve.ps1: -Tools lean: example MCP server off (pass -McpConfig to use one)" }
+}
 
 # MCP: the example server needs a working Python (the Store alias "python3" may exist but not run)
 if (-not $McpConfig) {

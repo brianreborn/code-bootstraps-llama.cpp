@@ -147,7 +147,7 @@ This starts `llama-server` in router mode on `127.0.0.1:9931` with:
 - `--models-dir models` and the preset `.cache/models-preset.effective.ini`, which `serve.sh` writes from `config/models-preset.ini` (profile overlay, language settings). The models are named `general`, `coder` and `decision` after their directories.
 - `--models-max 2` (1 in the low-RAM profile), so at most that many models are loaded at once and the least recently used one is unloaded.
 - the API key from `.secrets/api-keys` (generated on the first run, git-ignored, directory mode 700, file mode 600), passed as the `LLAMA_API_KEY` environment variable (see Security below).
-- the built-in tools (`read_file`, `file_glob_search`, `grep_search`, `exec_shell_command`, `write_file`, `edit_file`, `get_info`), the MCP servers in `config/mcp-servers.json` (skipped with a warning when `python3` is missing, since the example server is a Python script), and a tools runtime (see below).
+- the built-in tools (`read_file`, `file_glob_search`, `grep_search`, `exec_shell_command`, `write_file`, `edit_file`, `get_info`), the MCP servers in `config/mcp-servers.json` (skipped with a warning when `python3` is missing, since the example server is a Python script), and a tools runtime (see below). `TOOLS=lean` keeps only `read_file`, `write_file`, `edit_file` and `exec_shell_command` and turns the example MCP server off; the `lowram` profile does this by default. See "Prompt size" below for why. `TOOLS=full`, a comma-separated list, or `TOOLS=""` (no built-in tools) are the other choices.
 - the server's working directory set to `WORKDIR` (default `./workspace`), so with the host runtime the tools start there rather than in this repository.
 
 Then run the minimal agent against a project directory:
@@ -155,6 +155,8 @@ Then run the minimal agent against a project directory:
 ```sh
 python3 scripts/agent.py --cwd ./workspace "create hello.py that prints hi, then run it"
 ```
+
+`--tools lean` (or a list) offers the model fewer of the server's tools, which shortens every prompt. **Repeat guard:** Qwen3.5-2B sometimes calls the same tool with the same arguments again and again after the task is done (seen on a laptop as `python3 hello.py` repeated until the step limit, and reproduced here in 1 of 25 runs). `agent.py` does not run an identical call again when nothing has changed since it last ran (tools that write, MCP tools and shell commands count as changes) or when it already ran twice. It answers with a short note instead. If the model repeats again, its next step gets `tool_choice: none` and a request for a one-line summary. The last allowed step (`--max-steps`, default 12) always works that way, so a run ends with an answer rather than "max steps reached". `tool_choice: none` keeps the tool definitions in the prompt, so the cached prompt prefix is still used. Measured here on the hello task (`--max-steps 8`): without the guard, 1 of 25 runs repeated `python3 hello.py` until the limit, and sampling changes (Qwen's non-thinking settings with `presence_penalty` 2.0, or `presence_penalty` 1.5 alone) made no clear difference over 5 runs each, so the preset keeps its values. With the guard, all 22 runs ended with a summary after 3-5 tool calls, except one that kept repeating and was ended by the forced last step (that run was before the forced answer after a second repeat was added; a mock server test covers that path). 13 of the 22 runs had one repeat skipped.
 
 ### Hardware use
 
@@ -208,6 +210,19 @@ Everything scales almost linearly up to 4 threads. From 6 to 8 threads the resul
 | 4 | 324 | 55.9 | 165.4 |
 
 Through `serve.sh` with the preset above, 4 concurrent coder requests produced 547 tokens in 14.3 s (38 tok/s aggregate, about 11.7 tok/s per stream). A single stream ran at about 17 tok/s. The coder instance peaked at 3.6 GB RSS with 4 slots, the decision instance at 0.92 GB.
+
+### Prompt size on slow CPUs
+
+Every tool definition is part of every prompt. With the Qwen3.5 chat template (counted with `/apply-template` and `/tokenize`):
+
+| Tools offered | Tool section of the prompt (tokens) |
+|---|---|
+| 7 built-ins + 2 example MCP tools (default) | 1732 |
+| 7 built-ins, MCP off | 1608 |
+| `lean`: `read_file`, `write_file`, `edit_file`, `exec_shell_command` | 843 |
+| `write_file`, `exec_shell_command` | 444 |
+
+The template's fixed tool instructions take about 220 tokens. The largest definitions are `file_glob_search` (about 340 tokens) and `grep_search` (about 330); `get_info` and each example MCP tool take 30-50. Within one conversation, llama-server reuses the cached prefix, so only new tokens are processed. A new conversation with the same system prompt reuses the tool section too (18 new tokens in a test here). With a different system prompt, prompt processing restarts from the last context checkpoint, about 510 tokens before the end of the shared prefix (Qwen3.5 is a hybrid model, so its cache can only roll back to checkpoints). The first request after a start pays for the whole prompt. On an i5-7200U laptop throttled to 400 MHz, that first step took 615 s with the default tools. `TOOLS=lean` roughly halves it (estimate from the token counts; not measured on that laptop). The tool descriptions are built into llama-server and cannot be shortened by configuration.
 
 ### Tool isolation, and the host fallback
 
