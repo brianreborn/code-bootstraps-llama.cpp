@@ -16,11 +16,11 @@ The pin is also recorded in `config/llama-pin.env`, which the build scripts read
 ## Getting started
 
 ```sh
-git clone --recursive https://github.com/brianreborn/code-bootstraps-llama.cpp
+git clone https://github.com/brianreborn/code-bootstraps-llama.cpp
 cd code-bootstraps-llama.cpp
 ```
 
-If you already cloned without `--recursive`, run `git submodule update --init --recursive`.
+That is enough for the launchers below, which use release binaries. Without git, use GitHub's **Code > Download ZIP** and unpack it (see "Downloaded ZIP" below). To build llama.cpp yourself you also need the submodule (about 540 MB): clone with `--recursive`, or run `git submodule update --init --recursive` later; `start.sh` does that itself when it has to build.
 
 ### Quick start (click-and-go)
 
@@ -30,9 +30,9 @@ If you already cloned without `--recursive`, run `git submodule update --init --
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher downloads the official llama.cpp release binary pinned in `config/llama-release.json` and the 3 default models, checking every file's sha256. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=coder`**, with the coder model selected (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C (or close the window).
+The launcher downloads the official llama.cpp release binary pinned in `config/llama-release.json` and the 3 default models, checking every file's sha256. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=coder`**, with the coder model selected (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once the server answers with this launcher's API key, so a failed start never opens the page.
 
-**API key.** The server only answers with the API key, which `serve.sh` generates on the first start and keeps in **`.secrets/api-keys`** (one key per line; the directory is mode 700 and git-ignored). The launcher prints the key when the server is ready. The first time you open the page, the UI shows an **Enter API Key** button: click it, paste the key and press Enter. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
+**API key.** The server only answers with the API key, which `serve.sh` generates on the first start and keeps in **`.secrets/api-keys`** (one key per line; the directory is mode 700 and git-ignored). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
 The UI's agent uses the server's tools. In the test here it asked before `write_file` and `exec_shell_command` ("Allow once" / "Deny"); whether it asks for every tool, and its "always allow" choices, were not checked.
 
@@ -40,15 +40,22 @@ Prerequisites:
 
 | System | Needs | Notes |
 |---|---|---|
-| Linux x86_64 / arm64 | `bash`, `curl`, `tar`, `awk`, `sha256sum` | The release binary needs glibc 2.34+, `libgomp1`, `libssl3`, zlib and libzstd (Ubuntu 22.04+, Debian 12+); otherwise the launcher builds (needs `git`, `cmake`, a C++ compiler). |
-| macOS | nothing extra (`curl`, `tar`, `shasum` are built in) | Untested. Gatekeeper may block the downloaded binary. |
-| Windows 10 1803+ / 11 | nothing extra (PowerShell 5.1, `curl.exe`) | Untested on Windows. SmartScreen may warn about `start.bat`. |
-| Android (Termux) | `pkg install curl tar gawk` | Untested. |
+| Linux x86_64 / arm64 | `git` (or the ZIP), `bash`, `curl`, `tar`, `awk`, `sha256sum` | The release binary needs glibc 2.34+, `libgomp1`, `libssl3`, zlib and libzstd (Ubuntu 22.04+, Debian 12+); otherwise the launcher builds (needs `git`, `cmake`, a C++ compiler). |
+| macOS | `git` (asks to install the Command Line Tools the first time) or the ZIP; `curl`, `tar`, `shasum` are built in | Untested. See "Downloaded ZIP" for Gatekeeper. |
+| Windows 10 1803+ / 11 | `git` or the ZIP; PowerShell 5.1 and `curl.exe` are built in | Untested on Windows. See "Downloaded ZIP" for SmartScreen. Group Policy that enforces `AllSigned` blocks the scripts. |
+| Android (Termux) | `pkg install git curl tar gawk` | Untested. |
 | Any, optional | `python3` (Termux: `pkg install python`) | Only for `scripts/agent.py` and the example MCP server (skipped without it). |
+| Disk | about 3 GB free | 2.4 GB of models, 17.6 MB for the Linux CPU release binary (GPU variants are larger), plus room for the `.part` files while downloading. |
+| RAM | about 3.5 GB free for `PROFILE=lowram`, 5-6 GB for `default` | Measured on x86_64: lowram peaked at 3.1 GB (router + coder, repack on); in `default` the coder alone reached 3.6 GB with 4 slots, and a second model stays loaded (general 1.6 GB, decision 0.9 GB). |
+
+**Downloaded ZIP.** Browsers mark downloaded files, and both desktop systems then warn about unsigned scripts:
+- macOS: double-clicking `start.command` from a downloaded ZIP is blocked by Gatekeeper. Either remove the mark once in Terminal, `xattr -dr com.apple.quarantine ~/Downloads/code-bootstraps-llama.cpp-main` (your folder), or Control-click `start.command` > Open > Open (macOS 14 and older); on macOS 15 and later open System Settings > Privacy & Security and click "Open Anyway" after the first attempt. Running `bash start.sh` in Terminal avoids the prompt. `start.command` runs `start.sh` through `/bin/bash`, so a lost execute bit does not matter.
+- Windows: before unpacking, right-click the ZIP > Properties > tick **Unblock** > OK (or `Unblock-File .\code-bootstraps-llama.cpp-main.zip` in PowerShell). Otherwise SmartScreen shows "Windows protected your PC" for `start.bat`: click "More info" > "Run anyway". The launcher runs its `.ps1` files with `-ExecutionPolicy Bypass` and unblocks the llama.cpp files it downloads.
+- A `git clone` does not set these marks. The llama.cpp binaries the launchers download with `curl` are not marked either. None of these prompts were tested here.
 
 No Python is needed otherwise. Settings: `PORT`, `VARIANT=cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1`, `COPY_KEY=1` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`), plus everything `serve.sh` reads. For a machine with little RAM, `PROFILE=lowram` (automatic on Android and under 6 GB) keeps one model loaded at a time with smaller contexts and offers fewer tools; `MODELS_MAX=` sets how many models stay loaded (see "Hardware use"). Windows: `start.bat -RamProfile lowram -ModelsMax 1`.
 
-On Linux x86_64, from a fresh clone, the first start took 35-80 s in tests here (17.6 MB binary plus 2.4 GB of models; mostly download time, so it depends on the link) and a restart takes about 2 s. **Untested:** the launchers on macOS, Windows and Termux, macOS Gatekeeper and Windows SmartScreen prompts for downloaded binaries, and the Android release binary. The Windows scripts were only parsed and partly run with PowerShell 7 on Linux.
+On Linux x86_64, from a fresh clone, the first start took 35-80 s in tests here (17.6 MB binary plus 2.4 GB of models; mostly download time, so it depends on the link) and a restart takes about 2 s. If the download fails (no internet), the launcher says so and stops; it builds from source only when no release binary fits the machine or the binary does not run there. **Untested:** the launchers on macOS, Windows and Termux, the Gatekeeper and SmartScreen prompts, and the Android release binary. The Windows scripts were only parsed and partly run with PowerShell 7 on Linux.
 
 Limits of the web UI path:
 - It does not use `/v1/systemone` routing, so the decision model is not used, and it lists the decision model even though that model cannot chat.
@@ -186,7 +193,7 @@ python3 scripts/agent.py --cwd ./workspace "create hello.py that prints hi, then
 
 Override with `THREADS=`, `THREADS_BATCH=`, `GPU_LAYERS=`, `REPACK=` and `LOAD_MODE=` (`-Threads`, `-ThreadsBatch`, `-GpuLayers`, `-Repack`, `-LoadMode` on Windows). If you have several builds, choose one with `LLAMA_SERVER=build-.../bin/llama-server` (`-LlamaServer` on Windows; the default there is `build-windows-x64\bin\Release\llama-server.exe`).
 
-**big.LITTLE (Android, arm64 Linux).** Every thread of an op waits for the slowest one, so little cores slow the big ones down. `serve.sh` reads `/sys/devices/system/cpu/cpu*/cpu_capacity` (or `cpufreq/cpuinfo_max_freq` when the kernel does not export capacities) and counts the cores that reach at least 75% of the highest value. If fewer than 2 cores pass (a single prime core on a 3-cluster SoC such as 1+3+4), every core outside the slowest cluster is used; if that is still 1, all physical cores are. Homogeneous CPUs keep the physical-core rule. `bash tests/test_cpu.sh` covers the A57 (1+4+3), a 1+3+4 and a 4+4 layout with synthetic sysfs data. No device names are used.
+**big.LITTLE (Android, arm64 Linux).** Every thread of an op waits for the slowest one, so little cores slow the big ones down. `serve.sh` reads `/sys/devices/system/cpu/cpu*/cpu_capacity` (or `cpufreq/cpuinfo_max_freq` when the kernel does not export capacities) and counts the cores that reach at least 75% of the highest value. If fewer than 2 cores pass (a single prime core on a 3-cluster SoC such as 1+3+4), every core outside the slowest cluster is used; if that is still 1, all physical cores are. Homogeneous CPUs keep the physical-core rule. On macOS, `--threads` counts only the performance cores (`sysctl hw.perflevel0.physicalcpu`, untested), and `fetch-llama.sh` picks the arm64 build on Apple silicon even in a Terminal running under Rosetta. `bash tests/test_cpu.sh` covers the A57 (1+4+3), a 1+3+4 and a 4+4 layout with synthetic sysfs data. No device names are used.
 
 **Android baseline: Samsung Galaxy A57.** Exynos 1680 (4 nm): 1× Cortex-A720 at 2.9 GHz, 4× Cortex-A720 at 2.6 GHz, 3× Cortex-A520 at 1.95 GHz; Xclipse 550 GPU; 8 or 12 GB LPDDR5X (sources: [GSMArena](https://www.gsmarena.com/samsung_galaxy_a57_5g-14379.php), [Notebookcheck](https://www.notebookcheck.net/Samsung-Exynos-1680-Processor-Benchmarks-and-Specs.1339461.0.html), [Samsung US](https://www.samsung.com/us/smartphones/galaxy-a57-5g/)). With the 75% rule, both frequencies of the A720 cores pass (2.6/2.9 = 90%) and the A520 cores do not (1.95/2.9 = 67%), so the expected result is `--threads 5 --threads-batch 5`. That is derived from the published specs; **nothing was run on an A57**, and the real `cpu_capacity` values may differ. The Xclipse 550 would need the Vulkan build (`GPU=vulkan scripts/build-termux.sh`), which is untested.
 

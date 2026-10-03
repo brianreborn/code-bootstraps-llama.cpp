@@ -4,8 +4,8 @@
 #    (sha256-checked); if none fits this machine, build from source when a compiler exists.
 # 2. models: the default set from config/models-manifest.json (sha256-checked).
 # 3. scripts/serve.sh: router with tools, API key, effective preset.
-# 4. opens the built-in web UI (its agent uses the server tools; it asks before each tool).
-# Ctrl-C stops everything. Settings: PORT, VARIANT=cpu|vulkan|cuda-12|cuda-13,
+# 4. opens the built-in web UI once the server answers with our key (its agent uses the server tools).
+# Ctrl-C or closing the terminal stops everything. Settings: PORT, VARIANT=cpu|vulkan|cuda-12|cuda-13,
 # NO_BROWSER=1, BUILD=1 (always build), COPY_KEY=1 (API key to the clipboard), plus
 # everything scripts/serve.sh reads (PROFILE=lowram, MODELS_MAX, TOOLS, ...).
 set -euo pipefail
@@ -23,21 +23,16 @@ if [[ -n "$missing" ]]; then
   exit 1
 fi
 
-# a port anything listens on (another llama-server, a service that never answers HTTP, ...)
-# counts as busy: bash connects to it with /dev/tcp (no curl timeout involved). The next
-# free port is used; serve.sh prints the address it ends up listening on.
-port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
-if port_busy "$PORT"; then
-  p="$PORT"; for i in $(seq 1 20); do p=$((PORT + i)); port_busy "$p" || break; done
-  port_busy "$p" && { say "ports $PORT-$p are all in use; set PORT="; exit 1; }
-  say "port $PORT is in use, using $p"; export PORT="$p"
-fi
-
 # --- 1. llama-server ---------------------------------------------------------
 if [[ -n "${LLAMA_SERVER:-}" ]]; then
   say "using LLAMA_SERVER=$LLAMA_SERVER"
 elif [[ "${BUILD:-0}" != 1 ]] && LLAMA_SERVER="$(scripts/fetch-llama.sh --variant "${VARIANT:-cpu}")"; then
   :
+elif rc=$?; [[ "${BUILD:-0}" != 1 && "$rc" != 3 ]]; then
+  # 3 = no release binary for this machine (or it does not run here); anything else is a
+  # failed download or checksum, which a source build would not fix
+  say "downloading llama.cpp failed (fetch-llama.sh exit $rc): check the internet connection and run start.sh again"
+  exit 1
 else
   say "no usable release binary; building from source (needs git, cmake and a C++ compiler)"
   case "$(uname -s)" in
@@ -54,6 +49,17 @@ export LLAMA_SERVER
 
 # --- 2. models -----------------------------------------------------------------
 scripts/fetch-models.sh
+
+# a port anything listens on (another llama-server, a service that never answers HTTP, ...)
+# counts as busy: bash connects to it with /dev/tcp (no curl timeout involved). The next
+# free port is used; serve.sh prints the address it ends up listening on. Checked after the
+# downloads, right before the server starts, so a port taken meanwhile is noticed too.
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+if port_busy "$PORT"; then
+  p="$PORT"; for i in $(seq 1 20); do p=$((PORT + i)); port_busy "$p" || break; done
+  port_busy "$p" && { say "ports $PORT-$p are all in use; set PORT="; exit 1; }
+  say "port $PORT is in use, using $p"; export PORT="$p"
+fi
 
 # --- 4. open the web UI once the server answers ------------------------------------
 # $1 = PID of this script, which becomes serve.sh with exec: stop waiting when it is gone.
@@ -81,7 +87,8 @@ open_ui() {
     echo "  Web UI:  $url"
     echo "  API key: $key${copied:+   (copied to the clipboard)}"
     echo "           (stored in $ROOT/.secrets/api-keys)"
-    echo "  The first time, the page shows \"Enter API Key\": paste the key there; the browser keeps it."
+    echo "  The first time, the page says \"Server Connection Error / Access denied\": that is expected."
+    echo "  Click \"Enter API Key\", paste the key above and confirm; the browser keeps it."
     echo "  Files the agent creates go to: ${WORKDIR:-$ROOT/workspace}"
     echo "  Stop with Ctrl-C."
     echo

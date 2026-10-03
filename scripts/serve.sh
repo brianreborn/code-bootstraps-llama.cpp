@@ -98,7 +98,8 @@ logical_cpus() {
   else nproc 2>/dev/null || getconf _NPROCESSORS_ONLN; fi
 }
 physical_cores() {   # unique (package, core) pairs; SMT siblings share a core_id
-  if [[ "$OS" == "Darwin" ]]; then sysctl -n hw.physicalcpu; return; fi
+  if [[ "$OS" == "Darwin" ]]; then   # Apple silicon: performance cores only (efficiency cores slow every op down)
+    sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.physicalcpu; return; fi
   local n=0 d
   n=$(for d in /sys/devices/system/cpu/cpu[0-9]*/topology; do
         [[ -r "$d/core_id" ]] && echo "$(cat "$d/physical_package_id" 2>/dev/null || echo 0):$(cat "$d/core_id")"
@@ -329,6 +330,7 @@ echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default
 # cannot trap it: stop that one with `kill -TERM <pid>`.
 # The server runs in WORKDIR: with the host runtime that is the default tool directory
 # the web UI and agent.py start from (not this repository).
+SERVE_PID=$$
 set -m
 ( cd "$WORKDIR" && exec "$BIN" "${args[@]}" "$@" ) &
 SERVER_PID=$!
@@ -343,9 +345,19 @@ if command -v curl >/dev/null 2>&1; then
       sleep 1
     done ) &
 fi
-forward() { trap '' INT TERM; kill "-$1" "$SERVER_PID" 2>/dev/null || true; }
+# Closing the terminal sends SIGHUP: forward TERM, so the router and its model instances stop
+# instead of being orphaned. If this script dies without a chance to forward (kill -9), the
+# watchdog stops the server group once it notices.
+forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; }
 trap 'forward INT' INT
 trap 'forward TERM' TERM
+trap 'forward TERM' HUP
+( trap '' INT TERM HUP
+  # a killed serve.sh stays a zombie until its parent reaps it: count that as gone
+  while kill -0 "$SERVE_PID" 2>/dev/null && [[ "$(ps -o stat= -p "$SERVE_PID" 2>/dev/null)" != Z* ]] &&
+        kill -0 "$SERVER_PID" 2>/dev/null; do sleep 2; done
+  kill -0 "$SERVER_PID" 2>/dev/null && kill -TERM "-$SERVER_PID" 2>/dev/null
+  exit 0 ) </dev/null >/dev/null 2>&1 &
 status=0
 while :; do
   wait "$SERVER_PID" && status=0 || status=$?

@@ -29,6 +29,8 @@ done
 detect_platform() {
   local os arch
   case "$(uname -m)" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; *) arch="$(uname -m)" ;; esac
+  # a Terminal running under Rosetta reports x86_64 on Apple silicon: take the native build
+  if [[ "$(uname -s)" == Darwin && "$arch" == x64 && "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]]; then arch=arm64; fi
   case "$(uname -s)" in
     Linux)
       if [[ "$(uname -o 2>/dev/null)" == "Android" || "${PREFIX:-}" == *com.termux* ]]; then os=android; else os=linux; fi ;;
