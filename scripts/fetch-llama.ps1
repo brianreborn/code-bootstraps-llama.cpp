@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+. (Join-Path $PSScriptRoot "lib\common.ps1")
 . (Join-Path $PSScriptRoot "lib\download.ps1")
 
 if (-not $Platform) {
@@ -41,6 +42,8 @@ function Get-Asset([string]$File, [string]$Sha) {
 function Expand-Stripped([string]$File, [string]$To) {   # unpack; a single top-level directory is stripped
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("llama-unpack-" + [guid]::NewGuid().ToString("N"))
     $src = Join-Path $dl $File
+    # no "downloaded from the internet" mark on the archive -> none on the DLLs (SmartScreen, blocked DLL loads)
+    if ((Test-Windows) -and (Get-Command Unblock-File -ErrorAction SilentlyContinue)) { Unblock-File -LiteralPath $src }
     if ($File.EndsWith(".zip")) { Expand-Archive -LiteralPath $src -DestinationPath $tmp -Force }
     else { New-Item -ItemType Directory -Path $tmp | Out-Null; tar -xzf $src -C $tmp; if ($LASTEXITCODE) { throw "tar failed on $File" } }
     $top = @(Get-ChildItem -Force -LiteralPath $tmp)
@@ -53,19 +56,29 @@ Get-Asset $asset.file $asset.sha256
 if ($hasExtra) { Get-Asset $asset.extra_file $asset.extra_sha256 }   # CUDA runtime DLLs
 
 $dest = Join-Path $Root "bin\llama-$($rel.tag)-$Platform-$Variant"
+# the stamp lists every unpacked file and its size; a missing or changed file unpacks again
 $stamp = Join-Path $dest ".verified-$($asset.sha256)"
-if (-not (Test-Path -LiteralPath $stamp)) {
+$intact = (Test-Path -LiteralPath $stamp) -and
+    ((@(Get-Content -LiteralPath $stamp) -join "`n") -eq ((Get-TreeManifest $dest) -join "`n"))
+if (-not $intact) {
+    if (Test-Path -LiteralPath $stamp) { Write-Host "fetch-llama: $dest changed since it was unpacked; unpacking again" }
     if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     Expand-Stripped $asset.file $dest
     if ($hasExtra) { Expand-Stripped $asset.extra_file $dest }
-    New-Item -ItemType File -Path $stamp | Out-Null
+    if (Test-Windows) { Get-ChildItem -LiteralPath $dest -Recurse -File | Unblock-File }
+    Write-TextFile $stamp (Get-TreeManifest $dest)
 }
 $exe = Join-Path $dest "llama-server.exe"
 if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $dest "llama-server" }
 if (-not (Test-Path -LiteralPath $exe)) { throw "fetch-llama: llama-server missing after unpacking into $dest" }
 
 # can it run here? (missing VC++ runtime, wrong architecture, ...)
+if ($Platform -like "windows-*" -and -not (Test-Windows)) {
+    Write-Warning "fetch-llama: $Platform binaries run on Windows only (this is $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)); use scripts/fetch-llama.sh here."
+    Remove-Item -Recurse -Force -LiteralPath $dest
+    exit 3
+}
 $ver = ""
 $eap = $ErrorActionPreference; $ErrorActionPreference = "Continue"   # --version prints to stderr; PS 5.1 would throw on it
 try { $ver = (& $exe --version 2>&1 | Out-String); $ok = ($LASTEXITCODE -eq 0) } catch { $ok = $false; $ver = $_.ToString() }
@@ -79,5 +92,5 @@ if (-not $ok) {
 }
 Write-Host "fetch-llama: $((($ver -split "`n") | Where-Object { $_ -match 'version' } | Select-Object -First 1)) -> $exe"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
-Set-Content -LiteralPath (Join-Path $Root ".cache\llama-server.path") -Value $exe -Encoding UTF8
+Write-TextFile (Join-Path $Root ".cache\llama-server.path") $exe
 Write-Output $exe

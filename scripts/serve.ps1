@@ -31,13 +31,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+. (Join-Path $PSScriptRoot "lib\common.ps1")
 if (-not $WorkDir) { $WorkDir = Join-Path $Root "workspace" }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 $WorkDir = (Resolve-Path $WorkDir).Path
 
 # refuse pass-through args that would widen what the instances can do (see serve.sh)
 foreach ($a in $Extra) {
-    if ($a -match '^(--tools(-runtime)?(=.*)?|-ag|--(no-)?agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy.*|--api-key.*|--models-preset.*)$') {
+    $n = $a -replace '_', '-'   # llama-server also accepts --api_key, --mcp_servers_json, ...
+    if ($n -match '^(--tools(-runtime)?(=.*)?|-ag|--(no-)?agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy.*|--api-key.*|--models-preset.*)$') {
         throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig"
     }
 }
@@ -124,30 +126,34 @@ $script:sec = ""
 foreach ($line in $presetLines) {
     if ($line -match '^\[(.*)\]') { Close-Section; $script:sec = $Matches[1]; $script:skip = ($script:sec -like "locale.*") -or ($script:sec -eq "language" -and -not $langModel); if (-not $script:skip) { $out.Add($line) }; continue }
     if ($script:skip) { continue }
-    if ($line -match '^([A-Za-z0-9_-]+)\s*=') { $key = "$($script:sec).$($Matches[1])"
-        if ($localeKeys.ContainsKey($key)) { $out.Add("$($Matches[1]) = $($localeKeys[$key])"); $seen[$key] = $true; continue }
-        if ($overlay.ContainsKey($key)) { $out.Add("$($Matches[1]) = $($overlay[$key])"); $seen[$key] = $true; continue }
+    if ($line -match '^([A-Za-z0-9_-]+)\s*=') { $k = $Matches[1]; $key = "$($script:sec).$k"   # (later -match calls overwrite $Matches)
+        if ($localeKeys.ContainsKey($key)) { $out.Add("$k = $($localeKeys[$key])"); $seen[$key] = $true; continue }
+        if ($overlay.ContainsKey($key)) { $out.Add("$k = $($overlay[$key])"); $seen[$key] = $true; continue }
         # path-valued keys: relative to the repository (the server runs in WorkDir)
-        if ($Matches[1] -match '^(model|mmproj)$|-(file|config|dir|path)$') { $v = ($line -replace '^[^=]*=\s*', '').Trim()
-            if ($v -and -not [System.IO.Path]::IsPathRooted($v)) { $out.Add("$($Matches[1]) = $(Join-Path $Root $v)"); continue } } }
+        if ($k -match '^(model|mmproj)$|-(file|config|dir|path)$') { $v = ($line -replace '^[^=]*=\s*', '').Trim()
+            if ($v -and -not [System.IO.Path]::IsPathRooted($v)) { $out.Add("$k = $(Join-Path $Root $v)"); continue } } }
     $out.Add($line)
 }
 Close-Section
-Set-Content -Encoding utf8 -Path $effective -Value $out
+Write-TextFile $effective $out
 # for scripts/agent.py: what the server was started with
-@{ locale = $langCode; mode = $mode; swapped = ($swapRoles -join " ") } | ConvertTo-Json -Compress | Set-Content -Encoding utf8 (Join-Path $Root ".cache\language.json")
+Write-TextFile (Join-Path $Root ".cache\language.json") (@{ locale = $langCode; mode = $mode; swapped = ($swapRoles -join " ") } | ConvertTo-Json -Compress)
 
 # API key file, generated once (.secrets\ is git-ignored), readable by this user only
 $keyDir = Join-Path $Root ".secrets"; $keyFile = Join-Path $keyDir "api-keys"
 New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
 if (-not (Test-Path $keyFile)) {
     $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")) | Set-Content -Encoding ascii $keyFile
+    Write-TextFile $keyFile @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
     Write-Host "serve.ps1: generated API key in $keyFile"
 }
 # remove inherited ACLs, grant only the current user
-icacls $keyDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
-icacls $keyFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
+if (Test-Windows) {
+    icacls $keyDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $keyDir (exit $LASTEXITCODE); the API key would be readable by others" }
+    icacls $keyFile /inheritance:r /grant:r "$($env:USERNAME):F" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $keyFile (exit $LASTEXITCODE); the API key would be readable by others" }
+}
 $keys = (Get-Content $keyFile | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
 if (-not $keys) { throw "no key in $keyFile" }
 
@@ -182,7 +188,10 @@ if ($ToolsRuntime -eq "auto") {
 } elseif ($ToolsRuntime -ne "host") { $runtime = $ToolsRuntime }
 
 # Only the LLAMA_* variables set here reach llama-server (router and children read them)
-Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $_.Name -eq "LLAMA_API_KEY" } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+# (also the router/child internals, tracing and model download endpoints)
+$clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_SERVER_CHILD_MODE",
+           "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "HF_ENDPOINT", "MODEL_ENDPOINT")
+Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
@@ -190,7 +199,7 @@ if ($McpConfig) {
     # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
     if (-not [System.IO.Path]::IsPathRooted($McpConfig)) { $McpConfig = Join-Path $Root $McpConfig }
     $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
-    (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')) | Set-Content -Encoding utf8 $mcpEff
+    Write-TextFile $mcpEff ((Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd())
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
 
@@ -201,6 +210,7 @@ $srvArgs = @("--host", $BindHost, "--port", $Port,
           "--n-gpu-layers", $GpuLayers, "--fit", "on", "--load-mode", $LoadMode)
 if ($Repack -eq "off") { $srvArgs += "--no-repack" }
 $srvArgs += $Extra
+Write-Host "serve.ps1: starting on http://${BindHost}:$Port"
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel.FullName } else { '-' })"
 # the server runs in WorkDir: with the host runtime that is the web UI's default tool directory

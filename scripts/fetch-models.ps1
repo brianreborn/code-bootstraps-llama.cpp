@@ -14,11 +14,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
+. (Join-Path $PSScriptRoot "lib\common.ps1")
 . (Join-Path $PSScriptRoot "lib\download.ps1")
 if ($env:FULL_VERIFY -eq "1") { $FullVerify = $true }
 
 function Get-Field($o, [string]$name) { if ($o.PSObject.Properties.Name -contains $name) { $o.$name } else { $null } }
-function Get-Fingerprint([string]$Path) { $i = Get-Item -LiteralPath $Path; "$($i.Length) $($i.LastWriteTimeUtc.Ticks)" }
 
 $manifest = Get-Content -Raw "config\models-manifest.json" | ConvertFrom-Json
 $entries = @($manifest.candidates | Where-Object { $_.pick -eq $Pick -and (-not $Role -or $_.role -eq $Role) })
@@ -64,7 +64,7 @@ foreach ($e in $entries) {
         Write-Host "fetch-models: parking $($_.FullName) -> $inactive\"
         Move-Item -LiteralPath $_.FullName -Destination $inactive
     }
-    Set-Content -LiteralPath $stamp -Value (Get-Fingerprint $path) -Encoding ASCII
+    Write-TextFile $stamp (Get-Fingerprint $path)
     Write-Host "fetch-models: OK $($e.role) = $($e.file)"
 }
 Write-Host "fetch-models: done. A running server picks up swaps via GET /models?reload=1 (or restart scripts\serve.ps1)."

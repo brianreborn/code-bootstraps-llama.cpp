@@ -13,6 +13,8 @@ function Get-VerifiedFile([string]$Url, [string]$Dest, [string]$Sha256, [string]
         if ($LASTEXITCODE -ne 0) { throw "${Tag}: download failed (curl exit $LASTEXITCODE): $Url" }
     } else {
         $old = $ProgressPreference; $ProgressPreference = "SilentlyContinue"   # the progress bar makes IWR very slow
+        # Windows PowerShell 5.1 may default to TLS 1.0/1.1, which GitHub and Hugging Face refuse
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         try { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $part -MaximumRedirection 5 }
         finally { $ProgressPreference = $old }
     }

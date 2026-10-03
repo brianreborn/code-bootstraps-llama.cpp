@@ -1,6 +1,6 @@
 # Started by scripts\start.ps1 in the same console: waits until the router answers with the
-# API key, prints the URL and the key (copied to the clipboard), then opens the browser.
-param([int]$Port = 9931, [switch]$NoBrowser, [int]$ParentPid = 0)
+# API key, prints the URL and the key (-CopyKey: also to the clipboard), then opens the browser.
+param([int]$Port = 9931, [switch]$NoBrowser, [switch]$CopyKey, [int]$ParentPid = 0)
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $keyFile = Join-Path $Root ".secrets\api-keys"
 $url = "http://127.0.0.1:$Port/?model=coder"
@@ -19,11 +19,12 @@ for ($i = 0; $i -lt 600; $i++) {   # up to 10 min (first model load on a slow di
 if (-not $ready) { exit 0 }
 $key = $key.Trim()
 $copied = $false
-try { Set-Clipboard -Value $key -ErrorAction Stop; $copied = $true } catch { }
+if ($CopyKey) { try { Set-Clipboard -Value $key -ErrorAction Stop; $copied = $true } catch { } }
 Write-Host ""
 Write-Host "  Web UI:  $url"
 Write-Host "  API key: $key$(if ($copied) { '   (copied to the clipboard)' })"
-Write-Host "  The first time, the page asks for the API key: paste it there."
+Write-Host "           (stored in $keyFile)"
+Write-Host "  The first time, the page shows `"Enter API Key`": paste the key there; the browser keeps it."
 Write-Host "  Files the agent creates go to: $(Join-Path $Root 'workspace')"
 Write-Host "  Close this window (or Ctrl-C) to stop the server."
 Write-Host ""
