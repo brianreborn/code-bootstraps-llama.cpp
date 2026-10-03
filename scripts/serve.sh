@@ -119,7 +119,14 @@ physical_cores() {   # unique (package, core) pairs; SMT siblings share a core_i
 }
 # big.LITTLE: big_cores() in scripts/lib/common.sh (75% rule, at least 2 cores)
 BIG=""
-if [[ "$IS_ANDROID" == 1 || "$(uname -m)" == aarch64 ]]; then BIG="$(big_cores)"; fi
+CPU_CAPS=""
+if [[ "$IS_ANDROID" == 1 || "$(uname -m)" == aarch64 ]]; then
+  BIG="$(big_cores)"
+  # logged with the profile line, so a first run on a new device shows what big_cores saw
+  CPU_CAPS="$(cat /sys/devices/system/cpu/cpu[0-9]*/cpu_capacity 2>/dev/null | tr '\n' ' ' || true)"
+  if [[ -n "$CPU_CAPS" ]]; then CPU_CAPS="cpu_capacity $CPU_CAPS"
+  else CPU_CAPS="$(cat /sys/devices/system/cpu/cpu[0-9]*/cpufreq/cpuinfo_max_freq 2>/dev/null | tr '\n' ' ' || true)"; CPU_CAPS="${CPU_CAPS:+max_freq $CPU_CAPS}"; fi
+fi
 if [[ "$THREADS" == "auto" ]]; then
   if [[ -n "$BIG" ]]; then THREADS="$BIG"; THREADS_SRC="big cores"; else THREADS="$(physical_cores)"; THREADS_SRC="physical cores"; fi
 else THREADS_SRC="THREADS"; fi
@@ -357,6 +364,8 @@ cleanup() {
   # the ready file, if it is ours (a second serve.sh may have written its own)
   if [[ -n "${SERVER_PID:-}" && -f "$ROOT/.cache/serve.ready" && "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" == "$SERVER_PID" ]]; then
     rm -f "$ROOT/.cache/serve.ready"; fi
+  # Termux: the wake lock start.sh took
+  if [[ "${TERMUX_WAKE_LOCKED:-0}" == 1 ]] && command -v termux-wake-unlock >/dev/null 2>&1; then termux-wake-unlock >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
 
@@ -424,7 +433,7 @@ args+=(--load-mode "$LOAD_MODE")
 
 echo "serve.sh: $BIN ${args[*]} $*" >&2
 echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_ARG_TOOLS:-} LLAMA_ARG_TOOLS_RUNTIME=${LLAMA_ARG_TOOLS_RUNTIME:-} LLAMA_ARG_MCP_SERVERS_CONFIG=${LLAMA_ARG_MCP_SERVERS_CONFIG:-}" >&2
-echo "serve.sh: profile=$PROFILE (RAM ${MEM_MB} MB, android=$IS_ANDROID) models-max=$MODELS_MAX threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
+echo "serve.sh: profile=$PROFILE (RAM ${MEM_MB} MB, android=$IS_ANDROID) models-max=$MODELS_MAX threads=$THREADS ($THREADS_SRC${CPU_CAPS:+; ${CPU_CAPS% }}) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
 echo "serve.sh: models: general=$M_GENERAL coder=$M_CODER decision=$M_DECISION" >&2
 echo "serve.sh: language: locale=$LANG_CODE ($LOCALE_SRC) mode=$MODE${SWAP_ROLES:+ swapped=[$SWAP_ROLES]}${LANG_MODEL:+ language-slot=$LANG_MODEL}" >&2
 echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default>}" >&2
@@ -445,7 +454,11 @@ set +m
 # Ready = our server process listens on PORT (not some other program that took the port
 # meanwhile) and answers /health. Then .cache/serve.ready gets "<port> <pid>": start.sh's UI
 # helper waits for that file instead of probing the server with the API key.
-listener_is_ours() {   # 0 = yes, 1 = no, 2 = cannot tell (no ss/lsof)
+listener_is_ours() {   # 0 = yes, 1 = no, 2 = cannot tell (no ss/lsof, or Android)
+  # Android 10+: SELinux denies apps /proc/net and sock_diag, so ss fails and lsof sees no
+  # sockets at all (it would say "not ours"). There the caller accepts "our pid is alive and
+  # the port answers /health" instead: llama-server exits when it cannot bind the port.
+  [[ "$IS_ANDROID" == 1 ]] && return 2
   if command -v ss >/dev/null 2>&1; then
     ss -ltnpH "sport = :$PORT" 2>/dev/null | grep -q "pid=$SERVER_PID," && return 0
     # ss shows no process names for other users' sockets (and on some Termux builds none at all)
@@ -467,6 +480,10 @@ if command -v curl >/dev/null 2>&1; then
         if [[ "$owner" == 1 ]]; then
           warn "port $PORT answers, but not from this server (pid $SERVER_PID): another program took it; stop it or set PORT"
           exit 0
+        fi
+        if [[ "$owner" == 2 ]]; then   # no socket owner to see: our server alive and answering, twice
+          sleep 1
+          kill -0 "$SERVER_PID" 2>/dev/null && curl -s -o /dev/null --max-time 2 "http://$probe_host:$PORT/health" || continue
         fi
         printf '%s %s\n' "$PORT" "$SERVER_PID" > "$READY_FILE.tmp" && mv -f "$READY_FILE.tmp" "$READY_FILE"
         echo "serve.sh: listening on http://$probe_host:$PORT (pid $SERVER_PID)" >&2; exit 0

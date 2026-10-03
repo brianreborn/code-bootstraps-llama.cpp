@@ -6,7 +6,8 @@
 # 3. scripts/serve.sh: router with tools, API key, effective preset.
 # 4. opens the built-in web UI once serve.sh reports the server ready (its agent uses the server tools).
 # Ctrl-C or closing the terminal stops everything. Settings: PORT, VARIANT=cpu|vulkan|cuda-12|cuda-13,
-# NO_BROWSER=1, BUILD=1 (always build), COPY_KEY=1 (API key to the clipboard), plus
+# NO_BROWSER=1, BUILD=1 (always build), COPY_KEY=1 (API key to the clipboard), WAKE_LOCK=0
+# (Termux: no termux-wake-lock), plus
 # everything scripts/serve.sh reads (PROFILE=lowram, MODELS_MAX, TOOLS, ...). Arguments go to
 # serve.sh, i.e. to llama-server for every role (e.g. --ctx-size 8192; model flags are refused).
 set -euo pipefail
@@ -14,13 +15,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 export PORT="${PORT:-9931}"
 say() { echo "start: $*" >&2; }
+TERMUX=0; [[ "${PREFIX:-}" == *com.termux* ]] && TERMUX=1
 
 missing=""
 for t in curl tar awk; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
 command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || missing="$missing sha256sum"
 if [[ -n "$missing" ]]; then
   say "missing tools:$missing"
-  if [[ "${PREFIX:-}" == *com.termux* ]]; then say "install them with: pkg install$missing"; fi
+  if [[ "$TERMUX" == 1 ]]; then say "install them with: pkg install$missing"; fi
   exit 1
 fi
 
@@ -38,9 +40,17 @@ else
   say "no usable release binary; building from source (needs git, cmake and a C++ compiler)"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
-    *) if [[ "${PREFIX:-}" == *com.termux* ]]; then script=scripts/build-termux.sh; else script=scripts/build-linux.sh; fi ;;
+    *) if [[ "$TERMUX" == 1 ]]; then script=scripts/build-termux.sh; else script=scripts/build-linux.sh; fi ;;
   esac
+  if [[ "$TERMUX" == 1 ]]; then
+    say "Termux: building on the phone takes 30-90 min and 1-2 GB (needs: pkg install git clang cmake ninja; JOBS=2 if clang gets killed)"
+    command -v cmake >/dev/null 2>&1 || { say "cmake not found: pkg install git clang cmake ninja"; exit 1; }
+  fi
   command -v cmake >/dev/null 2>&1 || { say "cmake not found: install cmake and a C++ compiler, or use a platform listed in config/llama-release.json"; exit 1; }
+  if [[ ! -f llama.cpp/CMakeLists.txt && ! -e .git ]]; then
+    say "llama.cpp/ is empty and this is not a git clone (a ZIP download?): the build needs the submodule. Use: git clone --recurse-submodules https://github.com/brianreborn/code-bootstraps-llama.cpp"
+    exit 1
+  fi
   [[ -f llama.cpp/CMakeLists.txt ]] || git submodule update --init llama.cpp
   "$script"
   LLAMA_SERVER="$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -1)"
@@ -103,6 +113,10 @@ open_ui() {
     echo "  Click \"Enter API Key\", paste the key above and confirm; the browser keeps it."
     echo "  Files the agent creates go to: ${WORKDIR:-$ROOT/workspace}"
     echo "  Stop with Ctrl-C or by closing this terminal."
+    if [[ "$TERMUX" == 1 ]]; then
+      echo "  Android: in the background Termux may get only the slow cores (or be stopped). Keep it"
+      echo "  visible (split screen), or view the UI from a PC: ssh -p 8022 -L $port:127.0.0.1:$port <phone-ip>"
+    fi
     echo
   } >&2
   [[ "${NO_BROWSER:-0}" == 1 ]] && return 0
@@ -113,6 +127,11 @@ open_ui() {
 }
 rm -f .cache/serve.ready
 open_ui "$$" &
+
+# Termux: keep the CPU awake while the server runs (serve.sh releases it on exit)
+if [[ "$TERMUX" == 1 && "${WAKE_LOCK:-1}" != 0 ]] && command -v termux-wake-lock >/dev/null 2>&1; then
+  termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true
+fi
 
 # --- 3. server (exec: Ctrl-C and kill reach serve.sh, which shuts down cleanly) ---------
 exec scripts/serve.sh "$@"

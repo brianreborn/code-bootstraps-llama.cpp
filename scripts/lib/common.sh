@@ -31,12 +31,14 @@ arg_name() { local n="${1%%=*}"; n="${n//_/-}"; printf '%s' "$n" | tr '[:upper:]
 # the highest. Little cores slow every op down to their pace, so they are left out. If fewer
 # than 2 cores pass (one prime core on a 3-cluster SoC, e.g. 1+3+4), every core outside the
 # slowest cluster is used instead. Prints nothing (= use all physical cores) for a homogeneous
-# CPU, unreadable sysfs, or when that still leaves one core (1 prime + 7 others).
+# CPU, unreadable sysfs, or when that still leaves one core (1 prime + 7 others). A core whose
+# file is missing (offline at that moment, or unreadable) is not counted.
 # $1 = sysfs cpu directory (tests pass a synthetic one).
 big_cores() {
   local dir="${1:-/sys/devices/system/cpu}" f vals
   for f in cpu_capacity cpufreq/cpuinfo_max_freq; do
-    vals=$(cat "$dir"/cpu[0-9]*/"$f" 2>/dev/null) || vals=""
+    # partial output counts: one unreadable (or offline, no cpufreq/) core does not drop the rest
+    vals=$(cat "$dir"/cpu[0-9]*/"$f" 2>/dev/null) || true
     [[ -n "$vals" ]] || continue
     echo "$vals" | awk '{v[NR]=$1; if ($1>max) max=$1; if (min=="" || $1<min) min=$1}
       END { if (NR < 2 || min == max) exit
