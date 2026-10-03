@@ -348,6 +348,38 @@ Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRol
 # runspace of this process, which ends with the server.
 $readyFile = Join-Path $Root ".cache\serve.ready"
 Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
+# Closing the console window ends this process without running the "finally" below. A console
+# control handler (close, logoff, shutdown events) deletes the ready file first; Ctrl-C still
+# goes through "finally". C# 5 syntax: Windows PowerShell 5.1 compiles it with the .NET 4 csc.
+$readyTypeDef = @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+namespace CodeBootstraps {
+    public static class ReadyFileCleanup {
+        public delegate bool Handler(uint ctrlType);
+        [DllImport("kernel32.dll")] static extern bool SetConsoleCtrlHandler(Handler handler, bool add);
+        static Handler keep;   // a static reference: the GC must not collect the delegate
+        static string path;
+        public static bool OnCtrl(uint ctrlType) {
+            if (ctrlType >= 2) { try { File.Delete(path); } catch { } }   // 2 close, 5 logoff, 6 shutdown
+            return false;   // let the default handling (and llama-server's own) continue
+        }
+        public static void Register(string file) {
+            path = file;
+            if (keep != null) return;
+            keep = new Handler(OnCtrl);
+            SetConsoleCtrlHandler(keep, true);
+        }
+    }
+}
+'@
+if (Test-Windows) {
+    try {
+        if (-not ("CodeBootstraps.ReadyFileCleanup" -as [type])) { Add-Type -TypeDefinition $readyTypeDef }
+        [CodeBootstraps.ReadyFileCleanup]::Register($readyFile)
+    } catch { Write-Host "serve.ps1: note: no console-close cleanup for $readyFile ($($_.Exception.Message)); start.bat removes a stale one" }
+}
 $probeHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } elseif ($BindHost -match ':') { "[$BindHost]" } else { $BindHost }
 $sync = [hashtable]::Synchronized(@{ Stop = $false })
 $watch = [powershell]::Create()
