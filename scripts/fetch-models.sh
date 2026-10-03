@@ -41,8 +41,10 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# size + modification time, to skip re-hashing an unchanged file on every start
-fingerprint() { ls -lnL "$1" | awk '{ print $5, $6, $7, $8 }'; }
+# fingerprint (size + modification time in seconds, scripts/lib/common.sh) skips
+# re-hashing an unchanged file on every start
+# shellcheck source=lib/common.sh
+. "$ROOT/scripts/lib/common.sh"
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
   else shasum -a 256 "$1" | cut -d' ' -f1; fi

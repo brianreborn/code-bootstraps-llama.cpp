@@ -51,6 +51,8 @@ SWAP_CODER="${SWAP_CODER:-0}"
 LANGUAGE_DIR="${LANGUAGE_DIR:-$ROOT/models-optional/language}"
 LOG_FILE="${LOG_FILE:-}"
 
+# shellcheck source=lib/common.sh
+. "$ROOT/scripts/lib/common.sh"
 die() { echo "serve.sh: $*" >&2; exit 1; }
 warn() { echo "serve.sh: WARNING: $*" >&2; }
 
@@ -59,7 +61,8 @@ warn() { echo "serve.sh: WARNING: $*" >&2; }
 # unauthenticated-by-default child instances), so tools/MCP/agent/key options must
 # only come from this script.
 for a in "$@"; do
-  case "$a" in
+  n="${a//_/-}"   # llama-server also accepts --api_key, --mcp_servers_json, ...
+  case "$n" in
     --tools|--tools=*|--tools-runtime|--tools-runtime=*|-ag|--agent|--no-agent|--mcp-*|\
     --ui-mcp-proxy*|--webui-mcp-proxy*|--no-ui-mcp-proxy|--no-webui-mcp-proxy|--api-key*|--models-preset*)
       die "argument '$a' is not allowed here; use the TOOLS / TOOLS_RUNTIME / MCP_CONFIG / API_KEY_FILE / MODELS_PRESET variables" ;;
@@ -71,7 +74,7 @@ BIN="${LLAMA_SERVER:-}"
 if [[ -z "$BIN" ]]; then
   # own builds first, then the release binary scripts/fetch-llama.sh verified last
   rel=""; [[ -s "$ROOT/.cache/llama-server.path" ]] && rel="$(cat "$ROOT/.cache/llama-server.path")"
-  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server $rel; do
+  for b in "$ROOT"/build-*/bin/llama-server "$ROOT"/build/bin/llama-server "$rel"; do
     [[ -x "$b" ]] && { BIN="$b"; break; }
   done
 fi
@@ -102,20 +105,7 @@ physical_cores() {   # unique (package, core) pairs; SMT siblings share a core_i
       done | sort -u | wc -l)
   if [[ "$n" -gt 0 ]]; then echo "$n"; else logical_cpus; fi
 }
-# big.LITTLE (Android, arm64 Linux): count the "big" cores, i.e. those with at least
-# 75% of the highest cpu_capacity (or, if the kernel does not export it, of the highest
-# cpuinfo_max_freq). Little cores slow every op down to their pace, so they are left out.
-# Prints nothing when the CPU is homogeneous or the sysfs files are unreadable.
-big_cores() {
-  local f vals
-  for f in cpu_capacity cpufreq/cpuinfo_max_freq; do
-    vals=$(cat /sys/devices/system/cpu/cpu[0-9]*/"$f" 2>/dev/null) || vals=""
-    [[ -n "$vals" ]] || continue
-    echo "$vals" | awk '{v[NR]=$1; if ($1>max) max=$1; if (min=="" || $1<min) min=$1}
-      END { if (NR < 2 || min == max) exit; n=0; for (i in v) if (v[i] >= 0.75*max) n++; print n }'
-    return
-  done
-}
+# big.LITTLE: big_cores() in scripts/lib/common.sh (75% rule, at least 2 cores)
 BIG=""
 if [[ "$IS_ANDROID" == 1 || "$(uname -m)" == aarch64 ]]; then BIG="$(big_cores)"; fi
 if [[ "$THREADS" == "auto" ]]; then
@@ -288,9 +278,13 @@ esac
 # --- environment ------------------------------------------------------------
 # Only the LLAMA_* variables set below reach llama-server: anything inherited
 # (LLAMA_ARG_MCP_SERVERS_JSON, LLAMA_ARG_AGENT, LLAMA_ARG_UI_MCP_PROXY, ...) is cleared,
-# because the router and every child instance read them.
+# because the router and every child instance read them; so are the router/child
+# internals (LLAMA_APP_CMD, LLAMA_SERVER_*), tracing, and model download endpoints.
 while IFS= read -r v; do
-  case "$v" in LLAMA_ARG_*|LLAMA_API_KEY) unset "$v" ;; esac
+  case "$v" in
+    LLAMA_ARG_*|LLAMA_API_KEY|LLAMA_APP_CMD|LLAMA_SERVER_ROUTER_PORT|LLAMA_SERVER_CHILD_MODE|\
+    LLAMA_SERVER_SLOTS_DEBUG|LLAMA_SERVER_SLOTS_N_DIFF|LLAMA_MEDIA_MARKER|LLAMA_TRACE|HF_ENDPOINT|MODEL_ENDPOINT) unset "$v" ;;
+  esac
 done < <(compgen -e)
 # The key goes through the environment (not --api-key-file) so the child instances
 # inherit it too: they listen on random 127.0.0.1 ports and now answer 401 without it.
@@ -330,13 +324,25 @@ echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default
 
 # Start the server in its own process group (job control on), so a terminal Ctrl-C
 # reaches only this script, which forwards exactly one signal. Two SIGINTs would make
-# llama-server skip its clean shutdown.
+# llama-server skip its clean shutdown. A serve.sh started in the background by a
+# non-interactive shell (`scripts/serve.sh &` in a script) inherits SIGINT as ignored and
+# cannot trap it: stop that one with `kill -TERM <pid>`.
 # The server runs in WORKDIR: with the host runtime that is the default tool directory
 # the web UI and agent.py start from (not this repository).
 set -m
 ( cd "$WORKDIR" && exec "$BIN" "${args[@]}" "$@" ) &
 SERVER_PID=$!
 set +m
+# report the address once the server answers (start.sh may have moved PORT)
+if command -v curl >/dev/null 2>&1; then
+  ( for _ in $(seq 1 600); do
+      kill -0 "$SERVER_PID" 2>/dev/null || exit 0
+      if curl -s -o /dev/null --max-time 2 "http://$HOST:$PORT/health"; then
+        echo "serve.sh: listening on http://$HOST:$PORT (pid $SERVER_PID)" >&2; exit 0
+      fi
+      sleep 1
+    done ) &
+fi
 forward() { trap '' INT TERM; kill "-$1" "$SERVER_PID" 2>/dev/null || true; }
 trap 'forward INT' INT
 trap 'forward TERM' TERM

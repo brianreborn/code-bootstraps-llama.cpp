@@ -12,6 +12,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+# shellcheck source=lib/common.sh
+. "$ROOT/scripts/lib/common.sh"
 RELEASE="${RELEASE:-config/llama-release.json}"
 platform=""; variant="${VARIANT:-cpu}"; print_only=0
 while [[ $# -gt 0 ]]; do
@@ -73,25 +75,29 @@ fetch() {   # $1 file, $2 sha256
   mv ".cache/dl/$f.part" ".cache/dl/$f"
   echo "fetch-llama.sh: OK sha256 $f" >&2
 }
-unpack() {   # $1 archive -> $dest (top-level directory stripped)
-  local tmp; tmp="$(mktemp -d "${TMPDIR:-/tmp}/llama-unpack.XXXXXX")"
+unpack() {   # $1 archive -> $dest (top-level directory stripped); mv keeps the .so symlinks
+  local tmp; tmp="$(mktemp -d "$ROOT/.cache/unpack.XXXXXX")"
   case "$1" in
     *.tar.gz) tar -xzf ".cache/dl/$1" -C "$tmp" ;;
     *.zip) if command -v unzip >/dev/null 2>&1; then unzip -q ".cache/dl/$1" -d "$tmp"; else tar -xf ".cache/dl/$1" -C "$tmp"; fi ;;
   esac
-  local top; top="$(find "$tmp" -mindepth 1 -maxdepth 1)"
-  if [[ "$(echo "$top" | wc -l)" -eq 1 && -d "$top" ]]; then cp -R "$top"/. "$dest"/; else cp -R "$tmp"/. "$dest"/; fi
+  local top src e; top="$(find "$tmp" -mindepth 1 -maxdepth 1)"
+  if [[ "$(echo "$top" | wc -l)" -eq 1 && -d "$top" ]]; then src="$top"; else src="$tmp"; fi
+  for e in "$src"/* "$src"/.[!.]*; do [[ -e "$e" || -L "$e" ]] && mv -f "$e" "$dest"/; done
   rm -rf "$tmp"
 }
 
 fetch "$file" "$sha"
 [[ "$extra" == "-" ]] || fetch "$extra" "$extra_sha"
+# the stamp lists every unpacked file (size) and symlink (target); a missing or changed
+# file makes the archive unpack again
 stamp="$dest/.verified-$sha"
-if [[ ! -f "$stamp" ]]; then
+if [[ ! -f "$stamp" || "$(tree_manifest "$dest")" != "$(cat "$stamp")" ]]; then
+  [[ -f "$stamp" ]] && echo "fetch-llama.sh: $dest changed since it was unpacked; unpacking again" >&2
   rm -rf "$dest"; mkdir -p "$dest"
   unpack "$file"
   [[ "$extra" == "-" ]] || unpack "$extra"
-  touch "$stamp"
+  tree_manifest "$dest" > "$stamp"
 fi
 exe="$dest/llama-server"; [[ -f "$exe.exe" ]] && exe="$exe.exe"
 [[ -x "$exe" ]] || { echo "fetch-llama.sh: $exe missing after unpacking" >&2; exit 1; }
