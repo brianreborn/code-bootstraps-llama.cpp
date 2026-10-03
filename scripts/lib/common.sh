@@ -7,14 +7,24 @@ fingerprint() {
   stat -c '%s %Y' -L "$1" 2>/dev/null || stat -L -f '%z %m' "$1"   # GNU/busybox/Termux, else BSD/macOS
 }
 
-# Manifest of an unpacked directory: one line per file ("f <size> <path>") or symlink
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# Manifest of an unpacked directory: one line per file ("f <size> <sha256> <path>") or symlink
 # ("l <target> <path>"), sorted, paths relative to the directory; .verified-* stamps excluded.
+# Same format as Get-TreeManifest in scripts/lib/common.ps1.
 tree_manifest() {
   ( cd "$1" && find . \( -type f -o -type l \) ! -name '.verified-*' | LC_ALL=C sort | while IFS= read -r p; do
       if [[ -L "$p" ]]; then printf 'l %s %s\n' "$(readlink "$p")" "${p#./}"
-      else printf 'f %s %s\n' "$(stat -c %s "$p" 2>/dev/null || stat -f %z "$p")" "${p#./}"; fi
+      else printf 'f %s %s %s\n' "$(stat -c %s "$p" 2>/dev/null || stat -f %z "$p")" "$(sha256_of "$p")" "${p#./}"; fi
     done )
 }
+
+# Lower-case option name of a command-line argument, for refusal checks: "--Models_Dir=x" ->
+# "--models-dir" (llama-server accepts _ for - in long options).
+arg_name() { local n="${1%%=*}"; n="${n//_/-}"; printf '%s' "$n" | tr '[:upper:]' '[:lower:]'; }
 
 # big.LITTLE (Android, arm64 Linux): how many "big" cores to use. A core counts when its
 # cpu_capacity (or, if the kernel does not export it, cpuinfo_max_freq) is at least 75% of
