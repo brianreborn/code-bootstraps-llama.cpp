@@ -7,8 +7,10 @@ shell commands happen wherever the server's --tools-runtime puts them.
 
   python3 scripts/agent.py --cwd ./workspace "create hello.py that prints hi, then run it"
 
-Tools that need the "write" permission, and every tool that is not a read-only
-built-in (MCP tools included), ask before running unless --yes.
+Only the tools offered to the model can run; a call to any other tool is refused.
+A tool runs without asking only when the server lists it as a built-in (type "server")
+without the "write" permission; every other tool (writes, shell, MCP tools) asks before
+running unless --yes. Without a terminal to answer, the answer is no.
 
 Languages (see README "Languages"). scripts/serve.sh records the locale and mode it
 started with in .cache/language.json (LOCALE / LANGUAGE_MODE / --language-mode override).
@@ -37,8 +39,6 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# built-in tools that only read; everything else (write tools, MCP tools) needs confirmation
-READ_ONLY_BUILTINS = {"read_file", "file_glob_search", "grep_search", "get_info"}
 LEAN_TOOLS = ["read_file", "write_file", "edit_file", "exec_shell_command"]
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
@@ -86,6 +86,18 @@ def outside_path(cwd, params):
             if full != root and not full.startswith(root + os.sep):
                 return v
     return None
+
+
+def ask(prompt):
+    """y/N question on stdin; a closed stdin or end of input means no."""
+    if sys.stdin is None or sys.stdin.closed:
+        print(prompt + "(stdin closed: denied; use --yes to allow)", file=sys.stderr)
+        return False
+    try:
+        return input(prompt).strip().lower() == "y"
+    except (EOFError, OSError, ValueError):
+        print("(no answer: denied)", file=sys.stderr)
+        return False
 
 
 def read_key(path):
@@ -277,16 +289,23 @@ def main():
         if not ok:   # never lose code: give the coder the original too
             prompt += "\n\n(Original message, code spans authoritative:)\n" + a.prompt
 
-    tools = c.req("GET", "/tools")
+    all_tools = c.req("GET", "/tools")
+    tools = all_tools
     if a.tools:
         want = LEAN_TOOLS if a.tools == "lean" else [t.strip() for t in a.tools.split(",") if t.strip()]
-        missing = [t for t in want if t not in {x["tool"] for x in tools}]
+        missing = [t for t in want if t not in {x["tool"] for x in all_tools}]
         if missing:
             print(f"[agent] not on the server, skipped: {','.join(missing)}", file=sys.stderr)
-        tools = [t for t in tools if t["tool"] in want]
+        tools = [t for t in all_tools if t["tool"] in want]
     defs = [t["definition"] for t in tools]
-    needs_write = {t["tool"] for t in tools
-                   if (t.get("permissions") or {}).get("write") or t["tool"] not in READ_ONLY_BUILTINS}
+    offered = {t["tool"] for t in tools}
+    # approval comes from the server's full list, never from the offered subset or a tool's name:
+    # only a built-in (type "server") without the write permission runs unasked. If two tools
+    # share a name (an MCP tool called read_file), the stricter rule wins.
+    needs_ok = {t["tool"] for t in all_tools
+                if t.get("type") != "server" or (t.get("permissions") or {}).get("write") is not False}
+    # file changes (any tool that may write, except the shell) start a new state for the repeat guard
+    resets = {t["tool"] for t in all_tools if t["tool"] in needs_ok and t["tool"] != "exec_shell_command"}
     names = [t["tool"] for t in tools]
     print(f"[agent] model={a.model} tools={','.join(names)} cwd={cwd or '(server cwd)'}", file=sys.stderr)
 
@@ -302,10 +321,11 @@ def main():
     ]
     log = open(a.json_log, "a", encoding="utf-8") if a.json_log else None
     # repeat guard: small coders (Qwen3.5-2B, measured) sometimes re-run the same call until the
-    # step limit. An identical call is skipped when nothing changed since it last ran (tools that
-    # write, MCP tools and shell commands bump the epoch) or when it already ran twice.
-    # A model that repeats again after being told gets no tools on its next step.
-    seen, runs, epoch, skips = {}, {}, 0, 0
+    # step limit. An identical call runs once per "epoch"; a new epoch starts whenever a file tool
+    # (write_file, edit_file) or an MCP tool runs, so run/edit/run/edit/run works. Shell commands
+    # do not start one (repeating `python3 hello.py` is the loop seen in practice). A model that
+    # repeats again after being told gets no tools on its next step.
+    ran, epoch, skips = set(), 0, 0
     for step in range(1, a.max_steps + 1):
         t0 = time.time()
         body = {"model": a.model, "messages": messages, "tools": defs, "max_tokens": a.max_tokens}
@@ -344,9 +364,15 @@ def main():
             else:
                 print(f"[tool] {fn} {json.dumps(params)[:300]}", file=sys.stderr)
                 key = (fn, json.dumps(params, sort_keys=True))
-                if seen.get(key) == epoch or runs.get(key, 0) >= 2:
-                    out = ("Not run again: this exact call already ran and its result is above. "
-                           "If the task is done, do not call more tools: reply with a one-line summary.")
+                if fn not in offered:   # never run a tool the model was not given (its approval may differ)
+                    out = json.dumps({"error": f"unknown tool {fn!r}; available: {', '.join(sorted(offered))}"})
+                    print(f"[tool] -> refused: {fn} was not offered", file=sys.stderr)
+                    messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                    continue
+                if (key, epoch) in ran:
+                    out = ("Not run again: this identical call already ran, and no file was written or edited "
+                           "since, so look at its earlier result. If the task is done, do not call more tools: "
+                           "reply with a one-line summary. Otherwise do something different.")
                     skips += 1
                     print(f"[tool] -> skipped repeat", file=sys.stderr)
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
@@ -357,15 +383,15 @@ def main():
                     print(f"[tool] -> {out}", file=sys.stderr)
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
                     continue
-                if fn in needs_write and not a.yes:
-                    if input(f"allow {fn}? [y/N] ").strip().lower() != "y":
+                if fn in needs_ok and not a.yes:
+                    if not ask(f"allow {fn}? [y/N] "):
                         out = json.dumps({"error": "denied by user"})
                         messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
                         continue
                 r = c.req("POST", "/tools", {"tool": fn, "params": params})
-                if fn in needs_write:
+                if fn in resets:
                     epoch += 1
-                seen[key] = epoch; runs[key] = runs.get(key, 0) + 1
+                ran.add((key, epoch))
                 out = r["plain_text_response"] if "plain_text_response" in r else json.dumps(r)
             print(f"[tool] -> {out[:300]!r}", file=sys.stderr)
             if log:
