@@ -1,0 +1,22 @@
+# Build output
+build*/
+
+# Model weights (downloaded separately, never committed)
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.\#*
+\#*\#
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
