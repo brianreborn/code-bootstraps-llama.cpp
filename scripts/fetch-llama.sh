@@ -115,8 +115,13 @@ exe="$dest/llama-server"; [[ -f "$exe.exe" ]] && exe="$exe.exe"
 if ! out="$("$exe" --version 2>&1)"; then
   echo "fetch-llama.sh: the release llama-server does not run on this machine:" >&2
   echo "$out" | head -5 >&2
-  command -v ldd >/dev/null 2>&1 && ldd "$exe" 2>/dev/null | grep 'not found' >&2 || true
-  echo "fetch-llama.sh: install the missing libraries (see the note in $RELEASE) or build from source (scripts/build-*.sh)." >&2
+  if grep -qiE 'exec format error|cannot execute binary|bad CPU type' <<< "$out"; then
+    # e.g. --platform android-arm64 on an x86_64 PC: not a missing library
+    echo "fetch-llama.sh: it is built for $platform, and this machine is $(uname -sm) ($(detect_platform)); use the binary there, or build from source here (scripts/build-*.sh)." >&2
+  else
+    command -v ldd >/dev/null 2>&1 && ldd "$exe" 2>/dev/null | grep 'not found' >&2 || true
+    echo "fetch-llama.sh: install the missing libraries (see the note in $RELEASE) or build from source (scripts/build-*.sh)." >&2
+  fi
   rm -rf "$dest"   # never leave a binary that cannot run where serve.sh would find it
   exit 3
 fi
