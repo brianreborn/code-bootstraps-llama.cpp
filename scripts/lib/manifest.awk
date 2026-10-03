@@ -15,6 +15,7 @@ function emit(   i, n, f, out, ok, nm, m, kv) {
   print out
 }
 BEGIN { reset() }
+/^[ \t]*[{][ \t]*$/ { reset(); next }   # a new object: nothing carries over from the enclosing one
 /^[ \t]*"[A-Za-z0-9_]+":[ \t]*/ {
   line = $0; sub(/^[ \t]*"/, "", line)
   k = line; sub(/".*/, "", k)

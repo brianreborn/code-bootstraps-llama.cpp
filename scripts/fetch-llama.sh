@@ -51,14 +51,19 @@ field() {   # top-level "key": "value" of the release manifest
 }
 tag="$(field tag)"; base="$(field base_url)"
 row="$(awk -v match_kv="platform=$platform variant=$variant" \
-  -v fields="file sha256 extra_file extra_sha256" -f scripts/lib/manifest.awk "$RELEASE" | head -1)"
+  -v fields="file sha256 extra_file extra_sha256 base_url" -f scripts/lib/manifest.awk "$RELEASE" | head -1)"
 if [[ -z "$row" ]]; then
   echo "fetch-llama.sh: no $tag release binary for platform '$platform' variant '$variant' in $RELEASE." >&2
   echo "fetch-llama.sh: listed: $(awk -v match_kv= -v fields='platform variant' -f scripts/lib/manifest.awk "$RELEASE" | tr '\t' '/' | tr '\n' ' ')" >&2
   echo "fetch-llama.sh: build from source instead (scripts/build-*.sh)." >&2
   exit 3
 fi
-IFS=$'\t' read -r file sha extra extra_sha <<< "$row"
+IFS=$'\t' read -r file sha extra extra_sha row_base <<< "$row"
+# an asset with its own base_url is not an upstream ggml-org build (Android: see its note)
+if [[ "$row_base" != "-" ]]; then
+  base="$row_base"
+  echo "fetch-llama.sh: $platform: using this repository's own build of $tag (not upstream's asset): $(awk -v match_kv="platform=$platform variant=$variant" -v fields=note -f scripts/lib/manifest.awk "$RELEASE" | head -1)" >&2
+fi
 
 dest="bin/llama-$tag-$platform-$variant"
 mkdir -p .cache/dl

@@ -31,13 +31,15 @@ if (-not $asset) {
     Write-Warning "fetch-llama: build from source instead (scripts\build-windows.ps1)."
     exit 3
 }
+# an asset with its own base_url is not an upstream ggml-org build (see its note)
+$base = if (($asset.PSObject.Properties.Name -contains "base_url") -and $asset.base_url) { $asset.base_url } else { $rel.base_url }
 $dl = Join-Path $Root ".cache\dl"
 New-Item -ItemType Directory -Force -Path $dl | Out-Null
 function Get-Asset([string]$File, [string]$Sha) {
     $dest = Join-Path $dl $File
     if ((Test-Path -LiteralPath $dest) -and ((Get-Sha256 $dest) -eq $Sha)) { Write-Host "fetch-llama: $File already downloaded and verified"; return }
-    Write-Host "fetch-llama: $($rel.base_url)$File"
-    Get-VerifiedFile -Url "$($rel.base_url)$File" -Dest $dest -Sha256 $Sha -Tag "fetch-llama"
+    Write-Host "fetch-llama: $base$File"
+    Get-VerifiedFile -Url "$base$File" -Dest $dest -Sha256 $Sha -Tag "fetch-llama"
 }
 function Expand-Stripped([string]$File, [string]$To) {   # unpack; a single top-level directory is stripped
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("llama-unpack-" + [guid]::NewGuid().ToString("N"))

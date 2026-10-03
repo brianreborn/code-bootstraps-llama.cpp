@@ -26,5 +26,5 @@ PY
   else echo "check-manifests: MISMATCH in $1"; diff <(echo "$want") <(echo "$got") || true; rc=1; fi
 }
 check config/models-manifest.json candidates "pick role repo revision file sha256 tested dir notice bytes"
-[[ -f config/llama-release.json ]] && check config/llama-release.json assets "platform variant file sha256 bytes"
+[[ -f config/llama-release.json ]] && check config/llama-release.json assets "platform variant file sha256 bytes base_url"
 exit $rc
