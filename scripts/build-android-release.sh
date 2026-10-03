@@ -91,7 +91,10 @@ syms="$("$READELF" --dyn-syms -W "$BIN/libllama-common.so" | awk '$7 == "UND" {s
 for s in fork execvpe chdir waitpid pipe2; do
   grep -qx "$s" <<< "$syms" || { echo "check: libllama-common.so does not import $s (subprocess off?)" >&2; fail=1; }; done
 grep -qx posix_spawn_file_actions_addchdir_np <<< "$syms" && { echo "check: libllama-common.so imports posix_spawn_file_actions_addchdir_np (API 34)" >&2; fail=1; }
-api="$("$READELF" -n "$BIN/llama-server" | awk '/Android/ {a=1} a && /description data/ {print; exit}')"
+# .note.android.ident: 4-byte little-endian API level, then the NDK release ("r29")
+api="$("$READELF" -n "$BIN/llama-server" | awk '/NT_ANDROID_TYPE_IDENT/ {a=1; next} a && /description data:/ {print $6 $5 $4 $3; exit}')"
+[[ "$api" =~ ^[0-9a-f]{8}$ ]] && api=$((16#$api))
+[[ "$api" == "$API" ]] || { echo "check: llama-server is for API '${api}', want $API" >&2; fail=1; }
 grep -l -e "$ROOT" -e "$ANDROID_NDK" "$BIN/llama-server" "$BIN"/*.so >&2 && { echo "check: build paths ($ROOT, $ANDROID_NDK) left in the files above" >&2; fail=1; }
 ls "$BIN"/libggml-cpu-android_armv8.0_1.so >/dev/null || fail=1
 [[ "$fail" == 0 ]] || die "checks failed; not packing"
@@ -112,11 +115,11 @@ ui_tgz="$(find "$BUILD_DIR" -name 'dist.tar.gz' -path '*ui*' 2>/dev/null | head 
   echo "                  NOT an upstream ggml-org build"
   echo "build host:       $(uname -sm), $(cmake --version | head -1), ninja $(ninja --version)"
   echo "NDK:              $NDK_REV ($(basename "$ANDROID_NDK")), $("$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --version | head -1)"
-  echo "target:           arm64-v8a, android-$API (ELF note: ${api:-?})"
+  echo "target:           arm64-v8a, Android API $api (Android 9+), CPU only (GGML_CPU_ALL_VARIANTS: the best armv8/armv9 variant is loaded at run time)"
   echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
   echo "HF_UI_VERSION:    $HF_UI_VERSION${ui_tgz:+ (UI assets sha256 $(sha256sum "$ui_tgz" | cut -d' ' -f1))}"
   echo "cmake arguments:"
-  printf '  %s\n' "${cmake_args[@]}" | sed "s|$ROOT/||g; s|$ANDROID_NDK|\$ANDROID_NDK|g"
+  printf '  %s\n' "${cmake_args[@]}" | sed "s|$ANDROID_NDK|\$ANDROID_NDK|g; s|$ROOT|<repo>|g"
   echo "checks:           RUNPATH \$ORIGIN on llama-server and every .so; libllama-common.so imports fork, execvpe, chdir, waitpid, pipe2"
   echo "rebuild:          git clone --recurse-submodules https://github.com/brianreborn/code-bootstraps-llama.cpp"
   echo "                  cd code-bootstraps-llama.cpp && git checkout $REPO_COMMIT && git submodule update --init llama.cpp"
