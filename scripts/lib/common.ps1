@@ -1,4 +1,7 @@
 # Shared by the scripts\*.ps1 (dot-sourced). Windows PowerShell 5.1 and PowerShell 7.
+# The scripts run under Set-StrictMode -Version Latest: every script-scope variable read here is
+# set here first (reading an unset one throws). tests/test-ps1-helpers.ps1 runs these functions.
+$script:FileIdFailed = $false   # Add-Type of CodeBootstraps.FileId failed once: do not retry
 
 # Text files for llama-server and the shell scripts must be UTF-8 WITHOUT a byte order mark:
 # Set-Content -Encoding utf8 on 5.1 writes one, and llama-server b11374 then fails with
@@ -94,6 +97,21 @@ function Test-SameFile([string]$A, [string]$B) {
         try { Initialize-FileId; return ([CodeBootstraps.FileId]::Identity($A) -eq [CodeBootstraps.FileId]::Identity($B)) } catch { }
     }
     return ([IO.Path]::GetFullPath($A) -ieq [IO.Path]::GetFullPath($B))
+}
+
+# Did llama-server write its own "listening on http://<host>:<Port>" line to its --log-file?
+# It logs that only after the bind succeeded. The log is open for writing by llama-server, so it
+# is opened with ReadWrite+Delete sharing. param() block (not "function f(...)"): serve.ps1 hands
+# this function's text to its readiness runspace, and only a param block is part of that text.
+function Test-ServerSaidListening {
+    param([string]$LogFile, [int]$Port)
+    $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete   # NOT inside a New-Object argument list
+    $text = ""
+    try {
+        $fs = [IO.FileStream]::new($LogFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, $share)
+        try { $text = [IO.StreamReader]::new($fs).ReadToEnd() } finally { $fs.Dispose() }
+    } catch { return $false }
+    return [regex]::IsMatch($text, "listening on http://\S*:$Port(?![0-9])")
 }
 
 function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }

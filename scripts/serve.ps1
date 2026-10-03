@@ -378,8 +378,8 @@ Remove-Item -Force -LiteralPath $logFile -ErrorAction SilentlyContinue   # an ol
 $exeId = ""
 if (Test-Windows) { try { Initialize-FileId; $exeId = [CodeBootstraps.FileId]::Identity($LlamaServer) } catch { } }
 # Closing the console window ends this process without running the "finally" below. A console
-# control handler (close, logoff, shutdown events) deletes the ready file first; Ctrl-C still
-# goes through "finally". C# 5 syntax: Windows PowerShell 5.1 compiles it with the .NET 4 csc.
+# control handler (close, logoff, shutdown events) deletes the ready file and the per-start
+# LLAMA_CACHE directory first; Ctrl-C still goes through "finally". C# 5 syntax: Windows PowerShell 5.1 compiles it with the .NET 4 csc.
 $readyTypeDef = @'
 using System;
 using System.IO;
@@ -389,13 +389,17 @@ namespace CodeBootstraps {
         public delegate bool Handler(uint ctrlType);
         [DllImport("kernel32.dll")] static extern bool SetConsoleCtrlHandler(Handler handler, bool add);
         static Handler keep;   // a static reference: the GC must not collect the delegate
-        static string path;
+        static string path, cacheDir;
         public static bool OnCtrl(uint ctrlType) {
-            if (ctrlType >= 2) { try { File.Delete(path); } catch { } }   // 2 close, 5 logoff, 6 shutdown
+            if (ctrlType >= 2) {   // 2 close, 5 logoff, 6 shutdown
+                try { File.Delete(path); } catch { }
+                // recursive delete removes a junction/symlink inside without following it
+                try { if (cacheDir != null) Directory.Delete(cacheDir, true); } catch { }
+            }
             return false;   // let the default handling (and llama-server's own) continue
         }
-        public static void Register(string file) {
-            path = file;
+        public static void Register(string file, string cache) {
+            path = file; cacheDir = cache;
             if (keep != null) return;
             keep = new Handler(OnCtrl);
             SetConsoleCtrlHandler(keep, true);
@@ -406,21 +410,17 @@ namespace CodeBootstraps {
 if (Test-Windows) {
     try {
         if (-not ("CodeBootstraps.ReadyFileCleanup" -as [type])) { Add-Type -TypeDefinition $readyTypeDef }
-        [CodeBootstraps.ReadyFileCleanup]::Register($readyFile)
+        [CodeBootstraps.ReadyFileCleanup]::Register($readyFile, $llamaCache)
     } catch { Write-Host "serve.ps1: note: no console-close cleanup for $readyFile ($($_.Exception.Message)); start.bat removes a stale one" }
 }
 $probeHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } elseif ($BindHost -match ':') { "[$BindHost]" } else { $BindHost }
 $sync = [hashtable]::Synchronized(@{ Stop = $false })
 $watch = [powershell]::Create()
 [void]$watch.AddScript({
-    param($sync, $port, $probeHost, $exe, $parentPid, $readyFile, $onWindows, $logFile, $exeId)
-    function Test-SaidListening {   # the log is open for writing by llama-server: share it
-        try {
-            $fs = New-Object IO.FileStream($logFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
-            try { $text = (New-Object IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
-        } catch { return $false }
-        return [regex]::IsMatch($text, "listening on http://\S*:$port(?![0-9])")
-    }
+    param($sync, $port, $probeHost, $exe, $parentPid, $readyFile, $onWindows, $logFile, $exeId, $saidListeningDef)
+    Set-StrictMode -Version Latest
+    # the same Test-ServerSaidListening as in scripts\lib\common.ps1 (tests/test-ps1-helpers.ps1 runs it)
+    Set-Item -Path function:Test-ServerSaidListening -Value ([scriptblock]::Create($saidListeningDef))
     function Test-OurExe($path) {
         if (-not $path) { return $false }
         if ($exeId) { try { return [CodeBootstraps.FileId]::Identity($path) -eq $exeId } catch { } }
@@ -428,7 +428,7 @@ $watch = [powershell]::Create()
     }
     for ($i = 0; $i -lt 2400 -and -not $sync.Stop; $i++) {
         Start-Sleep -Milliseconds 500
-        if (-not (Test-SaidListening)) { continue }
+        if (-not (Test-ServerSaidListening -LogFile $logFile -Port $port)) { continue }
         $owner = 0
         if ($onWindows) {
             try {
@@ -445,7 +445,7 @@ $watch = [powershell]::Create()
         return
     }
 })
-[void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows)).AddArgument($logFile).AddArgument($exeId)
+[void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows)).AddArgument($logFile).AddArgument($exeId).AddArgument(${function:Test-ServerSaidListening}.ToString())
 # the server runs in WorkDir: with the host runtime that is the web UI's default tool directory
 Push-Location $WorkDir
 try {
