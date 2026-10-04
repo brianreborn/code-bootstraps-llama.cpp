@@ -16,8 +16,10 @@ PORT="${PORT:-9931}"                            # upstream's upcoming default po
 MODELS_DIR="${MODELS_DIR:-$ROOT/models}"        # one subdirectory per role
 MODELS_PRESET="${MODELS_PRESET:-$ROOT/config/models-preset.ini}"
 MANIFEST="${MANIFEST:-$ROOT/config/models-manifest.json}"   # pinned files and their sha256
-PROFILE="${PROFILE:-auto}"                      # auto | default | lowram (auto: lowram on Android/Termux, < 6 GB RAM or a slow CPU)
-MODELS_MAX="${MODELS_MAX:-}"                    # models kept loaded at once (LRU); default 2, lowram 1
+PROFILE="${PROFILE:-auto}"                      # auto | lowram | moderate | default (README "Light tuning")
+MODELS_MAX="${MODELS_MAX:-}"                    # general/coder kept loaded at once (LRU): lowram 1, moderate/default 2; the decision model stays loaded on top (not lowram)
+# light tuning (README "Light tuning"): CTX (coder + general context), CODER_CTX, GENERAL_CTX, PARALLEL (coder sessions)
+CTX="${CTX:-}"; CODER_CTX="${CODER_CTX:-$CTX}"; GENERAL_CTX="${GENERAL_CTX:-$CTX}"; PARALLEL="${PARALLEL:-}"
 API_KEY_FILE="${API_KEY_FILE:-$ROOT/.secrets/api-keys}"
 MCP_CONFIG="${MCP_CONFIG-$ROOT/config/mcp-servers.json}"   # set to "" to disable MCP
 # TOOLS: auto | full | lean | comma list | "" (none). Every tool definition is in every prompt
@@ -107,7 +109,15 @@ mem_total_mb() {
   elif [[ -r /proc/meminfo ]]; then awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo
   else echo 0; fi
 }
-MEM_MB="$(mem_total_mb)"
+mem_avail_mb() {   # 0 = unknown
+  if [[ -r /proc/meminfo ]]; then awk '/^MemAvailable:/ {print int($2/1024); f=1} END {if (!f) print 0}' /proc/meminfo
+  else echo 0; fi
+}
+# MEM_TOTAL_MB / MEM_AVAIL_MB override the detection (tests, or a machine that reports it wrongly)
+MEM_MB="${MEM_TOTAL_MB:-$(mem_total_mb)}"
+AVAIL_MB="${MEM_AVAIL_MB:-$(mem_avail_mb)}"
+# unknown free RAM (macOS): assume the OS and apps keep 2 GB
+[[ "$AVAIL_MB" -gt 0 || "$MEM_MB" -le 0 ]] || AVAIL_MB=$(( MEM_MB - 2048 ))
 
 # --- CPU topology -----------------------------------------------------------
 logical_cpus() {
@@ -154,24 +164,50 @@ weak_cpu() {
   return 1
 }
 WEAK="$(weak_cpu || true)"
+# auto, most conservative first (never more than the RAM that is free now):
+#   lowram   : < 6.9 GB RAM, a slow CPU, or < 2 GB free
+#   moderate : Android, or less free RAM than default needs (6.5 GB)
+#   default  : otherwise
 if [[ "$PROFILE" == "auto" ]]; then
-  if [[ "$IS_ANDROID" == 1 ]] || { [[ "$MEM_MB" -gt 0 ]] && [[ "$MEM_MB" -lt 6144 ]]; }; then PROFILE=lowram
-  elif [[ -n "$WEAK" ]]; then PROFILE=lowram
+  if [[ "$MEM_MB" -gt 0 && "$MEM_MB" -lt 6900 ]]; then PROFILE=lowram; PROFILE_WHY="auto: ${MEM_MB} MB RAM"
+  elif [[ -n "$WEAK" ]]; then PROFILE=lowram; PROFILE_WHY="auto: slow CPU, $WEAK"
     warn "slow CPU ($WEAK): using the lowram profile (lean tools, smaller contexts); the first answer can still take minutes"
-  else PROFILE=default; fi
-elif [[ -n "$WEAK" && "$PROFILE" == default ]]; then
-  warn "slow CPU ($WEAK): PROFILE=default is heavy here; PROFILE=lowram (or TOOLS=lean) answers much sooner"
+  elif [[ "$AVAIL_MB" -gt 0 && "$AVAIL_MB" -lt 2048 ]]; then PROFILE=lowram; PROFILE_WHY="auto: only ${AVAIL_MB} MB RAM free"
+  elif [[ "$IS_ANDROID" == 1 ]]; then PROFILE=moderate; PROFILE_WHY="auto: Android, ${MEM_MB} MB RAM"
+  elif [[ "$AVAIL_MB" -gt 0 && "$AVAIL_MB" -lt 6500 ]]; then PROFILE=moderate; PROFILE_WHY="auto: ${AVAIL_MB} MB RAM free"
+  else PROFILE=default; PROFILE_WHY="auto: ${MEM_MB} MB RAM, ${AVAIL_MB} MB free"; fi
+else
+  PROFILE_WHY="PROFILE=$PROFILE"
+  if [[ -n "$WEAK" && "$PROFILE" != lowram ]]; then
+    warn "slow CPU ($WEAK): PROFILE=$PROFILE is heavy here; PROFILE=lowram (or TOOLS=lean) answers much sooner"
+  fi
 fi
+# The decision model (Laya, ~0.9 GB) is loaded at startup and kept: --models-max gets one more
+# slot than MODELS_MAX, so general/coder swap among themselves (b11374 has no "pin"; with every
+# role fitting at once nothing is evicted). lowram keeps only one model of any role in memory.
 case "$PROFILE" in
-  default) MODELS_MAX="${MODELS_MAX:-2}"; OVERLAY="" ;;
+  default)  MODELS_MAX="${MODELS_MAX:-2}"; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
+  moderate) MODELS_MAX="${MODELS_MAX:-2}"; RESIDENT=1
+            OVERLAY="coder.parallel=2 coder.ctx-size=24576 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true" ;;
   # one model at a time; the coder keeps 2 slots sharing a 16k pool
-  lowram)  MODELS_MAX="${MODELS_MAX:-1}"
-           OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096" ;;
-  *) die "unknown PROFILE=$PROFILE (auto|default|lowram)" ;;
+  lowram)   MODELS_MAX="${MODELS_MAX:-1}"; RESIDENT=0
+            OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096" ;;
+  *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
+num_ok() { [[ "$2" =~ ^[0-9]+$ ]] && (( $2 >= $3 && $2 <= $4 )) || die "$1=$2: want a whole number from $3 to $4"; }
+ov_set() { local x o=""; for x in $OVERLAY; do [[ "${x%%=*}" == "$1" ]] || o+="$x "; done; OVERLAY="$o$1=$2"; }
+num_ok MODELS_MAX "$MODELS_MAX" 1 8
+ROUTER_MAX=$(( MODELS_MAX + RESIDENT ))
+TUNED=""
+if [[ -n "$CODER_CTX" ]]; then num_ok CODER_CTX "$CODER_CTX" 2048 262144
+  ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED+=" CODER_CTX=$CODER_CTX"; fi
+if [[ -n "$GENERAL_CTX" ]]; then num_ok GENERAL_CTX "$GENERAL_CTX" 2048 262144
+  ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED+=" GENERAL_CTX=$GENERAL_CTX"; fi
+if [[ -n "$PARALLEL" ]]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED+=" PARALLEL=$PARALLEL"; fi
 if [[ "$TOOLS" == "auto" ]]; then
   if [[ "$PROFILE" == lowram ]]; then TOOLS=lean; else TOOLS=full; fi
 fi
+TOOLS_SET="$TOOLS"
 if [[ "$TOOLS" == lean && "$MCP_CONFIG" == "$ROOT/config/mcp-servers.json" ]]; then
   MCP_CONFIG=""   # the example MCP tools are another ~85 prompt tokens
   echo "serve.sh: TOOLS=lean: example MCP server off (set MCP_CONFIG to use one)" >&2
@@ -444,7 +480,7 @@ fi
 args=(
   --host "$HOST" --port "$PORT"
   --models-preset "$EFFECTIVE_PRESET"
-  --models-max "$MODELS_MAX"
+  --models-max "$ROUTER_MAX"
 )
 # hardware: these CLI flags are copied by the router into every model instance
 args+=(--threads "$THREADS" --threads-batch "$THREADS_BATCH")
@@ -458,7 +494,10 @@ args+=(--log-file "$LOG_FILE")
 
 echo "serve.sh: $BIN ${args[*]} $*" >&2
 echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_ARG_TOOLS:-} LLAMA_ARG_TOOLS_RUNTIME=${LLAMA_ARG_TOOLS_RUNTIME:-} LLAMA_ARG_MCP_SERVERS_CONFIG=${LLAMA_ARG_MCP_SERVERS_CONFIG:-}" >&2
-echo "serve.sh: profile=$PROFILE (RAM ${MEM_MB} MB, android=$IS_ANDROID) models-max=$MODELS_MAX threads=$THREADS ($THREADS_SRC${CPU_CAPS:+; ${CPU_CAPS% }}) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
+# for the start.sh banner: the profile and how to change it
+printf '  Profile: %s (%s): %s general/coder model(s) loaded%s%s\n  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")\n' \
+  "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$([[ $RESIDENT == 1 ]] && echo " + decision kept loaded")" "${TUNED:+; set:$TUNED}" > "$ROOT/.cache/profile.txt"
+echo "serve.sh: profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX (MODELS_MAX=$MODELS_MAX + $RESIDENT resident)${TUNED:+ tuned:$TUNED} tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC${CPU_CAPS:+; ${CPU_CAPS% }}) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
 echo "serve.sh: models: general=$M_GENERAL coder=$M_CODER decision=$M_DECISION" >&2
 echo "serve.sh: language: locale=$LANG_CODE ($LOCALE_SRC) mode=$MODE${SWAP_ROLES:+ swapped=[$SWAP_ROLES]}${LANG_MODEL:+ language-slot=$LANG_MODEL}" >&2
 echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default>}" >&2

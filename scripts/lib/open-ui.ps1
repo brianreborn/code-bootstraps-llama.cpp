@@ -31,6 +31,8 @@ Write-Host "           (stored in $keyFile)"
 Write-Host "  The first time, the page says `"Server Connection Error / Access denied`": that is expected."
 Write-Host "  Click `"Enter API Key`", paste the key above and confirm; the browser keeps it."
 Write-Host "  Files the agent creates go to: $(Join-Path $Root 'workspace')"
+$profileFile = Join-Path (Join-Path $Root ".cache") "profile.txt"
+if (Test-Path -LiteralPath $profileFile) { Write-Host -NoNewline (Get-Content -LiteralPath $profileFile -Raw) }
 Write-Host "  Close this window (or Ctrl-C) to stop the server."
 Write-Host ""
 if (-not $NoBrowser) { Start-Process $url }

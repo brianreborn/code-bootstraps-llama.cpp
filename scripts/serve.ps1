@@ -14,8 +14,8 @@
 param(
     [string]$BindHost = $(if ($env:HOST) { $env:HOST } else { "127.0.0.1" }),
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
-    [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | default | lowram
-    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # 0 = profile default (2, lowram 1)
+    [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | lowram | moderate | default (README "Light tuning")
+    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # general/coder kept loaded: 0 = profile default (lowram 1, moderate/default 2); decision stays loaded on top (not lowram)
     [string]$ToolsRuntime = $(if ($env:TOOLS_RUNTIME) { $env:TOOLS_RUNTIME } else { "auto" }),
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
     [string]$ToolsImage = $(if ($env:TOOLS_IMAGE) { $env:TOOLS_IMAGE } else { "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016" }),
@@ -44,7 +44,7 @@ Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "serve.ps1" 
 function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $Root $p } }
 
 # parameters that may come from the environment are checked here (ValidateSet skips defaults)
-if ($RamProfile -notin @("auto", "default", "lowram")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|default|lowram)" }
+if ($RamProfile -notin @("auto", "lowram", "moderate", "default")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|lowram|moderate|default)" }
 if ($Repack -notin @("on", "off")) { throw "unknown REPACK / -Repack '$Repack' (on|off)" }
 $mode = $LanguageMode.ToLowerInvariant()
 if ($mode -eq "auto") { $mode = "native" }
@@ -87,7 +87,12 @@ $cpus = Get-CimInstance Win32_Processor
 $cores = [int](($cpus | Measure-Object -Property NumberOfCores -Sum).Sum)
 if ($Threads -eq "auto")      { $Threads = $cores }
 if ($ThreadsBatch -eq "auto") { $ThreadsBatch = ($cpus | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum }
-$memMB = [int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB)
+$memMB = if ($env:MEM_TOTAL_MB) { [int]$env:MEM_TOTAL_MB } else { [int]((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1MB) }
+# free RAM now (MEM_AVAIL_MB overrides, as in serve.sh); unknown: assume the OS and apps keep 2 GB
+$availMB = 0
+if ($env:MEM_AVAIL_MB) { $availMB = [int]$env:MEM_AVAIL_MB }
+else { try { $availMB = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1KB) } catch { $availMB = 0 } }
+if ($availMB -le 0 -and $memMB -gt 0) { $availMB = $memMB - 2048 }
 # A weak CPU (2 cores or fewer, or no AVX2) reads prompts at 1-3 tokens/s: auto picks lowram.
 $weak = ""
 if ($cores -gt 0 -and $cores -le 2) { $weak = "$cores CPU cores" }
@@ -99,21 +104,54 @@ elseif ((Test-Windows) -and $env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
         if (-not [CodeBootstraps.Cpu]::IsProcessorFeaturePresent(40)) { $weak = "no AVX2" }   # 40 = PF_AVX2_INSTRUCTIONS_AVAILABLE
     } catch { }
 }
+# auto, most conservative first (same rules as serve.sh): lowram under 6.9 GB RAM, on a slow CPU or
+# under 2 GB free; moderate when less is free than default needs (6.5 GB); else default
 if ($RamProfile -eq "auto") {
-    if ($memMB -lt 6144) { $RamProfile = "lowram" }
-    elseif ($weak) { $RamProfile = "lowram"; Write-Warning "slow CPU ($weak): using the lowram profile (lean tools, smaller contexts); the first answer can still take minutes" }
-    else { $RamProfile = "default" }
-} elseif ($weak -and $RamProfile -eq "default") {
-    Write-Warning "slow CPU ($weak): -RamProfile default is heavy here; -RamProfile lowram (or -Tools lean) answers much sooner"
+    if ($memMB -gt 0 -and $memMB -lt 6900) { $RamProfile = "lowram"; $profileWhy = "auto: $memMB MB RAM" }
+    elseif ($weak) { $RamProfile = "lowram"; $profileWhy = "auto: slow CPU, $weak"; Write-Warning "slow CPU ($weak): using the lowram profile (lean tools, smaller contexts); the first answer can still take minutes" }
+    elseif ($availMB -gt 0 -and $availMB -lt 2048) { $RamProfile = "lowram"; $profileWhy = "auto: only $availMB MB RAM free" }
+    elseif ($availMB -gt 0 -and $availMB -lt 6500) { $RamProfile = "moderate"; $profileWhy = "auto: $availMB MB RAM free" }
+    else { $RamProfile = "default"; $profileWhy = "auto: $memMB MB RAM, $availMB MB free" }
+} else {
+    $profileWhy = "PROFILE=$RamProfile"
+    if ($weak -and $RamProfile -ne "lowram") {
+        Write-Warning "slow CPU ($weak): -RamProfile $RamProfile is heavy here; -RamProfile lowram (or -Tools lean) answers much sooner"
+    }
 }
-# same keys in the same order as OVERLAY in serve.sh, so both write the same preset
+# same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
+# model is loaded at startup and kept (one --models-max slot more than ModelsMax), except lowram.
+$small = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
+              "general.parallel" = "1"; "general.ctx-size" = "8192"; "decision.parallel" = "1"; "decision.ctx-size" = "4096";
+              "language.parallel" = "1"; "language.ctx-size" = "4096" }
 $overlay = [ordered]@{}
+$resident = 1
 if ($RamProfile -eq "lowram") {
     if ($ModelsMax -eq 0) { $ModelsMax = 1 }
-    $overlay = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
-                  "general.parallel" = "1"; "general.ctx-size" = "8192"; "decision.parallel" = "1"; "decision.ctx-size" = "4096";
-                  "language.parallel" = "1"; "language.ctx-size" = "4096" }
-} elseif ($ModelsMax -eq 0) { $ModelsMax = 2 }
+    $overlay = $small; $resident = 0
+} elseif ($RamProfile -eq "moderate") {
+    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
+    $overlay = $small; $overlay["coder.ctx-size"] = "24576"; $overlay["decision.load-on-startup"] = "true"
+} else {
+    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
+    $overlay["decision.load-on-startup"] = "true"
+}
+if ($ModelsMax -lt 1 -or $ModelsMax -gt 8) { throw "MODELS_MAX / -ModelsMax $ModelsMax`: want a whole number from 1 to 8" }
+$routerMax = $ModelsMax + $resident
+function Set-Overlay([string]$k, [string]$v) { if ($overlay.Contains($k)) { $overlay.Remove($k) }; $overlay[$k] = $v }
+function Get-Knob([string]$name, [int]$lo, [int]$hi, [string]$fallback = "") {
+    $v = [Environment]::GetEnvironmentVariable($name); if (-not $v) { $v = $fallback }
+    if (-not $v) { return "" }
+    $n = 0
+    if (-not [int]::TryParse($v, [ref]$n) -or $n -lt $lo -or $n -gt $hi) { throw "$name=$v`: want a whole number from $lo to $hi" }
+    return "$n"
+}
+$tuned = ""
+$coderCtx = Get-Knob "CODER_CTX" 2048 262144 $env:CTX
+$generalCtx = Get-Knob "GENERAL_CTX" 2048 262144 $env:CTX
+$parallelKnob = Get-Knob "PARALLEL" 1 16
+if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
+if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
+if ($parallelKnob) { Set-Overlay "coder.parallel" $parallelKnob; $tuned += " PARALLEL=$parallelKnob" }
 
 # --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------
 $presetPath = Get-RepoPath $(if ($env:MODELS_PRESET) { $env:MODELS_PRESET } else { "config\models-preset.ini" })
@@ -353,7 +391,7 @@ if ($McpConfig) {
 
 $srvArgs = @("--host", $BindHost, "--port", $Port,
           "--models-preset", $effective,
-          "--models-max", $ModelsMax,
+          "--models-max", $routerMax,
           "--threads", $Threads, "--threads-batch", $ThreadsBatch,
           "--n-gpu-layers", $GpuLayers, "--fit", "on", "--load-mode", $LoadMode)
 if ($Repack -eq "off") { $srvArgs += "--no-repack" }
@@ -363,7 +401,11 @@ $logFile = Join-Path $Root ".cache\server.log"
 $srvArgs += @("--log-file", $logFile)
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
-Write-Host "serve.ps1: profile=$RamProfile (RAM $memMB MB) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
+$profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder model(s) loaded$(if ($resident) { ' + decision kept loaded' })$(if ($tuned) { "; set:$tuned" })`n" +
+              "  Change:  set PROFILE=lowram|moderate|default (or start.bat -RamProfile moderate), or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README `"Light tuning`")`n"
+New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
+[IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
+Write-Host "serve.ps1: profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
 # Ready = OUR llama-server listens on the port and answers /health: it wrote "listening on

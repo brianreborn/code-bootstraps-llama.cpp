@@ -181,9 +181,16 @@ def jobs_all():
         J.append(job(l, p, m, "ja_JP", "optin", tools=t, grid="tools"))
     for l, el, m in itertools.product(LAUNCHERS, ["ja", "ja-JP", "JA_jp", "Japanese_Japan.932", "zh-TW", "de", "en"], ["native", "swap", "interpret"]):
         J.append(job(l, "default", m, "en_US", "optin", explicit_locale=el, grid="locale-env"))
-    for l, mem, loc in itertools.product(LAUNCHERS, [4 * 2**30, 16 * 2**30], ["en_US", "ja_JP"]):
-        if l.endswith(".ps1") or mem == 16 * 2**30:
-            J.append(job(l, "auto", "(unset)", loc, "defaults", mem=mem, grid="profile-auto"))
+    # PROFILE=auto: (total MB, free MB) -> lowram / moderate / default (termux: Android)
+    for l, (tot, av), loc in itertools.product(LAUNCHERS, [(4096, 3000), (8192, 3000), (16384, 14000), (7430, 2214), (8192, 1500)], ["en_US", "ja_JP"]):
+        J.append(job(l, "auto", "(unset)", loc, "defaults", mem=tot * 2**20, grid="profile-auto",
+                     env_extra={"MEM_TOTAL_MB": str(tot), "MEM_AVAIL_MB": str(av)}))
+    # moderate rows: every launcher, native and swap, English and Japanese, opt-ins installed
+    for l, m, loc in itertools.product(LAUNCHERS, ["(unset)", "swap"], ["en_US", "ja_JP"]):
+        J.append(job(l, "moderate", m, loc, "optin", grid="moderate"))
+    for l in LAUNCHERS:   # light-tuning knobs
+        J.append(job(l, "moderate", "(unset)", "en_US", "defaults", grid="knobs",
+                     env_extra={"CODER_CTX": "8192", "PARALLEL": "3", "MODELS_MAX": "1"}, label="knobs"))
     # Windows PowerShell 5.1 emulation (Windows code paths taken, 6+ variables absent)
     for l, p, m, loc in itertools.product(["start.ps1", "serve.ps1"], PROFILES, ["(unset)", "swap", "interpret", "auto"], ["en-US", "ja-JP"]):
         J.append(job(l, p, m, loc, "optin", grid="ps51"))
@@ -396,7 +403,7 @@ def prepare(j, n, stubs):
     if j["launcher"].endswith(".ps1"):
         env["STUB_LLAMA"] = os.path.join(st, "llama-server-stub")
         argl = [f"-Port {port}", "-ToolsRuntime host"]
-        if j["profile"] in ("default", "lowram", "auto"):
+        if j["profile"] in ("default", "lowram", "moderate", "auto"):
             argl.append(f"-RamProfile {j['profile']}")
         if j["tools"] != "auto":
             argl.append(f"-Tools '{j['tools']}'")
@@ -412,7 +419,7 @@ def prepare(j, n, stubs):
     path = st + ":" + os.environ["PATH"]
     env.update(base)
     env.update({"PORT": port, "TOOLS_RUNTIME": "host", "LLAMA_SERVER": os.path.join(st, "llama-server-stub")})
-    if j["profile"] in ("default", "lowram", "auto"):
+    if j["profile"] in ("default", "lowram", "moderate", "auto"):
         env["PROFILE"] = j["profile"]
     if j["tools"] != "auto":
         env["TOOLS"] = j["tools"]
@@ -652,7 +659,7 @@ def main():
         roles = {r: role_view(res, r, j["sandbox"]) for r in ("general", "coder", "decision", "language")}
         extra = sorted(k for k in (res or {}) if k not in ("general", "coder", "decision", "language", "error"))
         out.append({k: j[k] for k in ("launcher", "profile", "mode", "locale", "install", "tools", "explicit_locale", "grid",
-                                     "mem", "label", "status", "downloads", "argv", "preset", "language_json", "tree",
+                                     "mem", "env_extra", "label", "status", "downloads", "argv", "preset", "language_json", "tree",
                                      "cache_seen", "cache_left", "outside_cache")}
                    | {"envcap": j["envcap"].replace(j["sandbox"], "<ROOT>"), "argv": [a.replace(j["sandbox"], "<ROOT>") for a in j["argv"]],
                       "roles": roles, "extra_models": extra,
@@ -681,9 +688,11 @@ def main():
 #    and HY-MT installed; no other model is listed;
 #  - per-role ctx/parallel/models-max follow the profile;
 #  - a combination may only refuse to start with a language-mode error, and then starts nothing.
-ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51")
+ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51", "moderate", "knobs")
 DEF_URLS = sorted(f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default")
-PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "2"),
+PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
+          "moderate": ({"general": "8192", "coder": "24576", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "3"),
+          "knobs": ({"general": "8192", "coder": "8192", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
           "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "1")}
 
 
@@ -694,11 +703,17 @@ def lang_code(r):
 
 
 def effective_profile(r):
-    if r["profile"] in ("default", "lowram"):
+    if r["grid"] == "knobs":
+        return "knobs"
+    if r["profile"] in ("default", "lowram", "moderate"):
         return r["profile"]
     if r["profile"] == "auto":
-        if r["launcher"] == "termux" or (r["mem"] or 16 * 2**30) < 6 * 2**30:
+        tot = (r["mem"] or 16 * 2**30) // 2**20
+        av = int((r.get("env_extra") or {}).get("MEM_AVAIL_MB", tot - 2048))
+        if tot < 6900 or av < 2048:
             return "lowram"
+        if r["launcher"] == "termux" or av < 6500:
+            return "moderate"
         return "default"
     return None
 
@@ -839,8 +854,8 @@ def assertions_decoy_env(rows):
                 check_started(r, tag, {}, fails)
                 a = r["argv"]
                 mm = next((a[i + 1] for i, x in enumerate(a) if x == "--models-max" and i + 1 < len(a)), None)
-                if lab == "MODELS_MAX=3" and mm != "3":
-                    fails.append(f"{tag}: models-max {mm}, want 3 (MODELS_MAX)")
+                if lab == "MODELS_MAX=3" and mm != "4":
+                    fails.append(f"{tag}: models-max {mm}, want 4 (MODELS_MAX=3 general/coder + the resident decision model)")
                 if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != "16384" or mm != "1"):
                     fails.append(f"{tag}: PROFILE=lowram not applied (coder ctx {(r['roles']['coder'] or {}).get('ctx')}, models-max {mm})")
             if "--models-dir" in r["argv"]:

@@ -112,6 +112,7 @@ open_ui() {
     echo "  The first time, the page says \"Server Connection Error / Access denied\": that is expected."
     echo "  Click \"Enter API Key\", paste the key above and confirm; the browser keeps it."
     echo "  Files the agent creates go to: ${WORKDIR:-$ROOT/workspace}"
+    [[ -f "$ROOT/.cache/profile.txt" ]] && cat "$ROOT/.cache/profile.txt"
     echo "  Stop with Ctrl-C or by closing this terminal."
     if [[ "$TERMUX" == 1 ]]; then
       echo "  Android: in the background Termux may get only the slow cores (or be stopped). Keep it"
