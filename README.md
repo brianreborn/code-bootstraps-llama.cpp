@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.c
 irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
 ```
 
-The default directory is `~/code-bootstraps-llama.cpp`. A second run unpacks again only when that digest changes. `INSTALL_NO_START=1` stops before `start.sh`.
+The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on Termux, `PREFIX` is the Termux usr tree, so the installer uses `INSTALL_PREFIX` or the home default and does not unpack over it). A second run unpacks again only when that digest changes. `INSTALL_NO_START=1` stops before `start.sh`.
 
 `python3 scripts/panel.py` serves a form on `127.0.0.1:9932` and writes `.cache/panel.env`. An environment variable set in the shell still wins. The page also shows memory, whether a GPU device is present, and whether the server answers. Restart `start.sh` after saving.
 

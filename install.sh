@@ -5,11 +5,20 @@
 # EXPECTED_SHA256 stays empty until a published archive is hashed. Until then the
 # script refuses to download. Tests set INSTALL_URL, INSTALL_SHA256, PREFIX, and
 # INSTALL_NO_START=1. A second run unpacks again only when the digest changes.
+# Termux exports PREFIX as its usr directory. INSTALL_PREFIX, or ~/code-bootstraps-llama.cpp,
+# is used there so the installer does not unpack over the Termux prefix.
 set -eu
 EXPECTED_SHA256=""
 URL=${INSTALL_URL:-https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/main.tar.gz}
 SHA=${INSTALL_SHA256:-$EXPECTED_SHA256}
-PREFIX=${PREFIX:-$HOME/code-bootstraps-llama.cpp}
+if [ -n "${INSTALL_PREFIX:-}" ]; then
+  PREFIX=$INSTALL_PREFIX
+else
+  case "${PREFIX:-}" in
+    *com.termux*) PREFIX=$HOME/code-bootstraps-llama.cpp ;;
+    "") PREFIX=$HOME/code-bootstraps-llama.cpp ;;
+  esac
+fi
 
 die() { echo "install.sh: $*" >&2; exit 1; }
 
