@@ -5,8 +5,10 @@
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,7 +35,7 @@ class FakeServer:
     turns: a list of calls, or a string (final answer). With tool_choice none it answers."""
 
     def __init__(self, tools, script):
-        self.tools, self.script, self.executed, self.chats = tools, list(script), [], []
+        self.tools, self.script, self.executed, self.chats, self.remote_bodies = tools, list(script), [], [], []
         fake = self
 
         class H(BaseHTTPRequestHandler):
@@ -56,6 +58,10 @@ class FakeServer:
                 if self.path == "/tools":
                     fake.executed.append((body["tool"], body["params"]))
                     return self.reply({"plain_text_response": "ok\n\n[exit code: 0]"})
+                if body.get("model") == "remote-model":
+                    fake.remote_bodies.append(body)
+                    msg = {"role": "assistant", "content": "PATCH"}
+                    return self.reply({"choices": [{"message": msg}], "timings": {}})
                 fake.chats.append(body)
                 turn = fake.script.pop(0) if fake.script and body.get("tool_choice") != "none" else "summary"
                 if isinstance(turn, str):
@@ -75,9 +81,18 @@ class FakeServer:
         self.httpd.server_close()
 
 
-def run_agent(fake, *args, stdin=subprocess.DEVNULL):
-    cmd = [sys.executable, AGENT, "--url", fake.url, "--key-file", os.devnull, "--locale", "en", *args, "do the task"]
-    return subprocess.run(cmd, stdin=stdin, capture_output=True, text=True, timeout=60)
+def run_agent(fake, *args, stdin=subprocess.DEVNULL, prompt="do the task", remote_dir=None):
+    own = remote_dir is None
+    if own:
+        remote_dir = tempfile.mkdtemp(prefix="agent-remote-")
+    env = os.environ.copy()
+    env["AGENT_REMOTE_DIR"] = remote_dir
+    cmd = [sys.executable, AGENT, "--url", fake.url, "--key-file", os.devnull, "--locale", "en", *args, prompt]
+    try:
+        return subprocess.run(cmd, stdin=stdin, capture_output=True, text=True, timeout=60, env=env)
+    finally:
+        if own:
+            shutil.rmtree(remote_dir, ignore_errors=True)
 
 
 class ApprovalTests(unittest.TestCase):
@@ -154,7 +169,9 @@ class RepeatGuardTests(unittest.TestCase):
         self.assertEqual(fake.chats[-1].get("tool_choice"), "none")   # 1 run + 2 skips, then no tools
         self.assertEqual(len(fake.chats), 4)
         self.assertEqual(r.stdout.strip(), "summary")
-        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("why=repeat", r.stderr)
+        self.assertIn("remote=off", r.stderr)
 
     def test_run_edit_run_edit_run(self):
         # review round 3, MED 4: each edit starts a new state, so the same command may run again
@@ -192,6 +209,49 @@ class RepeatGuardTests(unittest.TestCase):
         self.assertEqual(len(fake.executed), 2, r.stderr)
         self.assertEqual(fake.chats[-1].get("tool_choice"), "none")
         self.assertEqual(r.stdout.strip(), "summary")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("why=limit", r.stderr)
+
+    def test_three_unknown_tools_exit_stuck(self):
+        fake = FakeServer(BUILTINS, [[call("nope"), call("nope"), call("nope")], "should-not-run"])
+        try:
+            r = run_agent(fake, "--yes")
+        finally:
+            fake.close()
+        self.assertEqual(fake.executed, [], r.stderr)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("why=errors", r.stderr)
+        self.assertNotIn("should-not-run", r.stdout)
+
+    def test_auto_remote_sends_one_terse_brief(self):
+        d = tempfile.mkdtemp(prefix="agent-remote-")
+        fake = FakeServer(BUILTINS, [[call("exec_shell_command", command="python3 hello.py")]] * 6)
+        try:
+            os.makedirs(os.path.join(d, "keys"))
+            with open(os.path.join(d, "keys", "work.key"), "w", encoding="utf-8") as f:
+                f.write("rk-test-key\n")
+            state = {
+                "auto": True, "login": "work", "session": "s1",
+                "logins": {"work": {"via": "http", "url": fake.url, "model": "remote-model"}},
+                "sessions": {"work/s1": {"workspace": "", "last": "", "pending": None, "remote_id": ""}},
+            }
+            with open(os.path.join(d, "remote.json"), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            r = run_agent(fake, "--yes", remote_dir=d)
+        finally:
+            fake.close()
+            shutil.rmtree(d, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("summary", r.stdout)
+        self.assertIn("PATCH", r.stdout)
+        self.assertEqual(len(fake.remote_bodies), 1, r.stderr)
+        body = fake.remote_bodies[0]
+        self.assertNotIn("tools", body)
+        self.assertEqual(body["max_tokens"], 384)
+        brief = body["messages"][-1]["content"]
+        self.assertIn("why=repeat", brief)
+        self.assertLessEqual(len(brief), 1600)
+        self.assertNotIn("rk-test-key", brief)
 
 
 class ConnectionTests(unittest.TestCase):

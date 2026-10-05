@@ -27,6 +27,14 @@ gives no clue, the system locale is used. English prompts get no language handli
 
   LOCALE=auto python3 scripts/agent.py "arregla el test que falla en `tests/test_api.py`"
   python3 scripts/agent.py --localize docs/guide.md --to ja > docs/guide.ja.md
+
+A stuck run (the same tool call skipped twice, three tool failures in a row, or the step
+limit) saves a terse brief and exits 1. /remote on sends that brief once to the attached
+login. Logins are an https model or a local client: grok, agy, claude, codex, or exec.
+An empty remote session id starts the client; a stored id resumes it. Image, audio, video,
+and pdf paths are handed to a local client as paths, not bytes.
+  python3 scripts/agent.py "/remote login work grok"
+  python3 scripts/agent.py "/remote on"
 """
 import argparse
 import http.client
@@ -39,6 +47,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from lib import remote as remote_handoff
 from lib.lockmem import try_lock_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -322,9 +331,13 @@ def main():
                     help="target language for --localize (default: LOCALE). "
                          "Does not translate code, paths, flags, URLs, or hashes")
     a = ap.parse_args()
+    if a.prompt.startswith("/remote") and not a.localize:
+        ws = os.path.abspath(a.cwd) if a.cwd else ROOT
+        return remote_handoff.dispatch(a.prompt, ws)
 
     cwd = resolve_cwd(a.cwd, load_tools_meta())
-    c = Client(a.url, read_key(a.key_file), cwd)
+    local_key = read_key(a.key_file)
+    c = Client(a.url, local_key, cwd)
 
     if a.localize:   # localize docs/comments/strings: prose translated, code blocks and `spans` kept
         target = (a.to or (server_language()["locale"] if a.locale == "auto" else a.locale)).split("-")[0].lower()
@@ -382,14 +395,60 @@ def main():
     # do not start one (repeating `python3 hello.py` is the loop seen in practice). A model that
     # repeats again after being told gets no tools on its next step.
     ran, epoch, skips = set(), 0, 0
+    fail_streak = 0
+    wrote, stuck, last_tool = [], {"name": "", "args": ""}, {"name": "", "text": ""}
+
+    def note_write(fn, params):
+        path = str(params.get("path") or params.get("file") or "")
+        if fn == "write_file":
+            body = str(params.get("content") or "")
+        else:
+            bits = []
+            for edit in (params.get("edits") or [])[:3]:
+                if isinstance(edit, dict):
+                    bits.append("-" + str(edit.get("old_text") or "")[:80])
+                    bits.append("+" + str(edit.get("new_text") or "")[:80])
+            body = "\n".join(bits)
+        wrote.append({"path": path, "body": body})
+        del wrote[:-2]
+
+    def mark_fail(name, detail):
+        nonlocal fail_streak
+        fail_streak += 1
+        stuck["name"] = name
+        stuck["args"] = str(detail)[:400]
+        return fail_streak >= 3
+
+    def give_up(why, answer=""):
+        if answer:
+            if lang_mode == "interpret":
+                answer, failed = localize_text(c, answer, user_lang, a.language_prompt)
+                if failed:
+                    answer += f"\n\n[agent] ({failed} paragraph(s) kept in English: translation dropped code spans)"
+            print(answer)
+
+        def tr(text):
+            out, failed = localize_text(c, text, user_lang, a.language_prompt)
+            if failed:
+                out += f"\n\n[agent] ({failed} paragraph(s) kept in English: translation dropped code spans)"
+            return out
+
+        return remote_handoff.handoff(
+            why=why, task=prompt, workspace=cwd or ROOT, wrote=list(wrote), stuck=dict(stuck),
+            tool=dict(last_tool), redact=local_key or "",
+            translate=tr if lang_mode == "interpret" else None)
+
     for step in range(1, a.max_steps + 1):
         t0 = time.time()
         body = {"model": a.model, "messages": messages, "tools": defs, "max_tokens": a.max_tokens}
         # tool_choice none keeps the tool definitions in the prompt (cached prefix) but parses the reply as text
+        why = None
         if step == a.max_steps:   # last step: no more tools, the model has to answer
+            why = "limit"
             body["tool_choice"] = "none"
             messages.append({"role": "user", "content": "Step limit reached: do not call tools; summarize what was done and what is left."})
         elif skips >= 2:
+            why = "repeat"
             body["tool_choice"] = "none"
             messages.append({"role": "user", "content": "You are repeating the same tool call. Do not call tools now: "
                                                         "reply with a one-line summary of what was done and what is left, if anything."})
@@ -403,8 +462,10 @@ def main():
             log.write(json.dumps({"step": step, "message": msg, "timings": timings}) + "\n")
         calls = msg.get("tool_calls") or []
         messages.append({k: v for k, v in msg.items() if k in ("role", "content", "tool_calls", "reasoning_content")})
-        if not calls:
+        if why or not calls:
             answer = msg.get("content") or ""
+            if why:
+                return give_up(why, answer)
             if lang_mode == "interpret":
                 answer, failed = localize_text(c, answer, user_lang, a.language_prompt)
                 if failed:   # those paragraphs stay in English rather than risk changed code
@@ -417,6 +478,11 @@ def main():
                 params = json.loads(call["function"].get("arguments") or "{}")
             except json.JSONDecodeError as e:
                 out = json.dumps({"error": f"invalid JSON arguments: {e}"})
+                print(f"[tool] -> {out}", file=sys.stderr)
+                messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                if mark_fail(fn, out):
+                    return give_up("errors")
+                continue
             else:
                 print(f"[tool] {fn} {json.dumps(params)[:300]}", file=sys.stderr)
                 key = (fn, json.dumps(params, sort_keys=True))
@@ -424,12 +490,16 @@ def main():
                     out = json.dumps({"error": f"unknown tool {fn!r}; available: {', '.join(sorted(offered))}"})
                     print(f"[tool] -> refused: {fn} was not offered", file=sys.stderr)
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                    if mark_fail(fn, out):
+                        return give_up("errors")
                     continue
                 if (key, epoch) in ran:
                     out = ("Not run again: this identical call already ran, and no file was written or edited "
                            "since, so look at its earlier result. If the task is done, do not call more tools: "
                            "reply with a one-line summary. Otherwise do something different.")
                     skips += 1
+                    stuck["name"] = fn
+                    stuck["args"] = json.dumps(params)[:400]
                     print(f"[tool] -> skipped repeat", file=sys.stderr)
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
                     continue
@@ -438,6 +508,8 @@ def main():
                     out = json.dumps({"error": f"path {bad!r} is outside the project directory; use paths relative to it"})
                     print(f"[tool] -> {out}", file=sys.stderr)
                     messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
+                    if mark_fail(fn, bad):
+                        return give_up("errors")
                     continue
                 if fn in needs_ok and not a.yes:
                     if not ask(f"allow {fn}? [y/N] "):
@@ -449,12 +521,16 @@ def main():
                     epoch += 1
                 ran.add((key, epoch))
                 out = r["plain_text_response"] if "plain_text_response" in r else json.dumps(r)
+                fail_streak = 0
+                last_tool["name"] = fn
+                last_tool["text"] = out[:800]
+                if fn in ("write_file", "edit_file"):
+                    note_write(fn, params)
             print(f"[tool] -> {out[:300]!r}", file=sys.stderr)
             if log:
                 log.write(json.dumps({"step": step, "tool": fn, "result": out[:4000]}) + "\n")
             messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": out})
-    print("[agent] max steps reached", file=sys.stderr)   # unreachable unless the model ignores tool_choice
-    return 1
+    return give_up("limit")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #!/bin/sh
 # Fetch this repository, check sha256, unpack, then run start.sh.
+# Profile defaults, including MODELS_MAX=2, live in scripts/serve.sh after unpack.
 #   curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
 # The digest of a GitHub archive cannot live only inside that archive.
 # EXPECTED_SHA256 stays empty until a published archive is hashed. Until then the

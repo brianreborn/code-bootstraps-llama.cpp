@@ -695,7 +695,7 @@ DEF_URLS = sorted(f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{
 PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
           "moderate": ({"general": "8192", "coder": "24576", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "3"),
           "knobs": ({"general": "8192", "coder": "8192", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
-          "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "1")}
+          "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "2")}
 
 
 def lang_code(r):
@@ -858,7 +858,7 @@ def assertions_decoy_env(rows):
                 mm = next((a[i + 1] for i, x in enumerate(a) if x == "--models-max" and i + 1 < len(a)), None)
                 if lab == "MODELS_MAX=3" and mm != "4":
                     fails.append(f"{tag}: models-max {mm}, want 4 (MODELS_MAX=3 general/coder + the resident decision model)")
-                if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != "16384" or mm != "1"):
+                if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != "16384" or mm != "2"):
                     fails.append(f"{tag}: PROFILE=lowram not applied (coder ctx {(r['roles']['coder'] or {}).get('ctx')}, models-max {mm})")
             if "--models-dir" in r["argv"]:
                 fails.append(f"{tag}: --models-dir passed to the router")

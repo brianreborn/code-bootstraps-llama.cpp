@@ -1,4 +1,5 @@
 # Fetch this repository, check sha256, unpack, then run start.bat.
+# Profile defaults, including MODELS_MAX=2, live in scripts/serve.ps1 after unpack.
 # Windows PowerShell 5.1 and PowerShell 7.
 #   irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
 # EXPECTED_SHA256 stays empty until a published archive is hashed. Until then this

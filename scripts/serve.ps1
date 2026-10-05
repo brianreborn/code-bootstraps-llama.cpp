@@ -15,7 +15,7 @@ param(
     [string]$BindHost = $(if ($env:HOST) { $env:HOST } else { "127.0.0.1" }),
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | lowram | moderate | default (README "Light tuning")
-    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # general/coder kept loaded: 0 = profile default (lowram 1, moderate/default 2); decision stays loaded on top (not lowram)
+    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # general/coder kept loaded: 0 = profile default 2; decision stays loaded on top (not lowram)
     [string]$ToolsRuntime = $(if ($env:TOOLS_RUNTIME) { $env:TOOLS_RUNTIME } else { "auto" }),
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
     [string]$ToolsImage = $(if ($env:TOOLS_IMAGE) { $env:TOOLS_IMAGE } else { "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016" }),
@@ -127,7 +127,7 @@ $small = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.
 $overlay = [ordered]@{}
 $resident = 1
 if ($RamProfile -eq "lowram") {
-    if ($ModelsMax -eq 0) { $ModelsMax = 1 }
+    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
     $overlay = $small; $resident = 0
 } elseif ($RamProfile -eq "moderate") {
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }

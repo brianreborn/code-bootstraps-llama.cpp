@@ -184,7 +184,7 @@ case "$PROFILE" in
     OVERLAY="coder.parallel=2 coder.ctx-size=24576 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true"
     ;;
   lowram)
-    MODELS_MAX=${MODELS_MAX:-1}; RESIDENT=0
+    MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
     OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
