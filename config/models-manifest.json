@@ -167,15 +167,15 @@
       "pick": "agenthorse",
       "repo": "mradermacher/AgentHorse-4B-GGUF",
       "revision": "9ec59226a5612a1317159802af0ed0173b8e1fb5",
-      "file": "AgentHorse-4B.Q3_K_S.gguf",
-      "quant": "Q3_K_S",
-      "bytes": 2069364160,
-      "sha256": "1727f64864f038127192e73059b1b2e7482912139c36ea91b3c810bd27990230",
+      "file": "AgentHorse-4B.Q4_K_M.gguf",
+      "quant": "Q4_K_M",
+      "bytes": 2708288960,
+      "sha256": "39182c1c76dda8361124544a02a0ae71a48024326ed46e8e0c478b36ecfdc9bb",
       "license": "not stated on the model card",
       "ctx": 262144,
       "tested": false,
-      "note": "optional, untested. Q3_K_S because Q4_K_M is 2708288960 bytes (sha256 39182c1c76dda8361124544a02a0ae71a48024326ed46e8e0c478b36ecfdc9bb) and is tight beside the other residents. Japanese-oriented 4B merge (NeoHorse + Agents-A1). Not the default coder. Tool calling was not run. License is not stated on the card.",
-      "notice": "AgentHorse-4B Q3_K_S is an untested optional coder. Q4_K_M was not pinned because it is too big for the 4-8 GB set. Its license is not stated on the Hugging Face card. Tool calling was not verified."
+      "note": "optional, untested. Q4_K_M is 2708288960 bytes. --pick agenthorse parks the previous coder file. lowram loads one model, so the peak is this file. moderate and default keep the decision model loaded and can load general beside the coder. Japanese-oriented 4B merge (NeoHorse + Agents-A1). Not the default coder. Tool calling was not run. License is not stated on the card.",
+      "notice": "AgentHorse-4B Q4_K_M is an untested optional coder. Installing it parks the previous coder file. On lowram it is the only loaded model. On moderate and default the decision model stays loaded. Its license is not stated on the Hugging Face card. Tool calling was not verified."
     },
     {
       "role": "jev",

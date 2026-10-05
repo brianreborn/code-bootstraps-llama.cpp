@@ -182,7 +182,7 @@ Optional entries, fetched only on request:
 | `--language` | language (`LANGUAGE_MODE=interpret`, opt-in) | HY-MT1.5-1.8B Q4_K_M, into `models-optional/language/` | 1.13 GB | tested on x86 only; **license not valid in the EU, UK and South Korea; extra terms above 100M MAU** (see Languages) |
 | `--language-small` | language (interpret) | Qwen3.5-0.8B Q4_K_M, into `models-optional/language/` | 533 MB | tested on x86 only; weak translation quality |
 | `--locale ja` | general in `LANGUAGE_MODE=swap` | Qwen3.5-0.8B-Japanese-SFT-v2 Q4_K_M, into `models-optional/locale/ja/` | 529 MB | tested on x86 only; no tool calls, so not for the coder (see Languages) |
-| `--pick agenthorse` | coder | AgentHorse-4B Q3_K_S, `mradermacher/AgentHorse-4B-GGUF` | 2.07 GB | untested. Q4_K_M is 2.71 GB and was not pinned because it is tight beside the other residents. License is not stated on the card. Tool calling was not run. Not the default. |
+| `--pick agenthorse` | coder | AgentHorse-4B Q4_K_M, `mradermacher/AgentHorse-4B-GGUF` | 2.71 GB | untested. Parks the previous coder file. `lowram` loads this file alone. `moderate` and `default` keep Laya loaded and can load the general model with it. License is not stated on the card. Tool calling was not run. Not the default. |
 | `--pick jev` | not a router role | Qwen3-0.6B Q8_0 into `models-optional/jev/` | 639 MB | untested. Small brain named by [Meanblock/JEV-CPU](https://huggingface.co/Meanblock/JEV-CPU) (MIT code, commit `759fa60603a0e312cda38824e63e58f18445c14a`). That repo ships no weights. The 4B brain is too big here, so this is the smaller file. `serve.sh` does not start the JEV scorer and does not replace Laya. |
 
 ```sh
@@ -191,7 +191,7 @@ scripts/fetch-models.sh --fallback             # the smaller models
 scripts/fetch-models.sh --step-up --role coder # just the 4B coder
 scripts/fetch-models.sh --locale ja            # Japanese model for LANGUAGE_MODE=swap
 scripts/fetch-models.sh --language             # opt-in interpreter (license: not EU/UK/South Korea)
-scripts/fetch-models.sh --pick agenthorse      # optional untested coder, Q3_K_S
+scripts/fetch-models.sh --pick agenthorse      # optional untested coder, Q4_K_M; parks the previous coder
 scripts/fetch-models.sh --pick jev             # optional Qwen3-0.6B for JEV-CPU; does not replace Laya
 ```
 
