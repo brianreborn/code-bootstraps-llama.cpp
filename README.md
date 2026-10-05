@@ -206,6 +206,8 @@ scripts/serve.sh          # Windows: scripts\serve.ps1
 ```
 
 This starts `llama-server` in router mode on `127.0.0.1:9931` with:
+
+`HOST` defaults to `127.0.0.1`. `HOST=0.0.0.0` or `HOST=::` also accepts other machines on this port. A LAN address such as `HOST=192.168.1.20` is bound together with `127.0.0.1`, so the Web UI and agent on this machine keep working. The API key is still plain HTTP. `scripts/agent.py` will not send that key to an `http://` URL that is not loopback.
 - the preset `.cache/models-preset.effective.ini`, which `serve.sh` writes from `config/models-preset.ini` (profile overlay, language settings, and each role's pinned model file, see Models). The models are named `general`, `coder` and `decision` after their preset sections.
 - `--models-max 2` (1 in the low-RAM profile), so at most that many models are loaded at once and the least recently used one is unloaded.
 - the API key from `.secrets/api-keys` (generated on the first run, git-ignored, directory mode 700, file mode 600), passed as the `LLAMA_API_KEY` environment variable (see Security below).

@@ -40,6 +40,7 @@ LOG_FILE=${LOG_FILE:-$ROOT/.cache/server.log}
 . "$ROOT/scripts/lib/common.sh"
 . "$ROOT/scripts/lib/i18n.sh"
 . "$ROOT/scripts/lib/gpu.sh"
+. "$ROOT/scripts/lib/bindhost.sh"
 
 die() { echo "serve.sh: $*" >&2; exit 1; }
 warn() { echo "serve.sh: WARNING: $*" >&2; }
@@ -514,8 +515,11 @@ if [ -n "$MCP_CONFIG" ]; then
   export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
 fi
 
+LISTEN_HOST=$(bind_hosts "$HOST")
+PROBE_HOST=$(probe_host_of "$HOST")
+PROBE_URL_HOST=$(url_host "$PROBE_HOST")
 set -- \
-  --host "$HOST" --port "$PORT" \
+  --host "$LISTEN_HOST" --port "$PORT" \
   --models-preset "$EFFECTIVE_PRESET" \
   --models-max "$ROUTER_MAX" \
   --threads "$THREADS" --threads-batch "$THREADS_BATCH" \
@@ -564,10 +568,7 @@ fi
 SERVER_PID=$!
 RECOVER_PID=""
 if command -v python3 >/dev/null 2>&1; then
-  rec_host=$HOST
-  case "$rec_host" in 0.0.0.0|::|"") rec_host=127.0.0.1 ;; esac
-  case "$rec_host" in *:*) rec_host="[$rec_host]" ;; esac
-  RECOVER_URL="http://$rec_host:$PORT" API_KEY_FILE="$API_KEY_FILE" \
+  RECOVER_URL="http://$PROBE_URL_HOST:$PORT" API_KEY_FILE="$API_KEY_FILE" \
     python3 "$ROOT/scripts/recover.py" >>"$ROOT/.cache/recover.log" 2>&1 &
   RECOVER_PID=$!
 fi
@@ -588,13 +589,10 @@ listener_is_ours() {
   return 2
 }
 if command -v curl >/dev/null 2>&1; then
-  ( probe_host=$HOST
-    case "$HOST" in 0.0.0.0|::|"") probe_host=127.0.0.1 ;; esac
-    case "$probe_host" in *:*) probe_host="[$probe_host]" ;; esac
-    i=1
+  ( i=1
     while [ "$i" -le 600 ]; do
       kill -0 "$SERVER_PID" 2>/dev/null || exit 0
-      if said_listening && curl -s -o /dev/null --max-time 2 "http://$probe_host:$PORT/health"; then
+      if said_listening && curl -s -o /dev/null --max-time 2 "http://$PROBE_URL_HOST:$PORT/health"; then
         owner=0
         listener_is_ours || owner=$?
         if [ "$owner" = 1 ]; then
@@ -603,7 +601,21 @@ if command -v curl >/dev/null 2>&1; then
         fi
         kill -0 "$SERVER_PID" 2>/dev/null || exit 0
         printf '%s %s\n' "$PORT" "$SERVER_PID" > "$READY_FILE.tmp" && mv -f "$READY_FILE.tmp" "$READY_FILE"
-        echo "serve.sh: listening on http://$probe_host:$PORT (pid $SERVER_PID)" >&2
+        echo "serve.sh: listening on http://$PROBE_URL_HOST:$PORT (pid $SERVER_PID)" >&2
+        pubs=$(public_hosts "$HOST")
+        if [ -n "$pubs" ]; then
+          printf '%s\n' "$pubs" | while IFS= read -r h; do
+            [ -n "$h" ] || continue
+            echo "serve.sh: also on http://$(url_host "$h"):$PORT" >&2
+          done
+          echo "serve.sh: $(t "Other machines can use these addresses. The API key is sent as plain HTTP.")" >&2
+        else
+          case ",$(bind_hosts "$HOST")," in
+            *,0.0.0.0,*|*,::,*)
+              echo "serve.sh: $(t "Other machines can connect to this machine on this port. The API key is sent as plain HTTP.")" >&2
+              ;;
+          esac
+        fi
         exit 0
       fi
       sleep 1

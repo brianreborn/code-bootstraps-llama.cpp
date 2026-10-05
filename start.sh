@@ -9,6 +9,7 @@ cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/scripts/lib/i18n.sh"
 . "$ROOT/scripts/lib/raise-once.sh"
+. "$ROOT/scripts/lib/bindhost.sh"
 LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"
 say() { printf '%s\n' "start: $*" >&2; }
@@ -128,6 +129,20 @@ open_ui() {
   {
     echo
     printf '  Web UI:  %s\n' "$url"
+    pubs=$(public_hosts "${HOST:-127.0.0.1}")
+    if [ -n "$pubs" ]; then
+      printf '%s\n' "$pubs" | while IFS= read -r h; do
+        [ -n "$h" ] || continue
+        printf '  Web UI:  http://%s:%s/?model=coder\n' "$(url_host "$h")" "$port"
+      done
+      echo "  $(t "Other machines can use these addresses. The API key is sent as plain HTTP.")"
+    else
+      case ",$(bind_hosts "${HOST:-127.0.0.1}")," in
+        *,0.0.0.0,*|*,::,*)
+          echo "  $(t "Other machines can connect to this machine on this port. The API key is sent as plain HTTP.")"
+          ;;
+      esac
+    fi
     echo "  API key: $key"
     echo "  $(t "The page will ask for the API key the first time. Paste the key printed above.")"
     echo "  $(t "Stop with Ctrl-C or by closing this terminal.")"

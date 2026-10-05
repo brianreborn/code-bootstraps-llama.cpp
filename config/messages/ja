@@ -22,6 +22,8 @@ python3 is missing, so the example MCP server is off	python3 がないので、�
 this CPU is slow, so the lighter profile is used	この CPU は遅いので、軽い設定を使います
 this CPU is slow for the chosen profile	この CPU には、選んだ設定は重いです
 the chosen host is not loopback; keep the API key secret	選んだ待受先はループバックではありません。API キーを漏らさないでください
+Other machines can use these addresses. The API key is sent as plain HTTP.	他のマシンはこれらのアドレスを使えます。API キーは平文の HTTP で送られます。
+Other machines can connect to this machine on this port. The API key is sent as plain HTTP.	他のマシンはこのポートでこのマシンに接続できます。API キーは平文の HTTP で送られます。
 this binary is CPU-only and a GPU is present; set VARIANT and start again	このバイナリは CPU 専用で、GPU があります。VARIANT を指定して起動し直してください
 Saved. Restart start.sh to apply.	保存しました。反映するには start.sh を起動し直してください。
 Asking once for permission to allow memory locking. Sign in again afterwards.	一度だけ、メモリロックの許可を確認します。その後、サインインし直してください。

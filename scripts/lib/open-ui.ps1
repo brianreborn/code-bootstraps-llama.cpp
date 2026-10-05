@@ -19,6 +19,8 @@ for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow d
 }
 if (-not $ready) { exit 0 }
 $url = "http://127.0.0.1:$Port/?model=coder"
+. (Join-Path $PSScriptRoot "bindhost.ps1")
+$lanHost = if ($env:HOST) { $env:HOST } else { "127.0.0.1" }
 $key = Get-Content -LiteralPath $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | Select-Object -First 1
 if (-not $key) { exit 0 }
 $key = $key.Trim()
@@ -26,6 +28,18 @@ $copied = $false
 if ($CopyKey) { try { Set-Clipboard -Value $key -ErrorAction Stop; $copied = $true } catch { } }
 Write-Host ""
 Write-Host "  Web UI:  $url"
+$publicHosts = @(Get-PublicHosts $lanHost)
+foreach ($h in $publicHosts) {
+    Write-Host "  Web UI:  http://$(Format-UrlHost $h):$Port/?model=coder"
+}
+if ($publicHosts.Count -gt 0) {
+    Write-Host "  Other machines can use these addresses. The API key is sent as plain HTTP."
+} else {
+    $bound = Get-BindHost $lanHost
+    if ($bound -match '(^|,)(0\.0\.0\.0|::)(,|$)') {
+        Write-Host "  Other machines can connect to this machine on this port. The API key is sent as plain HTTP."
+    }
+}
 Write-Host "  API key: $key$(if ($copied) { '   (copied to the clipboard)' })"
 Write-Host "           (stored in $keyFile)"
 Write-Host "  The first time, the page says `"Server Connection Error / Access denied`": that is expected."

@@ -40,6 +40,7 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
+. (Join-Path $PSScriptRoot "lib\bindhost.ps1")
 Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "serve.ps1" $PSCommandPath
 function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $Root $p } }
 
@@ -389,7 +390,14 @@ if ($McpConfig) {
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
 
-$srvArgs = @("--host", $BindHost, "--port", $Port,
+$requestedHost = $BindHost
+if (-not $requestedHost) { $requestedHost = "127.0.0.1" }
+if ($requestedHost -notin @("127.0.0.1", "localhost", "::1")) {
+    Write-Warning "the chosen host is not loopback; keep the API key secret"
+}
+$listenHost = Get-BindHost $requestedHost
+$probeHost = Get-ProbeHost $listenHost
+$srvArgs = @("--host", $listenHost, "--port", $Port,
           "--models-preset", $effective,
           "--models-max", $routerMax,
           "--threads", $Threads, "--threads-batch", $ThreadsBatch,
@@ -456,7 +464,6 @@ if (Test-Windows) {
         [CodeBootstraps.ReadyFileCleanup]::Register($readyFile, $llamaCache)
     } catch { Write-Host "serve.ps1: note: no console-close cleanup for $readyFile ($($_.Exception.Message)); start.bat removes a stale one" }
 }
-$probeHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } elseif ($BindHost -match ':') { "[$BindHost]" } else { $BindHost }
 $sync = [hashtable]::Synchronized(@{ Stop = $false })
 $watch = [powershell]::Create()
 [void]$watch.AddScript({
@@ -494,15 +501,22 @@ $recover = $null
 $pyRecover = $pyCmd
 if (-not $pyRecover -and (Get-Command python -ErrorAction SilentlyContinue)) { $pyRecover = @("python") }
 if ($pyRecover) {
-    $recHost = $BindHost
-    if (-not $recHost -or $recHost -eq "0.0.0.0" -or $recHost -eq "::") { $recHost = "127.0.0.1" }
-    $env:RECOVER_URL = "http://${recHost}:$Port"
+    $env:RECOVER_URL = "http://${probeHost}:$Port"
     $env:API_KEY_FILE = $keyFile
     $recArgs = @()
     if ($pyRecover.Count -gt 1) { $recArgs += $pyRecover[1..($pyRecover.Count - 1)] }
     $recArgs += (Join-Path $Root "scripts\recover.py")
     $recLog = Join-Path $Root ".cache\recover.log"
     $recover = Start-Process -FilePath $pyRecover[0] -ArgumentList $recArgs -PassThru -WindowStyle Hidden -RedirectStandardError $recLog -WorkingDirectory $Root
+}
+$publicHosts = @(Get-PublicHosts $requestedHost)
+foreach ($h in $publicHosts) {
+    Write-Host "serve.ps1: also on http://$(Format-UrlHost $h):$Port"
+}
+if ($publicHosts.Count -gt 0) {
+    Write-Host "serve.ps1: Other machines can use these addresses. The API key is sent as plain HTTP."
+} elseif ($listenHost -match '(^|,)(0\.0\.0\.0|::)(,|$)') {
+    Write-Host "serve.ps1: Other machines can connect to this machine on this port. The API key is sent as plain HTTP."
 }
 Push-Location $WorkDir
 try {
