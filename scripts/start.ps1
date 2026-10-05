@@ -7,7 +7,8 @@
 # Close the window (or Ctrl-C) to stop. Settings: -Port, -Variant cpu|vulkan|cuda-12|cuda-13,
 # -NoBrowser, -Build, -CopyKey; serve.ps1 parameters can follow (-RamProfile lowram,
 # -ModelsMax, -Tools, ...), and anything else goes to llama-server (e.g. --ctx-size 8192).
-# Environment variables (PORT, VARIANT, PROFILE, TOOLS, LOCALE, ...) work as in start.sh.
+# Environment variables (PORT, VARIANT, PROFILE, TOOLS, LOCALE, RAISE, ...) work as in start.sh.
+# On Windows this also asks once for "Lock pages in memory" (scripts\raise.ps1). One command.
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
@@ -26,6 +27,44 @@ $serveScript = Join-Path $PSScriptRoot "serve.ps1"
 $serveParams = (Get-Command $serveScript).Parameters
 Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "start.ps1" $PSCommandPath
 if ($env:NO_BROWSER -eq "1") { $NoBrowser = $true }
+
+# One administrator prompt. The stamp is written here, as this user, only after
+# success. The elevated child does not write it (it would be owned by Administrator).
+$RaiseScript = Join-Path $PSScriptRoot "raise.ps1"
+function Invoke-RaiseOnce {
+    if ($env:RAISE -eq "0") { return }
+    $win = ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
+    if (-not $win) { return }
+    $stamp = Join-Path $Root ".cache\raise.stamp"
+    if ($env:RAISE -ne "1" -and (Test-Path -LiteralPath $stamp)) { return }
+    $have = $false
+    try {
+        $priv = & whoami.exe /priv 2>$null
+        if ($priv -match "SeLockMemoryPrivilege") { $have = $true }
+    } catch {
+        $have = $false
+    }
+    if ($have -and $env:RAISE -ne "1") {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stamp) | Out-Null
+        Set-Content -LiteralPath $stamp -Value "ok" -Encoding ascii
+        return
+    }
+    Write-Host "start: Asking once for permission to allow memory locking. Sign in again afterwards."
+    $ok = $true
+    try {
+        & $RaiseScript
+        if (-not $?) { $ok = $false }
+    } catch {
+        $ok = $false
+    }
+    if (-not $ok) {
+        Write-Host "start: Memory locking was not granted. The server still starts. Set RAISE=0 to stop asking."
+        return
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stamp) | Out-Null
+    Set-Content -LiteralPath $stamp -Value "ok" -Encoding ascii
+}
+Invoke-RaiseOnce
 
 # --- 1. llama-server ---------------------------------------------------------
 $server = $null

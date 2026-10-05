@@ -1,12 +1,14 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
 # Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
-# COPY_KEY=1, WAKE_LOCK=0, plus everything scripts/serve.sh reads.
+# COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, plus everything scripts/serve.sh reads.
+# On Linux this also asks once for memlock (scripts/raise.sh). One command.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/scripts/lib/i18n.sh"
+. "$ROOT/scripts/lib/raise-once.sh"
 LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"
 say() { printf '%s\n' "start: $*" >&2; }
@@ -23,6 +25,8 @@ if [ -n "$missing" ]; then
   if [ "$TERMUX" = 1 ]; then say "$(t "Install the missing programs with pkg install.")$missing"; fi
   exit 1
 fi
+
+maybe_raise
 
 VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then

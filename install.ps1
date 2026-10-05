@@ -52,8 +52,19 @@ if ($have -eq $Sha -and (Test-Path $start)) {
     }
 }
 
-if ($env:INSTALL_RAISE -eq "1") {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Prefix "scripts\raise.ps1")
+# start.bat asks for the lock right once. Ask here only when this run will not
+# start, and record the stamp so the later start does not ask again.
+if ($env:INSTALL_NO_START -eq "1") {
+    if ($env:INSTALL_RAISE -eq "1") {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Prefix "scripts\raise.ps1")
+        if ($LASTEXITCODE -eq 0) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $Prefix ".cache") | Out-Null
+            Set-Content -Path (Join-Path $Prefix ".cache\raise.stamp") -Value "ok" -Encoding ascii
+        } else {
+            Write-Host "install.ps1: raise.ps1 did not grant memlock. Start later with RAISE=1."
+        }
+    }
+    return
 }
-if ($env:INSTALL_NO_START -eq "1") { return }
+if ($env:INSTALL_RAISE -eq "1") { $env:RAISE = "1" }
 & (Join-Path $Prefix "start.bat")

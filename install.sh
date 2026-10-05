@@ -71,8 +71,20 @@ else
   rm -rf "$tmp"
 fi
 
-if [ "${INSTALL_RAISE:-0}" = 1 ]; then
-  sh "$PREFIX/scripts/raise.sh" || echo "install.sh: raise.sh did not grant memlock. Run it again after install." >&2
+# start.sh asks for memlock once. Ask here only when this run will not start,
+# and record the stamp so the later start does not ask again.
+if [ "${INSTALL_NO_START:-0}" = 1 ]; then
+  if [ "${INSTALL_RAISE:-0}" = 1 ]; then
+    if sh "$PREFIX/scripts/raise.sh"; then
+      mkdir -p "$PREFIX/.cache"
+      printf '%s\n' ok > "$PREFIX/.cache/raise.stamp"
+    else
+      echo "install.sh: raise.sh did not grant memlock. Start later with RAISE=1." >&2
+    fi
+  fi
+  exit 0
 fi
-if [ "${INSTALL_NO_START:-0}" = 1 ]; then exit 0; fi
+if [ "${INSTALL_RAISE:-0}" = 1 ]; then
+  export RAISE=1
+fi
 exec /bin/sh "$PREFIX/start.sh"

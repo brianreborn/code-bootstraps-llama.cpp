@@ -1,6 +1,6 @@
 #!/bin/sh
 # Grant this account the right to mlock, once, and again later if it is lost.
-# Re-run: scripts/raise.sh
+# start.sh runs this once. RAISE=1 runs it again. Direct re-run: scripts/raise.sh
 # Optional setuid helper, off unless asked: scripts/raise.sh --chroot
 # The helper is root only long enough to chroot, then it becomes this user.
 # A login is required before memlock applies. This script does not stay root.

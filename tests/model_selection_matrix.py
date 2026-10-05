@@ -378,6 +378,8 @@ def prepare(j, n, stubs):
     cap = os.path.join(d, "capture")
     env = {k: v.replace("@SANDBOX@", d) for k, v in j["env_extra"].items()}
     env.update({"CAPTURE_DIR": cap, "SHAMAP": os.path.join(WORK, "shamap.txt"), "NO_BROWSER": "1"})
+    # Launchers ask for memlock once. The matrix must not sudo or show UAC.
+    env.setdefault("RAISE", "0")
     if j["mode"] != "(unset)":
         env["LANGUAGE_MODE"] = j["mode"]
     if j["explicit_locale"] is not None:

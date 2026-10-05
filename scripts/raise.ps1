@@ -1,5 +1,5 @@
 # Grant this account "Lock pages in memory", once, and again later if it is lost.
-# Re-run from an elevated PowerShell: scripts\raise.ps1
+# start.bat runs this once. RAISE=1 runs it again. Direct re-run: scripts\raise.ps1
 # Windows has no chroot and no setuid helper. Sign out and back in before the right applies.
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
@@ -12,8 +12,9 @@ function Test-Admin {
 
 if (-not (Test-Admin)) {
     Write-Host "raise.ps1: asking for administrator once"
-    $args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
-    Start-Process -FilePath "powershell.exe" -Verb RunAs -Wait -ArgumentList $args
+    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
+    $p = Start-Process -FilePath "powershell.exe" -Verb RunAs -Wait -PassThru -ArgumentList $argList
+    if (-not $p -or $p.ExitCode -ne 0) { throw "raise.ps1: administrator setup failed" }
     return
 }
 
