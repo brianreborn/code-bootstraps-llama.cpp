@@ -26,7 +26,7 @@ param(
     [string]$ThreadsBatch = $(if ($env:THREADS_BATCH) { $env:THREADS_BATCH } else { "auto" }), # prompt/batch threads: auto = logical CPUs
     [string]$GpuLayers = $(if ($env:GPU_LAYERS) { $env:GPU_LAYERS } else { "auto" }),        # -ngl auto + --fit on: GPU if a backend DLL finds one, else CPU
     [string]$Repack = $(if ($env:REPACK) { $env:REPACK } else { "on" }),
-    [string]$LoadMode = $(if ($env:LOAD_MODE) { $env:LOAD_MODE } else { "auto" }),
+    [string]$LoadMode = $(if ($env:LOAD_MODE) { $env:LOAD_MODE } else { "" }),
     # languages (README "Languages"): Locale auto = Windows culture (Get-Culture); LanguageMode native (default; auto = native),
     # swap (locale model as general), interpret (opt-in HY-MT, license not valid in EU/UK/South Korea), off
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
@@ -393,7 +393,8 @@ $srvArgs = @("--host", $BindHost, "--port", $Port,
           "--models-preset", $effective,
           "--models-max", $routerMax,
           "--threads", $Threads, "--threads-batch", $ThreadsBatch,
-          "--n-gpu-layers", $GpuLayers, "--fit", "on", "--load-mode", $LoadMode)
+          "--n-gpu-layers", $GpuLayers, "--fit", "on")
+if ($LoadMode) { $srvArgs += @("--load-mode", $LoadMode) }
 if ($Repack -eq "off") { $srvArgs += "--no-repack" }
 # the log is also how serve.ps1 knows its OWN server bound the port (see "Ready" below); the
 # router does not pass --log-file on to the model instances
@@ -489,11 +490,26 @@ $watch = [powershell]::Create()
 })
 [void]$watch.AddArgument($sync).AddArgument($Port).AddArgument($probeHost).AddArgument($LlamaServer).AddArgument($PID).AddArgument($readyFile).AddArgument([bool](Test-Windows)).AddArgument($logFile).AddArgument($exeId).AddArgument(${function:Test-ServerSaidListening}.ToString())
 # the server runs in WorkDir: with the host runtime that is the web UI's default tool directory
+$recover = $null
+$pyRecover = $pyCmd
+if (-not $pyRecover -and (Get-Command python -ErrorAction SilentlyContinue)) { $pyRecover = @("python") }
+if ($pyRecover) {
+    $recHost = $BindHost
+    if (-not $recHost -or $recHost -eq "0.0.0.0" -or $recHost -eq "::") { $recHost = "127.0.0.1" }
+    $env:RECOVER_URL = "http://${recHost}:$Port"
+    $env:API_KEY_FILE = $keyFile
+    $recArgs = @()
+    if ($pyRecover.Count -gt 1) { $recArgs += $pyRecover[1..($pyRecover.Count - 1)] }
+    $recArgs += (Join-Path $Root "scripts\recover.py")
+    $recLog = Join-Path $Root ".cache\recover.log"
+    $recover = Start-Process -FilePath $pyRecover[0] -ArgumentList $recArgs -PassThru -WindowStyle Hidden -RedirectStandardError $recLog -WorkingDirectory $Root
+}
 Push-Location $WorkDir
 try {
     [void]$watch.BeginInvoke()
     & $LlamaServer @srvArgs
 } finally {
+    if ($recover -and -not $recover.HasExited) { Stop-Process -Id $recover.Id -Force -ErrorAction SilentlyContinue }
     $sync.Stop = $true
     try { $watch.Stop(); $watch.Dispose() } catch { }
     Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue

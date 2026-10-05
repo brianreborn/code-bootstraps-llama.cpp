@@ -12,7 +12,11 @@ import html
 import os
 import re
 import subprocess
+import sys
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.lockmem import try_lock_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_PATH = os.path.join(ROOT, ".cache", "panel.env")
@@ -177,6 +181,7 @@ td { padding: 0.3rem 0.6rem 0.3rem 0; }
 
 
 def main():
+    try_lock_process("panel.py")
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import urllib.parse
 

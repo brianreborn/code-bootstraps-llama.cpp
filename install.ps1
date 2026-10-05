@@ -52,5 +52,8 @@ if ($have -eq $Sha -and (Test-Path $start)) {
     }
 }
 
+if ($env:INSTALL_RAISE -eq "1") {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Prefix "scripts\raise.ps1")
+}
 if ($env:INSTALL_NO_START -eq "1") { return }
 & (Join-Path $Prefix "start.bat")

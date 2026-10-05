@@ -71,5 +71,8 @@ else
   rm -rf "$tmp"
 fi
 
+if [ "${INSTALL_RAISE:-0}" = 1 ]; then
+  sh "$PREFIX/scripts/raise.sh" || echo "install.sh: raise.sh did not grant memlock. Run it again after install." >&2
+fi
 if [ "${INSTALL_NO_START:-0}" = 1 ]; then exit 0; fi
 exec /bin/sh "$PREFIX/start.sh"

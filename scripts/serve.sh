@@ -30,7 +30,7 @@ THREADS=${THREADS:-auto}
 THREADS_BATCH=${THREADS_BATCH:-auto}
 GPU_LAYERS=${GPU_LAYERS:-auto}
 REPACK=${REPACK:-on}
-LOAD_MODE=${LOAD_MODE:-auto}
+LOAD_MODE=${LOAD_MODE-}
 LOCALE=${LOCALE:-auto}
 LANGUAGE_MODE=${LANGUAGE_MODE:-native}
 SWAP_CODER=${SWAP_CODER:-0}
@@ -436,6 +436,7 @@ start_container() {
   echo "serve.sh: /work is $WORKDIR" >&2
 }
 cleanup() {
+  if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
   if [ -n "${SERVER_PID:-}" ] && [ -f "$ROOT/.cache/serve.ready" ] && [ "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" = "$SERVER_PID" ]; then
     rm -f "$ROOT/.cache/serve.ready"
@@ -518,8 +519,8 @@ set -- \
   --models-preset "$EFFECTIVE_PRESET" \
   --models-max "$ROUTER_MAX" \
   --threads "$THREADS" --threads-batch "$THREADS_BATCH" \
-  --n-gpu-layers "$GPU_LAYERS" --fit on \
-  --load-mode "$LOAD_MODE"
+  --n-gpu-layers "$GPU_LAYERS" --fit on
+[ -n "$LOAD_MODE" ] && set -- "$@" --load-mode "$LOAD_MODE"
 [ "$REPACK" = off ] && set -- "$@" --no-repack
 LOG_FILE=$(abspath "$LOG_FILE")
 set -- "$@" --log-file "$LOG_FILE"
@@ -561,6 +562,15 @@ else
   ( cd "$SERVER_CWD" && exec "$BIN" "$@" ) &
 fi
 SERVER_PID=$!
+RECOVER_PID=""
+if command -v python3 >/dev/null 2>&1; then
+  rec_host=$HOST
+  case "$rec_host" in 0.0.0.0|::|"") rec_host=127.0.0.1 ;; esac
+  case "$rec_host" in *:*) rec_host="[$rec_host]" ;; esac
+  RECOVER_URL="http://$rec_host:$PORT" API_KEY_FILE="$API_KEY_FILE" \
+    python3 "$ROOT/scripts/recover.py" >>"$ROOT/.cache/recover.log" 2>&1 &
+  RECOVER_PID=$!
+fi
 
 said_listening() {
   [ -f "$LOG_FILE" ] && grep -F "listening on http://" "$LOG_FILE" 2>/dev/null | grep -E ":$PORT([^0-9]|\$)" >/dev/null

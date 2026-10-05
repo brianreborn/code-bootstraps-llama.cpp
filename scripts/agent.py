@@ -39,6 +39,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from lib.lockmem import try_lock_process
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEAN_TOOLS = ["read_file", "write_file", "edit_file", "exec_shell_command"]
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
@@ -289,6 +291,7 @@ def resolve_language(a, text):
 
 
 def main():
+    try_lock_process("agent.py")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prompt")
     ap.add_argument("--url", default=os.environ.get("LLAMA_URL", "http://127.0.0.1:" + os.environ.get("PORT", "9931")))

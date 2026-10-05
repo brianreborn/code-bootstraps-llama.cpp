@@ -7,7 +7,11 @@ safe to keep enabled. Replace it with real MCP servers as needed.
 """
 import datetime
 import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.lockmem import try_lock_process
 
 TOOLS = [
     {
@@ -55,6 +59,7 @@ def handle(req):
 
 
 def main():
+    try_lock_process("mcp-example-server.py")
     for line in sys.stdin:
         line = line.strip()
         if not line:
