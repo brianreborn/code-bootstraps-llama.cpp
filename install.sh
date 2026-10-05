@@ -1,13 +1,13 @@
 #!/bin/sh
-# Fetch this repository, check sha256, unpack, then run start.sh.
+# Fetch this repository, unpack, then run start.sh.
 # Profile defaults, including MODELS_MAX=2, live in scripts/serve.sh after unpack.
 #   curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
-# The digest of a GitHub archive cannot live only inside that archive.
-# EXPECTED_SHA256 stays empty until a published archive is hashed. Until then the
-# script refuses to download. Tests set INSTALL_URL, INSTALL_SHA256, PREFIX, and
-# INSTALL_NO_START=1. A second run unpacks again only when the digest changes.
-# Termux exports PREFIX as its usr directory. INSTALL_PREFIX, or ~/code-bootstraps-llama.cpp,
-# is used there so the installer does not unpack over the Termux prefix.
+# EXPECTED_SHA256 or INSTALL_SHA256, when set, must match the archive or it is
+# not unpacked. An empty digest still installs. Tests set INSTALL_URL,
+# INSTALL_PREFIX, and INSTALL_NO_START=1. A second run unpacks again only when
+# the archive digest changes. Termux exports PREFIX as its usr directory.
+# INSTALL_PREFIX, or ~/code-bootstraps-llama.cpp, is used there so the installer
+# does not unpack over the Termux prefix.
 set -eu
 EXPECTED_SHA256=""
 URL=${INSTALL_URL:-https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/main.tar.gz}
@@ -29,11 +29,20 @@ sha256_of() {
   else cksum -a sha256 "$1" | awk 'NR==1 { print $NF; exit }'; fi
 }
 
-[ -n "$SHA" ] || die "no sha256 is published for this installer yet. Set INSTALL_SHA256, or fill EXPECTED_SHA256 after a release archive is hashed."
-case "$SHA" in
-  *[!0-9A-Fa-f]*) die "sha256 is not hex" ;;
-esac
-[ "$(printf '%s' "$SHA" | wc -c | tr -d ' ')" = 64 ] || die "sha256 must be 64 hex characters"
+stamp_matches() {
+  [ -n "$1" ] || return 1
+  [ -f "$PREFIX/.cache/install.sha256" ] || return 1
+  [ "$(tr -d '[:space:]' < "$PREFIX/.cache/install.sha256")" = "$1" ] || return 1
+  [ -f "$PREFIX/start.sh" ]
+}
+
+if [ -n "$SHA" ]; then
+  SHA=$(printf '%s' "$SHA" | tr 'A-F' 'a-f')
+  case "$SHA" in
+    *[!0-9A-Fa-f]*) die "sha256 is not hex" ;;
+  esac
+  [ "$(printf '%s' "$SHA" | wc -c | tr -d ' ')" = 64 ] || die "sha256 must be 64 hex characters"
+fi
 case "$URL" in
   https://*) ;;
   file://*) ;;
@@ -42,7 +51,7 @@ esac
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
 
-if [ -f "$PREFIX/.cache/install.sha256" ] && [ "$(tr -d '[:space:]' < "$PREFIX/.cache/install.sha256")" = "$SHA" ] && [ -f "$PREFIX/start.sh" ]; then
+if [ -n "$SHA" ] && stamp_matches "$SHA"; then
   echo "install.sh: $PREFIX already matches this archive" >&2
 else
   tmp=$(mktemp -d)
@@ -53,21 +62,27 @@ else
     file://*) curl -fsSL -o "$arc" "$URL" ;;
   esac
   got=$(sha256_of "$arc")
-  [ "$got" = "$SHA" ] || die "sha256 mismatch (got $got, want $SHA). Not unpacked."
-  tar -xzf "$arc" -C "$tmp"
-  top=""
-  for d in "$tmp"/*; do
-    [ -d "$d" ] || continue
-    [ -n "$top" ] && die "archive has more than one top directory"
-    top=$d
-  done
-  [ -n "$top" ] || die "archive has no top directory"
-  [ -f "$top/start.sh" ] || die "archive has no start.sh"
-  mkdir -p "$PREFIX"
-  tar -C "$top" -cf - . | tar -C "$PREFIX" -xf -
-  mkdir -p "$PREFIX/.cache"
-  printf '%s\n' "$SHA" > "$PREFIX/.cache/install.sha256"
-  echo "install.sh: installed into $PREFIX" >&2
+  if [ -n "$SHA" ] && [ "$got" != "$SHA" ]; then
+    die "sha256 mismatch (got $got, want $SHA). Not unpacked."
+  fi
+  if stamp_matches "$got"; then
+    echo "install.sh: $PREFIX already matches this archive" >&2
+  else
+    tar -xzf "$arc" -C "$tmp"
+    top=""
+    for d in "$tmp"/*; do
+      [ -d "$d" ] || continue
+      [ -n "$top" ] && die "archive has more than one top directory"
+      top=$d
+    done
+    [ -n "$top" ] || die "archive has no top directory"
+    [ -f "$top/start.sh" ] || die "archive has no start.sh"
+    mkdir -p "$PREFIX"
+    tar -C "$top" -cf - . | tar -C "$PREFIX" -xf -
+    mkdir -p "$PREFIX/.cache"
+    printf '%s\n' "$got" > "$PREFIX/.cache/install.sha256"
+    echo "install.sh: installed into $PREFIX" >&2
+  fi
   trap - EXIT
   rm -rf "$tmp"
 fi

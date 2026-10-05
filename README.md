@@ -55,7 +55,7 @@ Prerequisites:
 
 No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1`, `COPY_KEY=1`, `RAISE=0|1` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`; `RAISE` is an environment variable there too), plus everything `serve.sh` reads. On Linux, `VARIANT=auto` fetches `cuda-12` when `nvidia-smi -L` works, otherwise `vulkan` when `/dev/dri/renderD128` exists, otherwise `cpu`. A CPU-only binary with a GPU present prints a warning; `--fit` does not invent a GPU backend. macOS stays on the `cpu` asset (Metal is built into it). Android stays on `cpu`.
 
-One-line install, once `EXPECTED_SHA256` in `install.sh` / `install.ps1` is the digest of a published archive (until then the script refuses to unpack):
+One-line install:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.c
 irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
 ```
 
-The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on Termux, `PREFIX` is the Termux usr tree, so the installer uses `INSTALL_PREFIX` or the home default and does not unpack over it). A second run unpacks again only when that digest changes. `INSTALL_NO_START=1` stops before `start.sh`.
+The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on Termux, `PREFIX` is the Termux usr tree, so the installer uses `INSTALL_PREFIX` or the home default and does not unpack over it). A second run downloads the archive again and unpacks only when its digest changes. `INSTALL_SHA256` or `EXPECTED_SHA256`, when set, refuses a different archive. `INSTALL_NO_START=1` stops before `start.sh`.
 
 `python3 scripts/panel.py` serves a form on `127.0.0.1:9932` and writes `.cache/panel.env`. An environment variable set in the shell still wins. The page also shows memory, whether a GPU device is present, and whether the server answers. Restart `start.sh` after saving.
 
