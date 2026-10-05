@@ -1,0 +1,26 @@
+Some required programs are missing.	必要なプログラムがありません。
+Install the missing programs with pkg install.	足りないプログラムは pkg install で入れてください。
+using the binary you named	指定された llama-server を使います
+downloading llama.cpp failed; check the network and run start.sh again	llama.cpp のダウンロードに失敗しました。回線を確認して start.sh をもう一度実行してください
+no release binary for this machine; building from source	このマシン向けの配布バイナリがありません。ソースからビルドします
+cmake was not found	cmake が見つかりません
+llama.cpp sources are missing from this download	この展開物には llama.cpp のソースがありません
+build finished but llama-server was not found	ビルドは終わりましたが llama-server が見つかりません
+cannot reach the model host; connect and run start.sh again	モデルの配布元に届きません。接続して start.sh をもう一度実行してください
+that port is in use; choose another with PORT	そのポートは使用中です。PORT で別の番号を指定してください
+that port is in use, so another free port was chosen	そのポートは使用中なので、空いているポートを使います
+The page will ask for the API key the first time. Paste the key printed above.	最初に API キーを聞かれます。上に表示されたキーを貼り付けてください。
+Stop with Ctrl-C or by closing this terminal.	止めるときは Ctrl-C か、この端末を閉じてください。
+Linux will use a GPU build so the GPU is not left idle.	Linux では GPU を遊ばせないため、GPU 対応のビルドを使います。
+no container engine found, so tools run on this computer as your user	コンテナがないので、ツールはこのコンピュータ上で、あなたのユーザーとして動きます
+They start in the project directory but can reach other files you can read.	作業はプロジェクトのディレクトリから始まりますが、あなたが読める他のファイルにも届きます。
+lean tools are fewer; an empty TOOLS list turns them off; a container keeps them inside it	lean はツールを減らし、TOOLS を空にすると止め、コンテナは中に閉じ込めます
+the tools container could not be started	ツール用コンテナを起動できませんでした
+generated an API key	API キーを作りました
+example MCP server is off while tools are lean	ツールが lean の間、例の MCP サーバはオフです
+python3 is missing, so the example MCP server is off	python3 がないので、例の MCP サーバはオフです
+this CPU is slow, so the lighter profile is used	この CPU は遅いので、軽い設定を使います
+this CPU is slow for the chosen profile	この CPU には、選んだ設定は重いです
+the chosen host is not loopback; keep the API key secret	選んだ待受先はループバックではありません。API キーを漏らさないでください
+this binary is CPU-only and a GPU is present; set VARIANT and start again	このバイナリは CPU 専用で、GPU があります。VARIANT を指定して起動し直してください
+Saved. Restart start.sh to apply.	保存しました。反映するには start.sh を起動し直してください。

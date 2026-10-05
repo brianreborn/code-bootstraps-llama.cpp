@@ -51,15 +51,24 @@ INTERPRETER = ("You are a translator for a coding assistant. Translate the user'
                "Keep file paths, commands, identifiers, URLs and numbers unchanged. Keep the meaning; do not answer, "
                "explain or add anything. Output only the translation.")
 CODE_RE = re.compile(r"```.*?```|`[^`\n]+`", re.S)
+# Sentences may be translated. These stay byte for byte: code, URLs, flags, hashes, paths, model files.
+KEEP_RE = re.compile(
+    r"```.*?```|`[^`\n]+`"
+    r"|https?://\S+"
+    r"|\b[a-fA-F0-9]{32,64}\b"
+    r"|--[A-Za-z0-9][\w.-]*"
+    r"|(?:(?:\./|\.\./|/)[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+)"
+    r"|\b[\w./+-]+\.(?:gguf|sh|py|ps1|json|ini|md|txt)\b",
+    re.S)
 
 
-def mask_code(text):
-    """replace fenced blocks and inline code spans with placeholders"""
+def mask_code(text, pattern=None):
+    """replace protected spans with placeholders. pattern defaults to code fences and `spans`."""
     spans = []
     def sub(m):
         spans.append(m.group(0))
         return f"\u27e6C{len(spans) - 1}\u27e7"
-    return CODE_RE.sub(sub, text), spans
+    return (pattern or CODE_RE).sub(sub, text), spans
 
 
 def unmask_code(text, spans):
@@ -87,6 +96,42 @@ def outside_path(cwd, params):
             if full != root and not full.startswith(root + os.sep):
                 return v
     return None
+
+
+def load_tools_meta():
+    """cwd the tools runtime can see, written by scripts/serve.sh (.cache/tools.json)."""
+    path = os.path.join(ROOT, ".cache", "tools.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_cwd(requested, meta):
+    """header value for x-tool-cwd. An empty --cwd uses the runtime cwd from tools.json.
+    Inside a container, a relative path is joined under that cwd (/work). A host absolute
+    path outside the mount is refused: the container cannot see it."""
+    runtime = meta.get("runtime") or "host"
+    isolate = meta.get("cwd") or ""
+    if runtime == "host" or not isolate:
+        isolate = ""
+    if requested is None or requested == "":
+        return isolate or None
+    if isolate:
+        base = isolate.rstrip("/")
+        if requested.startswith("/"):
+            if requested == base or requested.startswith(base + "/"):
+                return requested
+            raise SystemExit(
+                f"agent: --cwd {requested} is not inside the tools container ({isolate}). "
+                "Set WORKDIR to the project to edit and restart serve.sh.")
+        rel = requested[2:] if requested.startswith("./") else requested
+        return base + "/" + rel.lstrip("/")
+    if not requested.startswith("/") and os.path.isdir(requested):
+        return os.path.abspath(requested)
+    return requested
 
 
 def ask(prompt):
@@ -141,7 +186,7 @@ class Client:
 
 def translate(c, text, target, style="sys", tries=2):
     """translate text with the router's "language" model, code spans protected by placeholders"""
-    masked, spans = mask_code(text)
+    masked, spans = mask_code(text, KEEP_RE)
     tgt = LANGS.get(target, target)
     for _ in range(tries):
         if style == "hy":   # HY-MT official prompt (no system prompt)
@@ -267,13 +312,15 @@ def main():
     ap.add_argument("--language-prompt", default=os.environ.get("LANGUAGE_PROMPT", "sys"), choices=["sys", "hy"],
                     help="prompt style of the language model: sys (system prompt) or hy (HY-MT template)")
     ap.add_argument("--detect-min-p", type=float, default=float(os.environ.get("DETECT_MIN_P", "0.3")))
-    ap.add_argument("--localize", metavar="FILE", help="translate the prose of a text/Markdown FILE (code untouched) and print it")
-    ap.add_argument("--to", default=None, help="target language for --localize (default: LOCALE)")
+    ap.add_argument("--localize", metavar="FILE",
+                    help="translate the sentences of a text/Markdown FILE and print it. "
+                         "Code, paths, flags, URLs, and hashes stay as written")
+    ap.add_argument("--to", default=None,
+                    help="target language for --localize (default: LOCALE). "
+                         "Does not translate code, paths, flags, URLs, or hashes")
     a = ap.parse_args()
 
-    cwd = a.cwd
-    if cwd and not cwd.startswith("/") and os.path.isdir(cwd):
-        cwd = os.path.abspath(cwd)
+    cwd = resolve_cwd(a.cwd, load_tools_meta())
     c = Client(a.url, read_key(a.key_file), cwd)
 
     if a.localize:   # localize docs/comments/strings: prose translated, code blocks and `spans` kept

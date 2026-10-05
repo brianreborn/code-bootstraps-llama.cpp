@@ -1,138 +1,143 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# 1. llama.cpp: the official release binary pinned in config/llama-release.json
-#    (sha256-checked); if none fits this machine, build from source when a compiler exists.
-# 2. models: the default set from config/models-manifest.json (sha256-checked).
-# 3. scripts/serve.sh: router with tools, API key, effective preset.
-# 4. opens the built-in web UI once serve.sh reports the server ready (its agent uses the server tools).
-# Ctrl-C or closing the terminal stops everything. Settings: PORT, VARIANT=cpu|vulkan|cuda-12|cuda-13,
-# NO_BROWSER=1, BUILD=1 (always build), COPY_KEY=1 (API key to the clipboard), WAKE_LOCK=0
-# (Termux: no termux-wake-lock), plus
-# everything scripts/serve.sh reads (PROFILE=lowram, MODELS_MAX, TOOLS, ...). Arguments go to
-# serve.sh, i.e. to llama-server for every role (e.g. --ctx-size 8192; model flags are refused).
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
+# COPY_KEY=1, WAKE_LOCK=0, plus everything scripts/serve.sh reads.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
+if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
+. "$ROOT/scripts/lib/i18n.sh"
+LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"
-say() { echo "start: $*" >&2; }
-TERMUX=0; [[ "${PREFIX:-}" == *com.termux* ]] && TERMUX=1
+say() { printf '%s\n' "start: $*" >&2; }
+TERMUX=0
+case "${PREFIX:-}" in *com.termux*) TERMUX=1 ;; esac
 
 missing=""
-for t in curl tar awk; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
-command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || missing="$missing sha256sum"
-if [[ -n "$missing" ]]; then
-  say "missing tools:$missing"
-  if [[ "$TERMUX" == 1 ]]; then say "install them with: pkg install$missing"; fi
+for tool in curl tar awk; do
+  command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+done
+command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v cksum >/dev/null 2>&1 || missing="$missing sha256sum"
+if [ -n "$missing" ]; then
+  say "$(t "Some required programs are missing.")$missing"
+  if [ "$TERMUX" = 1 ]; then say "$(t "Install the missing programs with pkg install.")$missing"; fi
   exit 1
 fi
 
-# --- 1. llama-server ---------------------------------------------------------
-if [[ -n "${LLAMA_SERVER:-}" ]]; then
-  say "using LLAMA_SERVER=$LLAMA_SERVER"
-elif [[ "${BUILD:-0}" != 1 ]] && LLAMA_SERVER="$(scripts/fetch-llama.sh --variant "${VARIANT:-cpu}")"; then
+VARIANT=${VARIANT:-auto}
+if [ -n "${LLAMA_SERVER:-}" ]; then
+  say "$(t "using the binary you named")"
+elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
   :
-elif rc=$?; [[ "${BUILD:-0}" != 1 && "$rc" != 3 ]]; then
-  # 3 = no release binary for this machine (or it does not run here); anything else is a
-  # failed download or checksum, which a source build would not fix
-  say "downloading llama.cpp failed (fetch-llama.sh exit $rc): check the internet connection and run start.sh again"
-  exit 1
 else
-  say "no usable release binary; building from source (needs git, cmake and a C++ compiler)"
-  case "$(uname -s)" in
-    Darwin) script=scripts/build-macos.sh ;;
-    *) if [[ "$TERMUX" == 1 ]]; then script=scripts/build-termux.sh; else script=scripts/build-linux.sh; fi ;;
-  esac
-  if [[ "$TERMUX" == 1 ]]; then
-    say "Termux: building on the phone takes 30-90 min and 1-2 GB (needs: pkg install git clang cmake ninja; JOBS=2 if clang gets killed)"
-    command -v cmake >/dev/null 2>&1 || { say "cmake not found: pkg install git clang cmake ninja"; exit 1; }
-  fi
-  command -v cmake >/dev/null 2>&1 || { say "cmake not found: install cmake and a C++ compiler, or use a platform listed in config/llama-release.json"; exit 1; }
-  if [[ ! -f llama.cpp/CMakeLists.txt && ! -e .git ]]; then
-    say "llama.cpp/ is empty and this is not a git clone (a ZIP download?): the build needs the submodule. Use: git clone --recurse-submodules https://github.com/brianreborn/code-bootstraps-llama.cpp"
+  rc=$?
+  if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then
+    say "$(t "downloading llama.cpp failed; check the network and run start.sh again")"
     exit 1
   fi
-  [[ -f llama.cpp/CMakeLists.txt ]] || git submodule update --init llama.cpp
-  "$script"
-  LLAMA_SERVER="$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -1)"
-  [[ -x "$LLAMA_SERVER" ]] || { say "build finished but llama-server was not found"; exit 1; }
+  say "$(t "no release binary for this machine; building from source")"
+  case "$(uname -s)" in
+    Darwin) script=scripts/build-macos.sh ;;
+    *)
+      if [ "$TERMUX" = 1 ]; then script=scripts/build-termux.sh
+      else script=scripts/build-linux.sh; fi
+      ;;
+  esac
+  command -v cmake >/dev/null 2>&1 || { say "$(t "cmake was not found")"; exit 1; }
+  if [ ! -f llama.cpp/CMakeLists.txt ] && [ ! -e .git ]; then
+    say "$(t "llama.cpp sources are missing from this download")"
+    exit 1
+  fi
+  [ -f llama.cpp/CMakeLists.txt ] || git submodule update --init llama.cpp
+  gpu_build=off
+  case "$(cat .cache/llama-variant 2>/dev/null || true)" in
+    vulkan) gpu_build=vulkan ;;
+    cuda-*) gpu_build=cuda ;;
+  esac
+  if [ "$script" = scripts/build-linux.sh ] && [ "$gpu_build" != off ]; then
+    say "$(t "Linux will use a GPU build so the GPU is not left idle.")"
+    GPU=$gpu_build "$script"
+  else
+    "$script"
+  fi
+  LLAMA_SERVER=$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+  [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
 export LLAMA_SERVER
 
-# --- 2. models -----------------------------------------------------------------
-rc=0; scripts/fetch-models.sh || rc=$?
-if [[ "$rc" == 6 || "$rc" == 7 ]]; then   # curl: could not resolve / connect
-  say "cannot reach huggingface.co (offline, or a firewall/proxy blocks it): connect to the internet and run start.sh again; finished files are kept, a partial download resumes"
+rc=0
+scripts/fetch-models.sh || rc=$?
+if [ "$rc" = 6 ] || [ "$rc" = 7 ]; then
+  say "$(t "cannot reach the model host; connect and run start.sh again")"
   exit 1
-elif [[ "$rc" != 0 ]]; then exit "$rc"; fi
-
-# a port anything listens on (another llama-server, a service that never answers HTTP, ...)
-# counts as busy: only "connection refused" (curl exit 7) means free. The next free port is
-# used; serve.sh prints the address it ends up listening on. Checked after the downloads,
-# right before the server starts, so a port taken meanwhile is noticed too.
-port_busy() {
-  local rc=0; curl -s --max-time 1 "telnet://127.0.0.1:$1" </dev/null >/dev/null 2>&1 || rc=$?
-  if [[ "$rc" == 1 ]]; then (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; return; fi   # a curl built without telnet
-  [[ "$rc" != 7 ]]
-}
-if port_busy "$PORT"; then
-  p="$PORT"; for i in $(seq 1 20); do p=$((PORT + i)); port_busy "$p" || break; done
-  port_busy "$p" && { say "ports $PORT-$p are all in use; set PORT="; exit 1; }
-  say "port $PORT is in use, using $p"; export PORT="$p"
+elif [ "$rc" != 0 ]; then
+  exit "$rc"
 fi
 
-# --- 4. open the web UI once serve.sh reports it ready ---------------------------------
-# $1 = PID of this script, which becomes serve.sh with exec: stop waiting when it is gone.
-# serve.sh writes .cache/serve.ready ("<port> <pid>") once its own server answers on the port.
-open_ui() {
-  local parent="$1" port="" pid="" key="" i ready=0
-  for i in $(seq 1 1200); do
-    kill -0 "$parent" 2>/dev/null || return 0
-    if [[ -s .cache/serve.ready ]]; then
-      read -r port pid < .cache/serve.ready || true
-      if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then ready=1; break; fi
-    fi
-    sleep 0.5
+port_busy() {
+  pb=0
+  curl -s --max-time 1 "telnet://127.0.0.1:$1" </dev/null >/dev/null 2>&1 || pb=$?
+  if [ "$pb" = 1 ]; then
+    pb=0
+    curl -sS -o /dev/null --connect-timeout 1 --max-time 1 "http://127.0.0.1:$1/" >/dev/null 2>&1 || pb=$?
+  fi
+  [ "$pb" != 7 ]
+}
+if port_busy "$PORT"; then
+  p=$PORT
+  i=1
+  while [ "$i" -le 20 ]; do
+    p=$((PORT + i))
+    port_busy "$p" || break
+    i=$((i + 1))
   done
-  [[ "$ready" == 1 ]] || return 0
-  local url="http://127.0.0.1:$port/?model=coder"
-  key="$(grep -v -e '^#' -e '^[[:space:]]*$' .secrets/api-keys 2>/dev/null | head -1)"
-  local copied=""
-  if [[ "${COPY_KEY:-0}" == 1 ]]; then   # opt-in: clipboard managers keep a history
-    if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy && copied=1
-    elif command -v termux-clipboard-set >/dev/null 2>&1; then printf %s "$key" | termux-clipboard-set && copied=1
-    elif [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v wl-copy >/dev/null 2>&1; then printf %s "$key" | wl-copy && copied=1
-    elif [[ -n "${DISPLAY:-}" ]] && command -v xclip >/dev/null 2>&1; then printf %s "$key" | xclip -selection clipboard && copied=1
+  if port_busy "$p"; then say "$(t "that port is in use; choose another with PORT")"; exit 1; fi
+  say "$(t "that port is in use, so another free port was chosen")"
+  export PORT="$p"
+fi
+
+open_ui() {
+  parent=$1
+  port=""
+  pid=""
+  ready=0
+  i=1
+  while [ "$i" -le 600 ]; do
+    kill -0 "$parent" 2>/dev/null || return 0
+    if [ -s .cache/serve.ready ]; then
+      read -r port pid < .cache/serve.ready || true
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then ready=1; break; fi
+    fi
+    sleep 1
+    i=$((i + 1))
+  done
+  [ "$ready" = 1 ] || return 0
+  url="http://127.0.0.1:$port/?model=coder"
+  key=$(grep -v -e '^#' -e '^[[:space:]]*$' .secrets/api-keys 2>/dev/null | head -n 1 || true)
+  if [ "${COPY_KEY:-0}" = 1 ]; then
+    if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy || true
+    elif command -v termux-clipboard-set >/dev/null 2>&1; then printf %s "$key" | termux-clipboard-set || true
+    elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then printf %s "$key" | wl-copy || true
+    elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then printf %s "$key" | xclip -selection clipboard || true
     fi
   fi
   {
     echo
-    echo "  Web UI:  $url"
-    echo "  API key: $key${copied:+   (copied to the clipboard)}"
-    echo "           (stored in $ROOT/.secrets/api-keys)"
-    echo "  The first time, the page says \"Server Connection Error / Access denied\": that is expected."
-    echo "  Click \"Enter API Key\", paste the key above and confirm; the browser keeps it."
-    echo "  Files the agent creates go to: ${WORKDIR:-$ROOT/workspace}"
-    [[ -f "$ROOT/.cache/profile.txt" ]] && cat "$ROOT/.cache/profile.txt"
-    echo "  Stop with Ctrl-C or by closing this terminal."
-    if [[ "$TERMUX" == 1 ]]; then
-      echo "  Android: in the background Termux may get only the slow cores (or be stopped). Keep it"
-      echo "  visible (split screen), or view the UI from a PC: ssh -p 8022 -L $port:127.0.0.1:$port <phone-ip>"
-    fi
+    printf '  Web UI:  %s\n' "$url"
+    echo "  API key: $key"
+    echo "  $(t "The page will ask for the API key the first time. Paste the key printed above.")"
+    echo "  $(t "Stop with Ctrl-C or by closing this terminal.")"
     echo
   } >&2
-  [[ "${NO_BROWSER:-0}" == 1 ]] && return 0
-  if [[ "$(uname -s)" == Darwin ]]; then open "$url"
-  elif command -v termux-open-url >/dev/null 2>&1; then termux-open-url "$url"
-  elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
-  else say "open $url in a browser"; fi
+  [ "${NO_BROWSER:-0}" = 1 ] && return 0
+  if [ "$(uname -s)" = Darwin ]; then open "$url" || true
+  elif command -v termux-open-url >/dev/null 2>&1; then termux-open-url "$url" || true
+  elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
+  else say "$url"; fi
 }
 rm -f .cache/serve.ready
 open_ui "$$" &
-
-# Termux: keep the CPU awake while the server runs (serve.sh releases it on exit)
-if [[ "$TERMUX" == 1 && "${WAKE_LOCK:-1}" != 0 ]] && command -v termux-wake-lock >/dev/null 2>&1; then
+if [ "$TERMUX" = 1 ] && [ "${WAKE_LOCK:-1}" != 0 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true
 fi
-
-# --- 3. server (exec: Ctrl-C and kill reach serve.sh, which shuts down cleanly) ---------
 exec scripts/serve.sh "$@"

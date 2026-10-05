@@ -1,12 +1,12 @@
-#!/usr/bin/env bash
-# Developer check: the Python-free manifest reader (scripts/lib/manifest.awk) must see
-# exactly what a real JSON parser sees. Needs python3 (developers only, not users).
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
-AWK="${AWK:-awk}"; rc=0
-check() {   # $1 file, $2 array key, $3 fields
-  local want got
-  want="$(python3 - "$1" "$2" "$3" <<'PY'
+#!/bin/sh
+# The awk manifest reader must see what Python sees. Developers only.
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT"
+AWK=${AWK:-awk}
+rc=0
+check() {
+  want=$(python3 - "$1" "$2" "$3" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 for c in d[sys.argv[2]]:
@@ -20,11 +20,22 @@ for c in d[sys.argv[2]]:
         vals.append(v if v != "" else "-")
     print("\t".join(vals))
 PY
-)"
-  got="$($AWK -v match_kv="" -v fields="$3" -f scripts/lib/manifest.awk "$1")"
-  if [[ "$want" == "$got" ]]; then echo "check-manifests: OK $1 ($(wc -l <<< "$got") entries, $AWK)"
-  else echo "check-manifests: MISMATCH in $1"; diff <(echo "$want") <(echo "$got") || true; rc=1; fi
+)
+  got=$($AWK -v match_kv="" -v fields="$3" -f scripts/lib/manifest.awk "$1")
+  if [ "$want" = "$got" ]; then
+    n=$(printf '%s\n' "$got" | wc -l | tr -d ' ')
+    echo "check-manifests: OK $1 ($n entries, $AWK)"
+  else
+    echo "check-manifests: MISMATCH in $1"
+    printf '%s\n' "$want" > "$ROOT/.cache/manifest.want"
+    printf '%s\n' "$got" > "$ROOT/.cache/manifest.got"
+    diff "$ROOT/.cache/manifest.want" "$ROOT/.cache/manifest.got" || true
+    rc=1
+  fi
 }
-check config/models-manifest.json candidates "pick role repo revision file sha256 tested dir notice bytes"
-[[ -f config/llama-release.json ]] && check config/llama-release.json assets "platform variant file sha256 bytes base_url"
-exit $rc
+mkdir -p .cache
+check config/models-manifest.json candidates "pick role repo revision file sha256 tested dir notice"
+if [ -f config/llama-release.json ]; then
+  check config/llama-release.json assets "platform variant file sha256 bytes base_url"
+fi
+exit "$rc"

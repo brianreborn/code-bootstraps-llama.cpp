@@ -1,23 +1,32 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Unit test for big_cores() (scripts/lib/common.sh) with synthetic sysfs trees.
-#   bash tests/test_cpu.sh
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=../scripts/lib/common.sh
+#   sh tests/test_cpu.sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/scripts/lib/common.sh"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 fails=0
 # $1 name, $2 file (cpu_capacity | cpufreq/cpuinfo_max_freq), $3 expected, rest = one value per
 # core ("-" = that core has no such file: offline, or unreadable)
 check() {
-  local name="$1" file="$2" want="$3"; shift 3
-  local d="$tmp/$name" i=0 v got
+  name=$1
+  file=$2
+  want=$3
+  shift 3
+  d=$tmp/$name
+  i=0
   for v in "$@"; do
-    mkdir -p "$d/cpu$i"; [[ "$v" == - ]] || { mkdir -p "$d/cpu$i/$(dirname "$file")"; echo "$v" > "$d/cpu$i/$file"; }
+    mkdir -p "$d/cpu$i"
+    if [ "$v" != - ]; then
+      mkdir -p "$d/cpu$i/$(dirname "$file")"
+      printf '%s\n' "$v" > "$d/cpu$i/$file"
+    fi
     i=$((i + 1))
   done
-  got="$(big_cores "$d")"
-  if [[ "$got" == "$want" ]]; then echo "ok   $name: ${got:-<none>}"; else echo "FAIL $name: got '${got}', want '${want}'"; fails=$((fails + 1)); fi
+  got=$(big_cores "$d")
+  if [ "$got" = "$want" ]; then echo "ok   $name: ${got:-<none>}"
+  else echo "FAIL $name: got '${got}', want '${want}'"; fails=$((fails + 1)); fi
 }
 # Galaxy A57 (Exynos 1680): 1x A720 2.9 GHz + 4x A720 2.6 GHz + 3x A520 1.95 GHz
 check a57-freq   cpufreq/cpuinfo_max_freq 5 2900000 2600000 2600000 2600000 2600000 1950000 1950000 1950000
@@ -40,5 +49,5 @@ check one-unreadable  cpu_capacity 4 1024 1024 1024 1024 450 450 450 -
 check 1-7        cpu_capacity "" 1024 600 600 600 600 600 600 600
 # homogeneous: nothing (serve.sh then uses the physical core count)
 check same       cpu_capacity "" 1024 1024 1024 1024
-check none       cpu_capacity "" 
-[[ "$fails" == 0 ]] && echo "all big_cores tests passed" || { echo "$fails failed"; exit 1; }
+check none       cpu_capacity ""
+[ "$fails" -eq 0 ] && echo "all big_cores tests passed" || { echo "$fails failed"; exit 1; }
