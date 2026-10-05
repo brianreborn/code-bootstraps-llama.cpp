@@ -40,6 +40,30 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
+$panelPrior = @{
+    PORT = [Environment]::GetEnvironmentVariable("PORT")
+    PROFILE = [Environment]::GetEnvironmentVariable("PROFILE")
+    TOOLS = [Environment]::GetEnvironmentVariable("TOOLS")
+    LOCALE = [Environment]::GetEnvironmentVariable("LOCALE")
+    LANGUAGE_MODE = [Environment]::GetEnvironmentVariable("LANGUAGE_MODE")
+    GPU_LAYERS = [Environment]::GetEnvironmentVariable("GPU_LAYERS")
+    WORKDIR = [Environment]::GetEnvironmentVariable("WORKDIR")
+}
+Import-PanelEnv $Root
+Use-PanelValue "Port" "PORT" ($PSBoundParameters.ContainsKey("Port")) ([string]$panelPrior["PORT"])
+Use-PanelValue "RamProfile" "PROFILE" ($PSBoundParameters.ContainsKey("RamProfile")) ([string]$panelPrior["PROFILE"])
+Use-PanelValue "Tools" "TOOLS" ($PSBoundParameters.ContainsKey("Tools")) ([string]$panelPrior["TOOLS"])
+Use-PanelValue "Locale" "LOCALE" ($PSBoundParameters.ContainsKey("Locale")) ([string]$panelPrior["LOCALE"])
+Use-PanelValue "LanguageMode" "LANGUAGE_MODE" ($PSBoundParameters.ContainsKey("LanguageMode")) ([string]$panelPrior["LANGUAGE_MODE"])
+Use-PanelValue "GpuLayers" "GPU_LAYERS" ($PSBoundParameters.ContainsKey("GpuLayers")) ([string]$panelPrior["GPU_LAYERS"])
+Use-PanelValue "WorkDir" "WORKDIR" ($PSBoundParameters.ContainsKey("WorkDir")) ([string]$panelPrior["WORKDIR"])
+Publish-BoundParam "Port" "PORT" ($PSBoundParameters.ContainsKey("Port"))
+Publish-BoundParam "RamProfile" "PROFILE" ($PSBoundParameters.ContainsKey("RamProfile"))
+Publish-BoundParam "Tools" "TOOLS" ($PSBoundParameters.ContainsKey("Tools"))
+Publish-BoundParam "Locale" "LOCALE" ($PSBoundParameters.ContainsKey("Locale"))
+Publish-BoundParam "LanguageMode" "LANGUAGE_MODE" ($PSBoundParameters.ContainsKey("LanguageMode"))
+Publish-BoundParam "GpuLayers" "GPU_LAYERS" ($PSBoundParameters.ContainsKey("GpuLayers"))
+Publish-BoundParam "WorkDir" "WORKDIR" ($PSBoundParameters.ContainsKey("WorkDir"))
 . (Join-Path $PSScriptRoot "lib\bindhost.ps1")
 Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "serve.ps1" $PSCommandPath
 function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $Root $p } }

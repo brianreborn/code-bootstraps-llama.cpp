@@ -140,6 +140,10 @@ def server_line(vals):
     if not os.path.isfile(ready):
         return "down"
     try:
+        with open(ready, encoding="utf-8") as f:
+            bits = f.read().split()
+        if bits and bits[0].isdigit():
+            port = bits[0]
         urllib.request.urlopen("http://127.0.0.1:%s/health" % port, timeout=1).read(32)
     except (OSError, ValueError):
         return "down"

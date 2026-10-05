@@ -23,6 +23,15 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
+$panelPrior = @{
+    PORT = [Environment]::GetEnvironmentVariable("PORT")
+    VARIANT = [Environment]::GetEnvironmentVariable("VARIANT")
+}
+Import-PanelEnv $Root
+Use-PanelValue "Port" "PORT" ($PSBoundParameters.ContainsKey("Port")) ([string]$panelPrior["PORT"])
+Use-PanelValue "Variant" "VARIANT" ($PSBoundParameters.ContainsKey("Variant")) ([string]$panelPrior["VARIANT"])
+Publish-BoundParam "Port" "PORT" ($PSBoundParameters.ContainsKey("Port"))
+Publish-BoundParam "Variant" "VARIANT" ($PSBoundParameters.ContainsKey("Variant"))
 $serveScript = Join-Path $PSScriptRoot "serve.ps1"
 $serveParams = (Get-Command $serveScript).Parameters
 Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "start.ps1" $PSCommandPath

@@ -65,6 +65,23 @@ try {
     Check "Test-SameFile: same file" (Test-SameFile $f (Join-Path $tmp "./model.gguf"))
     $g = Join-Path $tmp "other.gguf"; [IO.File]::WriteAllText($g, "x")
     Check "Test-SameFile: other file" (-not (Test-SameFile $f $g))
+
+    # panel.env fills only variables that are not already set
+    $savedPort = [Environment]::GetEnvironmentVariable("PORT")
+    $savedVariant = [Environment]::GetEnvironmentVariable("VARIANT")
+    $panelRoot = Join-Path $tmp "panel-repo"
+    New-Item -ItemType Directory -Path (Join-Path $panelRoot ".cache") | Out-Null
+    [IO.File]::WriteAllText((Join-Path $panelRoot ".cache\panel.env"), ": `"`${PORT:=9944}`"`n: `"`${VARIANT:=vulkan}`"`n")
+    $env:PORT = "1111"
+    Remove-Item Env:VARIANT -ErrorAction SilentlyContinue
+    Import-PanelEnv $panelRoot
+    Check "panel keeps an explicit PORT" ($env:PORT -eq "1111") "got '$($env:PORT)'"
+    Check "panel fills an empty VARIANT" ($env:VARIANT -eq "vulkan") "got '$($env:VARIANT)'"
+    Remove-Item Env:PORT -ErrorAction SilentlyContinue
+    Import-PanelEnv $panelRoot
+    Check "panel fills an empty PORT" ($env:PORT -eq "9944") "got '$($env:PORT)'"
+    if ($null -eq $savedPort) { Remove-Item Env:PORT -ErrorAction SilentlyContinue } else { $env:PORT = $savedPort }
+    if ($null -eq $savedVariant) { Remove-Item Env:VARIANT -ErrorAction SilentlyContinue } else { $env:VARIANT = $savedVariant }
 } finally {
     Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue
 }

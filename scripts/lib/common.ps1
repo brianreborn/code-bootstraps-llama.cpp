@@ -1,6 +1,41 @@
 # Shared by the scripts\*.ps1 (dot-sourced). Windows PowerShell 5.1 and PowerShell 7.
 # The scripts run under Set-StrictMode -Version Latest: every script-scope variable read here is
 # set here first (reading an unset one throws). tests/test-ps1-helpers.ps1 runs these functions.
+
+# scripts/panel.py writes .cache/panel.env as POSIX defaults: : "${KEY:=value}"
+# A variable that is already set wins. Call this before reading those settings.
+function Import-PanelEnv([string]$Root) {
+    $path = Join-Path $Root ".cache\panel.env"
+    if (-not (Test-Path -LiteralPath $path)) { return }
+    foreach ($line in @(Get-Content -LiteralPath $path)) {
+        if ($null -eq $line) { continue }
+        if ($line -match '^: "\$\{([A-Z][A-Z0-9_]*):=(.*)\}"$') {
+            $key = $Matches[1]
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key))) {
+                Set-Item -Path ("Env:" + $key) -Value $Matches[2]
+            }
+        }
+    }
+}
+
+# Param() defaults are bound before the script body, so a panel value loaded above
+# has to be copied into a parameter the user did not pass and did not set in the environment.
+# $Prior is that environment value from before Import-PanelEnv. Call from the script body.
+function Use-PanelValue([string]$Variable, [string]$EnvName, [bool]$Bound, [string]$Prior) {
+    if ($Bound) { return }
+    if (-not [string]::IsNullOrEmpty($Prior)) { return }
+    $now = [Environment]::GetEnvironmentVariable($EnvName)
+    if ([string]::IsNullOrEmpty($now)) { return }
+    if ($Variable -eq "Port") { Set-Variable -Name $Variable -Scope 1 -Value ([int]$now); return }
+    Set-Variable -Name $Variable -Scope 1 -Value $now
+}
+
+# A parameter typed on the command line wins over the panel, including for child processes.
+function Publish-BoundParam([string]$Variable, [string]$EnvName, [bool]$Bound) {
+    if (-not $Bound) { return }
+    $value = Get-Variable -Name $Variable -Scope 1 -ValueOnly
+    Set-Item -Path ("Env:" + $EnvName) -Value ([string]$value)
+}
 $script:FileIdFailed = $false   # Add-Type of CodeBootstraps.FileId failed once: do not retry
 
 # Text files for llama-server and the shell scripts must be UTF-8 WITHOUT a byte order mark:

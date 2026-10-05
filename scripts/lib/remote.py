@@ -666,10 +666,8 @@ def dispatch(text, workspace):
             files = media_in_text(tail, workspace)
             brief = build_brief("ask", tail.strip(), workspace, [], {}, {}, "", files=files,
                                 files_only=bool(via) and via != "http")
-            code = _send(st, brief, None, files=files, workspace=workspace)
-            save(st)
-            return code
-        if head == "take":
+            send = (brief, files, workspace)
+        elif head == "take":
             found = _find_pending(st)
             if not found or not found.get("pending"):
                 print("agent: remote pending=none", file=sys.stderr)
@@ -679,12 +677,20 @@ def dispatch(text, workspace):
                 return 1
             brief = found["pending"]["brief"]
             dest = slot(st)
+            ws = found.get("workspace") or workspace
             if found is not dest:
                 dest["pending"] = found["pending"]
-                dest["workspace"] = found.get("workspace") or workspace
+                dest["workspace"] = ws
                 found["pending"] = None
-            code = _send(st, brief, None, workspace=workspace)
-            save(st)
-            return code
-    print("usage: /remote [on|off|new|login <name> ...|session <name>|ask <text>|take]", file=sys.stderr)
-    return 1
+                save(st)
+            send = (brief, paths_in_brief(brief), ws)
+        else:
+            print("usage: /remote [on|off|new|login <name> ...|session <name>|ask <text>|take]", file=sys.stderr)
+            return 1
+    brief, files, ws = send
+    with _Held():
+        st = load()
+    code = _send(st, brief, None, files=files, workspace=ws)
+    with _Held():
+        save(st)
+    return code

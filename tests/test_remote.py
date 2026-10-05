@@ -135,6 +135,52 @@ class LaunchPlanTests(unittest.TestCase):
             state = json.load(f)
         self.assertEqual(state["sessions"]["ear/default"]["remote_id"], "sess-7")
 
+    def test_ask_does_not_hold_the_lock_and_take_uses_the_saved_workspace(self):
+        d = tempfile.mkdtemp(prefix="remote-lock-")
+        other = tempfile.mkdtemp(prefix="remote-ws-")
+        script = os.path.join(d, "fake-client.py")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(textwrap.dedent("""\
+                import fcntl, os, sys
+                lock = os.path.join(os.environ["AGENT_REMOTE_DIR"], "remote.json.lock")
+                held = open(lock, "a+b")
+                try:
+                    fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    print("unlocked")
+                    fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+                except BlockingIOError:
+                    print("locked")
+                print(os.getcwd())
+                print("session_id=s1")
+                """))
+        env = os.environ.copy()
+        env["AGENT_REMOTE_DIR"] = d
+        agent = os.path.join(ROOT, "scripts", "agent.py")
+        base = [sys.executable, agent, "--locale", "en", "--key-file", os.devnull]
+        r = subprocess.run(base + [f"/remote login ear exec {sys.executable} {script}"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = subprocess.run(base + ["--cwd", d, "/remote ask hello"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("unlocked", r.stdout.splitlines())
+        state = {
+            "auto": False, "login": "ear", "session": "default",
+            "logins": {"ear": {"via": "exec", "bin": sys.executable, "args": [script]}},
+            "sessions": {
+                "-/default": {"workspace": other, "last": "", "pending": {
+                    "why": "repeat", "brief": "task\n", "workspace": other}},
+            },
+        }
+        with open(os.path.join(d, "remote.json"), "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        r = subprocess.run(base + ["--cwd", d, "/remote take"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertIn("unlocked", lines)
+        self.assertIn(os.path.realpath(other), lines)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
