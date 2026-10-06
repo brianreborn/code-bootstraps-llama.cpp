@@ -6,7 +6,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 [-RamProfile lowram] [-Tools lean] [-ToolsRuntime auto|host|docker-container:<id>|ssh:<target>] [llama-server flags, e.g. --ctx-size 8192]
 # Parameters default to the environment variables serve.sh reads (PORT, HOST, PROFILE,
 # MODELS_MAX, TOOLS, TOOLS_RUNTIME, THREADS, THREADS_BATCH, GPU_LAYERS, REPACK, LOAD_MODE,
-# WORKDIR, MCP_CONFIG, LOCALE, LANGUAGE_MODE, SWAP_CODER, LLAMA_SERVER, MODELS_PRESET,
+# WORKDIR, MCP_CONFIG, LOCALE, LANGUAGE_MODE, SWAP_CODER, REASONING, LLAMA_SERVER, MODELS_PRESET,
 # MANIFEST, MODELS_DIR, LANGUAGE_DIR); a parameter given on the command line wins.
 # Extra llama-server flags apply to EVERY role; flags that pick a model, tools, MCP or the key
 # are refused (see serve.sh).
@@ -177,6 +177,15 @@ $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
 if ($parallelKnob) { Set-Overlay "coder.parallel" $parallelKnob; $tuned += " PARALLEL=$parallelKnob" }
+# Empty and off leave the preset. on and auto overlay general and coder only.
+$reasoning = [Environment]::GetEnvironmentVariable("REASONING")
+if (-not $reasoning) { $reasoning = "" }
+if ($reasoning -eq "on" -or $reasoning -eq "auto") {
+    Set-Overlay "general.reasoning" $reasoning
+    Set-Overlay "coder.reasoning" $reasoning
+} elseif ($reasoning -ne "" -and $reasoning -ne "off") {
+    throw "unknown REASONING=$reasoning (on|off|auto)"
+}
 
 # --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------
 $presetPath = Get-RepoPath $(if ($env:MODELS_PRESET) { $env:MODELS_PRESET } else { "config\models-preset.ini" })
@@ -268,6 +277,7 @@ foreach ($l in $presetLines) {
     $p = $sec -split '\.'
     if ($p.Count -eq 3 -and $p[0] -eq "locale" -and $p[1] -eq $langCode -and $swapRoles -contains $p[2] -and $l -match '^([A-Za-z0-9_-]+)\s*=\s*(.*)$') {
         $k = $Matches[1]; $v = $Matches[2].Trim()
+        if ($k -eq "reasoning" -and $overlay.Contains("$($p[2]).reasoning")) { continue }
         if ($k -eq "model") { $v = Get-RepoPath $v }
         $localeKeys["$($p[2]).$k"] = $v
         if (-not $localeOrder.ContainsKey($p[2])) { $localeOrder[$p[2]] = New-Object System.Collections.Generic.List[string] }

@@ -242,6 +242,8 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `THREADS` | number (auto: big/physical cores) | generation threads | `THREADS=4 ./start.sh` |
 | `TOOLS` | `auto` \| `full` \| `lean` \| list \| `""` | tools offered to the model; lean = 4 tools, half the prompt (auto: lean in lowram) | `TOOLS=lean ./start.sh` |
 
+`REASONING` is off when empty or `off`: the preset is unchanged, and `scripts/agent.py` does not send `chat_template_kwargs.enable_thinking`. `REASONING=on` or `auto` overlays `general` and `coder` only in the effective preset written at serve start, so the router picks it up on the next start. `on` also sets `enable_thinking` on that one agent request, with no restart. Language and decision stay off. Thinking tokens are printed on stderr as they arrive, prefixed `[think]`.
+
 Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Model choice and role pinning are not tunable here (see Models and Security).
 
 ### Hardware use

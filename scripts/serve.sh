@@ -34,6 +34,8 @@ LOAD_MODE=${LOAD_MODE-}
 LOCALE=${LOCALE:-auto}
 LANGUAGE_MODE=${LANGUAGE_MODE:-native}
 SWAP_CODER=${SWAP_CODER:-0}
+# empty or off: leave the preset. on or auto: general and coder only (see the case below).
+REASONING=${REASONING:-}
 LANGUAGE_DIR=${LANGUAGE_DIR:-$ROOT/models-optional/language}
 LOG_FILE=${LOG_FILE:-$ROOT/.cache/server.log}
 
@@ -210,6 +212,16 @@ if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 2048 262144
 if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 2048 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
+# Language and decision stay as the preset wrote them. A locale section's reasoning = off
+# would otherwise win over this overlay when that role is swapped in.
+case "$REASONING" in
+  ""|off) ;;
+  on|auto)
+    ov_set general.reasoning "$REASONING"
+    ov_set coder.reasoning "$REASONING"
+    ;;
+  *) die "unknown REASONING=$REASONING (on|off|auto)" ;;
+esac
 if [ "$TOOLS" = auto ]; then
   if [ "$PROFILE" = lowram ]; then TOOLS=lean; else TOOLS=full; fi
 fi
@@ -362,6 +374,7 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
           if (m_language != "") rm["language"] = m_language }
   FNR == NR { if ($0 ~ /^\[/) { s = secname($0); split(s, p, "."); cur = (p[1] == "locale" && p[2] == lang && (p[3] in swapped)) ? p[3] : "" ; next }
               if (cur != "" && $0 ~ /^[A-Za-z0-9_-]+[ \t]*=/) { k = keyof($0); v = valof($0)
+                if (k == "reasoning" && ((cur ".reasoning") in ov)) next
                 if (k == "model" && v !~ /^\//) v = root "/" v
                 lk[cur "." k] = v; lord[cur, ++lc[cur]] = k }
               next }

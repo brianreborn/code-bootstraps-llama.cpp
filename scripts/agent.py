@@ -168,6 +168,25 @@ def read_key(path):
     return None
 
 
+def reasoning_mode():
+    """REASONING=on|auto|off. Empty and off add nothing. Anything else is a mistake."""
+    mode = os.environ.get("REASONING", "").strip()
+    if mode not in ("", "off", "on", "auto"):
+        raise SystemExit(f"agent: unknown REASONING={mode} (on|off|auto)")
+    return mode
+
+
+def reasoning_fields(model, mode):
+    """Per-request thinking for general and coder. Off, empty, and other roles send nothing extra.
+    on forces enable_thinking; auto only asks for a stream so the server's preset can decide."""
+    if mode not in ("on", "auto") or model not in ("general", "coder"):
+        return {}
+    fields = {"stream": True}
+    if mode == "on":
+        fields["chat_template_kwargs"] = {"enable_thinking": True}
+    return fields
+
+
 class Client:
     def __init__(self, url, key, cwd=None):
         self.url, self.key, self.cwd = url.rstrip("/"), key, cwd
@@ -175,7 +194,7 @@ class Client:
         if key and u.scheme == "http" and (u.hostname or "") not in LOOPBACK:
             raise SystemExit(f"refusing to send the API key over plain http to {u.hostname}; use https or a loopback URL")
 
-    def req(self, method, path, body=None, timeout=3600):
+    def _open(self, method, path, body, timeout):
         headers = {"Content-Type": "application/json"}
         if self.key:
             headers["Authorization"] = "Bearer " + self.key
@@ -184,8 +203,7 @@ class Client:
         data = json.dumps(body).encode() if body is not None else None
         r = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(r, timeout=timeout) as resp:
-                return json.load(resp)
+            return urllib.request.urlopen(r, timeout=timeout)
         except urllib.error.HTTPError as e:
             raise SystemExit(f"HTTP {e.code} on {path}: {e.read().decode(errors='replace')}")
         except (urllib.error.URLError, ConnectionError, TimeoutError, http.client.HTTPException, OSError) as e:
@@ -193,6 +211,117 @@ class Client:
             why = getattr(e, "reason", None) or e
             raise SystemExit(f"agent.py: lost the connection to {self.url} during {method} {path} ({why}). "
                              "Is the server still running? Start it again (start.sh / start.bat) and retry.")
+
+    def req(self, method, path, body=None, timeout=3600):
+        with self._open(method, path, body, timeout) as resp:
+            return json.load(resp)
+
+    def chat(self, body, timeout=3600):
+        """POST /v1/chat/completions. A live router streams text/event-stream; the test server returns one JSON body."""
+        with self._open("POST", "/v1/chat/completions", body, timeout) as resp:
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            if "text/event-stream" in ctype:
+                return self._read_sse(resp)
+            data = json.load(resp)
+            self._print_reasoning_blob(data)
+            return data
+
+    def _print_think(self, text, state):
+        if not text:
+            return
+        if not state["on"]:
+            sys.stderr.write("[think] ")
+            state["on"] = True
+        sys.stderr.write(text)
+        sys.stderr.flush()
+
+    def _end_think(self, state):
+        if state["on"]:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+            state["on"] = False
+
+    def _print_reasoning_blob(self, data):
+        """Non-stream JSON: the whole thought arrives at once. Still show it."""
+        try:
+            msg = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError):
+            return
+        if not isinstance(msg, dict):
+            return
+        text = msg.get("reasoning_content")
+        if isinstance(text, str) and text:
+            sys.stderr.write("[think] " + text + "\n")
+            sys.stderr.flush()
+
+    def _read_sse(self, resp):
+        content, reasoning, tool_calls, timings = [], [], {}, {}
+        role, think, data_lines = "assistant", {"on": False}, []
+
+        def flush_event():
+            nonlocal role, timings
+            if not data_lines:
+                return
+            payload = "\n".join(data_lines)
+            data_lines.clear()
+            if payload == "[DONE]":
+                return
+            try:
+                ev = json.loads(payload)
+            except json.JSONDecodeError as e:
+                raise SystemExit(f"agent.py: chat stream was not JSON ({e})")
+            if isinstance(ev.get("timings"), dict):
+                timings = ev["timings"]
+            choices = ev.get("choices") or []
+            if not choices:
+                return
+            delta = choices[0].get("delta") or {}
+            if delta.get("role"):
+                role = delta["role"]
+            piece = delta.get("reasoning_content")
+            if isinstance(piece, str) and piece:
+                self._print_think(piece, think)
+                reasoning.append(piece)
+            text = delta.get("content")
+            if isinstance(text, str) and text:
+                self._end_think(think)
+                content.append(text)
+            for tc in delta.get("tool_calls") or []:
+                self._end_think(think)
+                idx = tc.get("index", 0)
+                slot = tool_calls.setdefault(idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                if tc.get("id"):
+                    slot["id"] = tc["id"]
+                if tc.get("type"):
+                    slot["type"] = tc["type"]
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    slot["function"]["name"] += fn["name"]
+                if isinstance(fn.get("arguments"), str):
+                    slot["function"]["arguments"] += fn["arguments"]
+
+        while True:
+            line = resp.readline()
+            if not line:
+                break
+            if isinstance(line, bytes):
+                line = line.decode("utf-8", "replace")
+            line = line.rstrip("\r\n")
+            if line == "":
+                flush_event()
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+        flush_event()
+        self._end_think(think)
+        msg = {"role": role, "content": "".join(content)}
+        if reasoning:
+            msg["reasoning_content"] = "".join(reasoning)
+        if tool_calls:
+            msg["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+        return {"choices": [{"message": msg}], "timings": timings}
 
 
 def translate(c, text, target, style="sys", tries=2):
@@ -331,6 +460,7 @@ def main():
                     help="target language for --localize (default: LOCALE). "
                          "Does not translate code, paths, flags, URLs, or hashes")
     a = ap.parse_args()
+    reason = reasoning_mode()
     if a.prompt.startswith("/remote") and not a.localize:
         ws = os.path.abspath(a.cwd) if a.cwd else ROOT
         return remote_handoff.dispatch(a.prompt, ws)
@@ -441,6 +571,7 @@ def main():
     for step in range(1, a.max_steps + 1):
         t0 = time.time()
         body = {"model": a.model, "messages": messages, "tools": defs, "max_tokens": a.max_tokens}
+        body.update(reasoning_fields(a.model, reason))
         # tool_choice none keeps the tool definitions in the prompt (cached prefix) but parses the reply as text
         why = None
         if step == a.max_steps:   # last step: no more tools, the model has to answer
@@ -453,7 +584,7 @@ def main():
             messages.append({"role": "user", "content": "You are repeating the same tool call. Do not call tools now: "
                                                         "reply with a one-line summary of what was done and what is left, if anything."})
             skips = 0
-        res = c.req("POST", "/v1/chat/completions", body)
+        res = c.chat(body)
         msg = res["choices"][0]["message"]
         timings = res.get("timings") or {}
         print(f"[agent] step {step}: {time.time()-t0:.1f}s, gen {timings.get('predicted_per_second', 0):.1f} tok/s, "

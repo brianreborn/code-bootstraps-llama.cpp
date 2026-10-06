@@ -7,7 +7,8 @@
 # Close the window (or Ctrl-C) to stop. Settings: -Port, -Variant cpu|vulkan|cuda-12|cuda-13,
 # -NoBrowser, -Build, -CopyKey; serve.ps1 parameters can follow (-RamProfile lowram,
 # -ModelsMax, -Tools, ...), and anything else goes to llama-server (e.g. --ctx-size 8192).
-# Environment variables (PORT, VARIANT, PROFILE, TOOLS, LOCALE, RAISE, ...) work as in start.sh.
+# Environment variables (PORT, VARIANT, PROFILE, TOOLS, LOCALE, RAISE, REASONING, ...) work as in start.sh.
+# REASONING=on or auto turns thinking on for general and coder only; empty or off leaves the preset.
 # On Windows this also asks once for "Lock pages in memory" (scripts\raise.ps1). One command.
 [CmdletBinding(PositionalBinding = $false)]
 param(

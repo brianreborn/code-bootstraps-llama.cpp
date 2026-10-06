@@ -1,7 +1,7 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
 # Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
-# COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, plus everything scripts/serve.sh reads.
+# COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
