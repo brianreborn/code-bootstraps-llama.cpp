@@ -60,7 +60,7 @@ start_serve() {
   port=$2
   bin=$3
   shift 3
-  ( cd "$d" && exec env "$@" PORT="$port" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" LLAMA_SERVER="$bin" \
+  ( cd "$d" && exec env "$@" PORT="$port" GGUF_HOME="$d" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" LLAMA_SERVER="$bin" \
       setsid sh scripts/serve.sh > "$d/out.txt" 2>&1 ) &
   echo $! >> "$T/pids"
   SERVE_PID=$!

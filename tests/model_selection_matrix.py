@@ -378,6 +378,9 @@ def prepare(j, n, stubs):
     cap = os.path.join(d, "capture")
     env = {k: v.replace("@SANDBOX@", d) for k, v in j["env_extra"].items()}
     env.update({"CAPTURE_DIR": cap, "SHAMAP": os.path.join(WORK, "shamap.txt"), "NO_BROWSER": "1"})
+    # The sandbox is the shared store (models/, models-optional/, models-inactive/).
+    # Otherwise fetch and serve would use the user's ~/.local/share/gguf.
+    env["GGUF_HOME"] = d
     # Launchers ask for memlock once. The matrix must not sudo or show UAC.
     env.setdefault("RAISE", "0")
     if j["mode"] != "(unset)":

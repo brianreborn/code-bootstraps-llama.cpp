@@ -86,6 +86,8 @@ env.update({
     "LOCALE": "en",
     "LANGUAGE_MODE": "off",
     "LLAMA_SERVER": binpath,
+    # Sandbox is the store, so a real ~/.local/share/gguf is not read.
+    "GGUF_HOME": d,
 })
 for item in sys.argv[5:]:
     k, v = item.split("=", 1)
