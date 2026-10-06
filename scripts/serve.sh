@@ -223,6 +223,17 @@ case "$REASONING" in
     ;;
   *) die "unknown REASONING=$REASONING (on|off|auto)" ;;
 esac
+# An untrusted Android app has RLIMIT_MEMLOCK of 64 KB. mmap+mlock fails
+# immediately and locks nothing. Keep the preset's mmap+mlock on other hosts.
+if [ "$IS_ANDROID" = 1 ] && [ -z "$LOAD_MODE" ]; then
+  ov_set general.load-mode mmap
+  ov_set coder.load-mode mmap
+fi
+if [ -n "$LOAD_MODE" ]; then
+  ov_set general.load-mode "$LOAD_MODE"
+  ov_set coder.load-mode "$LOAD_MODE"
+  ov_set decision.load-mode "$LOAD_MODE"
+fi
 if [ "$TOOLS" = auto ]; then
   if [ "$PROFILE" = lowram ]; then TOOLS=lean; else TOOLS=full; fi
 fi

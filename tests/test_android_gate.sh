@@ -5,4 +5,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 grep -q 'com.termux' "$ROOT/scripts/serve.sh"
 grep -q 'ANDROID_ROOT' "$ROOT/scripts/serve.sh"
 grep -q 'IS_ANDROID' "$ROOT/scripts/serve.sh"
+grep -q 'ov_set general.load-mode mmap' "$ROOT/scripts/serve.sh"
+grep -q 'RLIMIT_MEMLOCK' "$ROOT/scripts/serve.sh"
 echo "test_android_gate: OK"
