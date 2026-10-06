@@ -2,11 +2,17 @@
 """Configuration form for the launchers. Stdlib only. Binds to 127.0.0.1.
 
   python3 scripts/panel.py
+  sh scripts/configure.sh
 
 Writes .cache/panel.env as POSIX defaults (`: "${KEY:=value}"`), so an
-explicit environment variable still wins. Field names stay English. The
-resource strip is memory, whether a GPU device is present, and whether the
-server answers. Restart start.sh after saving.
+explicit environment variable still wins. Only values that differ from the
+launcher default are written. Field names stay English. The resource strip
+is memory, whether a GPU device is present, and whether the server answers.
+Restart start.sh after saving.
+
+  python3 scripts/panel.py --fields
+  python3 scripts/panel.py --check KEY VALUE
+  python3 scripts/panel.py --write ANSWERS
 """
 import html
 import os
@@ -23,13 +29,88 @@ ENV_PATH = os.path.join(ROOT, ".cache", "panel.env")
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PANEL_PORT", "9932"))
 
-FIELDS = ("PROFILE", "TOOLS", "LOCALE", "LANGUAGE_MODE", "VARIANT", "GPU_LAYERS", "PORT", "WORKDIR")
+# Names start.sh / serve.sh already read. GGUF_HOME is not one of them.
+FIELDS = (
+    "PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT",
+    "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
+    "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
+    "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
+    "WAKE_LOCK", "RAISE",
+)
+# Empty means the launcher's own default. REASONING off and LOAD_MODE auto match
+# that default, so typing them stores nothing.
+DEFAULTS = {
+    "PROFILE": "auto",
+    "MODELS_MAX": "2",
+    "VARIANT": "auto",
+    "TOOLS": "auto",
+    "GPU_LAYERS": "auto",
+    "PORT": "9931",
+    "THREADS": "auto",
+    "THREADS_BATCH": "auto",
+    "CTX": "",
+    "CODER_CTX": "",
+    "GENERAL_CTX": "",
+    "PARALLEL": "",
+    "REASONING": "off",
+    "HOST": "127.0.0.1",
+    "LOAD_MODE": "auto",
+    "LOCALE": "auto",
+    "LANGUAGE_MODE": "native",
+    "WORKDIR": "",
+    "REPACK": "on",
+    "TOOLS_RUNTIME": "auto",
+    "SWAP_CODER": "0",
+    "NO_BROWSER": "0",
+    "BUILD": "0",
+    "COPY_KEY": "0",
+    "WAKE_LOCK": "1",
+    "RAISE": "",
+}
 CHOICES = {
     "PROFILE": ("auto", "lowram", "moderate", "default"),
-    "LANGUAGE_MODE": ("auto", "native", "swap", "interpret", "off"),
     "VARIANT": ("auto", "cpu", "vulkan", "cuda-12", "cuda-13"),
+    "REASONING": ("off", "on", "auto"),
+    "LOAD_MODE": ("auto", "none", "mmap", "mlock", "mmap+mlock", "dio"),
+    "LANGUAGE_MODE": ("auto", "native", "swap", "interpret", "off"),
+    "REPACK": ("on", "off"),
+    "SWAP_CODER": ("0", "1"),
+    "NO_BROWSER": ("0", "1"),
+    "BUILD": ("0", "1"),
+    "COPY_KEY": ("0", "1"),
+    "WAKE_LOCK": ("0", "1"),
+    "RAISE": ("0", "1"),
 }
-SAFE = re.compile(r"^[A-Za-z0-9_./:+,-]*$")
+HINTS = {
+    "PROFILE": "auto|lowram|moderate|default",
+    "MODELS_MAX": "1-8",
+    "VARIANT": "auto|cpu|vulkan|cuda-12|cuda-13",
+    "TOOLS": "auto|full|lean|comma list",
+    "GPU_LAYERS": "auto or 0-9999",
+    "PORT": "1-65535",
+    "THREADS": "auto or 1-4096",
+    "THREADS_BATCH": "auto or 1-4096",
+    "CTX": "2048-262144; Enter keeps the profile",
+    "CODER_CTX": "2048-262144; Enter keeps the profile",
+    "GENERAL_CTX": "2048-262144; Enter keeps the profile",
+    "PARALLEL": "1-16; Enter keeps the profile",
+    "REASONING": "off|on|auto",
+    "HOST": "address or comma list",
+    "LOAD_MODE": "auto|none|mmap|mlock|mmap+mlock|dio",
+    "LOCALE": "auto or a language code",
+    "LANGUAGE_MODE": "auto|native|swap|interpret|off",
+    "WORKDIR": "directory; Enter keeps workspace",
+    "REPACK": "on|off",
+    "TOOLS_RUNTIME": "auto|host|podman:image|docker:image|podman-container:id|docker-container:id|ssh:target",
+    "SWAP_CODER": "0|1",
+    "NO_BROWSER": "0|1",
+    "BUILD": "0|1",
+    "COPY_KEY": "0|1",
+    "WAKE_LOCK": "0|1",
+    "RAISE": "0|1; Enter asks once",
+}
+# No quotes, dollars, or backticks: the line is sourced as : "${KEY:=value}".
+SAFE_VALUE = re.compile(r"^[A-Za-z0-9_./:+,@-]+$")
 
 
 def sentence(english):
@@ -47,6 +128,14 @@ def sentence(english):
     return english
 
 
+def shown(key):
+    if key == "WORKDIR":
+        return "workspace"
+    if DEFAULTS[key] == "":
+        return "Enter"
+    return DEFAULTS[key]
+
+
 def load_env():
     vals = {k: "" for k in FIELDS}
     if not os.path.isfile(ENV_PATH):
@@ -54,55 +143,157 @@ def load_env():
     rx = re.compile(r'^: "\$\{([A-Z][A-Z0-9_]*):=(.*)\}"$')
     with open(ENV_PATH, encoding="utf-8") as f:
         for line in f:
-            m = rx.match(line.rstrip("\n"))
+            m = rx.match(line.rstrip("\r\n"))
             if m and m.group(1) in vals:
                 vals[m.group(1)] = m.group(2)
     return vals
 
 
+def whole(key, value, lo, hi):
+    if not re.fullmatch(r"[0-9]+", value):
+        raise ValueError(key)
+    n = int(value)
+    if n < lo or n > hi:
+        raise ValueError(key)
+    return str(n)
+
+
+def check_tools_runtime(value):
+    if value in ("auto", "host"):
+        return value
+    if re.fullmatch(r"(podman|docker):[A-Za-z0-9_./:+@-]+", value):
+        return value
+    if re.fullmatch(r"(podman|docker)-container:[A-Za-z0-9_.-]+", value):
+        return value
+    if re.fullmatch(r"ssh:[A-Za-z0-9_./:+@-]+", value):
+        return value
+    raise ValueError("TOOLS_RUNTIME")
+
+
 def check(key, value):
+    if value is None:
+        value = ""
+    else:
+        value = str(value).strip()
     if value == "":
         return ""
     if key in CHOICES:
         if value not in CHOICES[key]:
             raise ValueError(key)
-        return value
-    if key == "TOOLS":
-        if value in ("auto", "full", "lean"):
-            return value
-        parts = [p for p in value.split(",") if p]
-        if not parts or any(not re.fullmatch(r"[a-z0-9_]+", p) for p in parts):
+    elif key == "MODELS_MAX":
+        value = whole(key, value, 1, 8)
+    elif key == "TOOLS":
+        if value not in ("auto", "full", "lean"):
+            parts = [p for p in value.split(",") if p]
+            if not parts or any(not re.fullmatch(r"[a-z0-9_]+", p) for p in parts):
+                raise ValueError(key)
+            value = ",".join(parts)
+    elif key == "GPU_LAYERS":
+        if value != "auto":
+            value = whole(key, value, 0, 9999)
+    elif key == "PORT":
+        value = whole(key, value, 1, 65535)
+    elif key in ("THREADS", "THREADS_BATCH"):
+        if value != "auto":
+            value = whole(key, value, 1, 4096)
+    elif key in ("CTX", "CODER_CTX", "GENERAL_CTX"):
+        value = whole(key, value, 2048, 262144)
+    elif key == "PARALLEL":
+        value = whole(key, value, 1, 16)
+    elif key == "HOST":
+        parts = value.split(",")
+        if not parts or any(not re.fullmatch(r"[A-Za-z0-9.:_-]+", p) for p in parts):
             raise ValueError(key)
-        return ",".join(parts)
-    if key == "GPU_LAYERS":
-        if value != "auto" and not re.fullmatch(r"[0-9]+", value):
-            raise ValueError(key)
-        return value
-    if key == "PORT":
-        if not re.fullmatch(r"[0-9]+", value) or not 1 <= int(value) <= 65535:
-            raise ValueError(key)
-        return value
-    if key == "LOCALE":
+        value = ",".join(parts)
+    elif key == "LOCALE":
         if value != "auto" and not re.fullmatch(r"[a-z]{2,8}", value):
             raise ValueError(key)
-        return value
-    if key == "WORKDIR":
-        if not SAFE.fullmatch(value) or ".." in value.split("/"):
+    elif key == "WORKDIR":
+        if ".." in value.split("/"):
             raise ValueError(key)
-        return value
-    raise ValueError(key)
+    elif key == "TOOLS_RUNTIME":
+        value = check_tools_runtime(value)
+    else:
+        raise ValueError(key)
+    if not SAFE_VALUE.fullmatch(value):
+        raise ValueError(key)
+    return value
+
+
+def stored_value(key, value):
+    # The file lists changes only. Pinning a launcher default would hide that.
+    if value == "" or value == DEFAULTS.get(key, ""):
+        return ""
+    if key == "WORKDIR":
+        raw = value if os.path.isabs(value) else os.path.join(ROOT, value)
+        if os.path.normpath(raw) == os.path.normpath(os.path.join(ROOT, "workspace")):
+            return ""
+    return value
 
 
 def write_env(vals):
     os.makedirs(os.path.dirname(ENV_PATH), exist_ok=True)
     lines = []
     for key in FIELDS:
-        value = vals.get(key, "")
+        value = stored_value(key, vals.get(key, ""))
         if value == "":
             continue
+        if not SAFE_VALUE.fullmatch(value):
+            raise ValueError(key)
         lines.append(': "${%s:=%s}"\n' % (key, value))
-    with open(ENV_PATH, "w", encoding="utf-8") as f:
+    # Always LF. A CRLF line is not the assignment the shell launchers source.
+    with open(ENV_PATH, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(lines)
+
+
+def cli(argv):
+    """Shared by configure.sh and configure.ps1. None means: serve the form."""
+    if not argv:
+        return None
+    cmd = argv[0]
+    if cmd == "--fields":
+        for key in FIELDS:
+            sys.stdout.write("%s\t%s\t%s\n" % (key, shown(key), HINTS[key]))
+        return 0
+    if cmd == "--check":
+        if len(argv) != 3:
+            return 2
+        try:
+            check(argv[1], argv[2])
+        except ValueError:
+            return 1
+        return 0
+    if cmd == "--write":
+        if len(argv) != 2:
+            return 2
+        vals = {k: "" for k in FIELDS}
+        try:
+            fh = open(argv[1], encoding="utf-8")
+        except OSError:
+            sys.stderr.write("panel: cannot read answers\n")
+            return 1
+        with fh:
+            for line in fh:
+                line = line.rstrip("\r\n")
+                if line == "":
+                    continue
+                key, sep, val = line.partition("\t")
+                if not sep or key not in vals:
+                    sys.stderr.write("panel: bad answer line\n")
+                    return 1
+                try:
+                    vals[key] = check(key, val)
+                except ValueError:
+                    sys.stderr.write("panel: refused %s\n" % key)
+                    return 1
+        try:
+            write_env(vals)
+        except ValueError as e:
+            sys.stderr.write("panel: refused %s\n" % e)
+            return 1
+        return 0
+    sys.stderr.write("panel: unknown argument\n")
+    return 2
 
 
 def mem_line():
@@ -185,6 +376,9 @@ td { padding: 0.3rem 0.6rem 0.3rem 0; }
 
 
 def main():
+    code = cli(sys.argv[1:])
+    if code is not None:
+        raise SystemExit(code)
     try_lock_process("panel.py")
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import urllib.parse

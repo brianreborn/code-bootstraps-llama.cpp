@@ -26,7 +26,17 @@ function Use-PanelValue([string]$Variable, [string]$EnvName, [bool]$Bound, [stri
     if (-not [string]::IsNullOrEmpty($Prior)) { return }
     $now = [Environment]::GetEnvironmentVariable($EnvName)
     if ([string]::IsNullOrEmpty($now)) { return }
-    if ($Variable -eq "Port") { Set-Variable -Name $Variable -Scope 1 -Value ([int]$now); return }
+    if ($Variable -eq "Port" -or $Variable -eq "ModelsMax") {
+        Set-Variable -Name $Variable -Scope 1 -Value ([int]$now)
+        return
+    }
+    # The parameter is a switch. The file stores 1 or 0, not True/False.
+    if ($Variable -eq "SwapCoder") {
+        $on = $false
+        if ($now -eq "1") { $on = $true }
+        Set-Variable -Name $Variable -Scope 1 -Value $on
+        return
+    }
     Set-Variable -Name $Variable -Scope 1 -Value $now
 }
 

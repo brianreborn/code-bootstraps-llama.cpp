@@ -49,5 +49,48 @@ class ReadyPortTests(unittest.TestCase):
             panel.ROOT = old_root
 
 
+class FieldTests(unittest.TestCase):
+    def test_major_settings_are_fields(self):
+        for key in ("PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT",
+                    "THREADS", "CTX", "REASONING", "HOST", "LOAD_MODE", "LOCALE",
+                    "LANGUAGE_MODE", "WORKDIR", "REPACK", "TOOLS_RUNTIME", "SWAP_CODER"):
+            self.assertIn(key, panel.FIELDS)
+        self.assertNotIn("GGUF_HOME", panel.FIELDS)
+
+    def test_check_refuses_unknown_and_accepts_auto(self):
+        self.assertEqual(panel.check("LANGUAGE_MODE", "auto"), "auto")
+        self.assertEqual(panel.check("REASONING", "on"), "on")
+        self.assertEqual(panel.check("LOAD_MODE", "mlock"), "mlock")
+        self.assertEqual(panel.check("HOST", "::1"), "::1")
+        for key, bad in (("PROFILE", "nope"), ("REASONING", "yes"), ("LANGUAGE_MODE", "yes"),
+                         ("LOAD_MODE", "pin"), ("PORT", "0"), ("MODELS_MAX", "9"),
+                         ("CTX", "100"), ("TOOLS_RUNTIME", "bogus"), ("HOST", "bad host")):
+            with self.assertRaises(ValueError):
+                panel.check(key, bad)
+
+    def test_write_env_omits_defaults(self):
+        tmp = tempfile.mkdtemp(prefix="panel-env-")
+        old = panel.ENV_PATH
+        panel.ENV_PATH = os.path.join(tmp, "panel.env")
+        try:
+            panel.write_env({
+                "PROFILE": "auto",
+                "PORT": "9944",
+                "REASONING": "off",
+                "LANGUAGE_MODE": "auto",
+                "THREADS": "auto",
+                "LOAD_MODE": "auto",
+                "HOST": "127.0.0.1",
+                "MODELS_MAX": "2",
+            })
+            with open(panel.ENV_PATH, encoding="utf-8") as fh:
+                text = fh.read()
+        finally:
+            panel.ENV_PATH = old
+        self.assertEqual(text, ': "${PORT:=9944}"\n: "${LANGUAGE_MODE:=auto}"\n')
+        for key in ("PROFILE", "REASONING", "THREADS", "LOAD_MODE", "HOST", "MODELS_MAX"):
+            self.assertNotIn(key, text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

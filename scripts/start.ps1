@@ -37,6 +37,7 @@ $serveScript = Join-Path $PSScriptRoot "serve.ps1"
 $serveParams = (Get-Command $serveScript).Parameters
 Assert-NoDoubleDashParam @($MyInvocation.MyCommand.Parameters.Keys) "start.ps1" $PSCommandPath
 if ($env:NO_BROWSER -eq "1") { $NoBrowser = $true }
+if ($env:BUILD -eq "1") { $Build = $true }
 
 # One administrator prompt. The stamp is written here, as this user, only after
 # success. The elevated child does not write it (it would be owned by Administrator).
