@@ -504,6 +504,12 @@ cleanup() {
   rm -rf "$ua_dir"
 }
 trap cleanup EXIT
+# start.sh takes this lock and then execs serve.sh. A direct serve.sh must
+# take it too, or Android freezes the server once Termux is in the background.
+if [ "$IS_ANDROID" = 1 ] && [ "${WAKE_LOCK:-1}" != 0 ] && [ "${TERMUX_WAKE_LOCKED:-0}" != 1 ] \
+  && command -v termux-wake-lock >/dev/null 2>&1; then
+  termux-wake-lock >/dev/null 2>&1 && TERMUX_WAKE_LOCKED=1 || true
+fi
 
 RUNTIME_ARG=""
 TOOL_CWD=$WORKDIR
