@@ -407,6 +407,8 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     for (i = 1; i <= n; i++) { k = ord[i]; if (index(k, sec ".") == 1 && !(k in seen)) print substr(k, length(sec) + 2) " = " ov[k] }
     if ((sec in rm) && !((sec ".model") in seen) && !((sec ".model") in lk)) print "model = " rm[sec]
     if (sec == "general" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = chat"
+    if (sec == "decision" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = route"
+    if (sec == "language" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = translate"
   }
   /^\[.*\]/ { flush(); sec = secname($0); had[sec] = 1; skip = (sec ~ /^locale\./) || (sec == "language" && m_language == ""); if (!skip) print; next }
   skip { next }
@@ -417,7 +419,12 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     if (k ~ /^(model|mmproj)$|-(file|config|dir|path)$/) { v = valof($0); if (v != "" && v !~ /^\//) { print k " = " root "/" v; next } } }
   { print }
   END { flush(); split("general coder decision language", rr, " ")
-        for (i = 1; i <= 4; i++) if ((rr[i] in rm) && !(rr[i] in had)) { print ""; print "[" rr[i] "]"; print "model = " rm[rr[i]] } }
+        for (i = 1; i <= 4; i++) if ((rr[i] in rm) && !(rr[i] in had)) {
+          print ""; print "[" rr[i] "]"; print "model = " rm[rr[i]]
+          if (rr[i] == "general") print "alias = chat"
+          if (rr[i] == "decision") print "alias = route"
+          if (rr[i] == "language") print "alias = translate"
+        } }
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"
 printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" "$SWAP_ROLES" > "$ROOT/.cache/language.json"
 
