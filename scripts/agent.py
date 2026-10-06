@@ -35,6 +35,10 @@ An empty remote session id starts the client; a stored id resumes it. Image, aud
 and pdf paths are handed to a local client as paths, not bytes.
   python3 scripts/agent.py "/remote login work grok"
   python3 scripts/agent.py "/remote on"
+
+/local <grok|agy|claude|codex> runs that program as the current user, with no server.
+begin, commit, rollback, and status on /local or /remote share tx.json next to remote.json.
+A nested begin is a savepoint. Only the outermost commit is durable.
 """
 import argparse
 import http.client
@@ -48,6 +52,7 @@ import urllib.parse
 import urllib.request
 
 from lib import remote as remote_handoff
+from lib import tx as tx_block
 from lib.lockmem import try_lock_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -461,7 +466,15 @@ def main():
                          "Does not translate code, paths, flags, URLs, or hashes")
     a = ap.parse_args()
     reason = reasoning_mode()
-    if a.prompt.startswith("/remote") and not a.localize:
+    # Before resolve_cwd: a host path outside the tools container is refused there, and these
+    # commands never call llama-server.
+    local = a.prompt == "/local" or a.prompt.startswith("/local ") or a.prompt.startswith("/local\t")
+    if not a.localize and (a.prompt.startswith("/remote") or local):
+        handled = tx_block.dispatch_word(a.prompt)
+        if handled is not None:
+            return handled
+        if local:
+            return tx_block.local_exec(a.prompt)
         ws = os.path.abspath(a.cwd) if a.cwd else ROOT
         return remote_handoff.dispatch(a.prompt, ws)
 
