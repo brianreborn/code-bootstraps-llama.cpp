@@ -22,6 +22,21 @@ tree_manifest() {
     done )
 }
 
+# Same paths as tree_manifest, without reading bytes. A warm start compares this
+# to the stamp from the last good sha256 and hashes only when it differs.
+# One stat(1) covers the tree where -c works; elsewhere, fingerprint() per file.
+tree_fingerprint() {
+  tf_dir=$1
+  if stat -c '%s' "$tf_dir" >/dev/null 2>&1; then
+    ( cd "$tf_dir" && find . \( -type f -o -type l \) ! -name '.verified-*' -exec stat -c '%s %Y %Z %i %n' {} + | LC_ALL=C sort )
+    return
+  fi
+  ( cd "$tf_dir" && find . \( -type f -o -type l \) ! -name '.verified-*' | LC_ALL=C sort | while IFS= read -r p; do
+      if [ -h "$p" ]; then printf 'l %s %s\n' "$(readlink "$p")" "${p#./}"
+      else printf 'f %s %s\n' "$(fingerprint "$p")" "${p#./}"; fi
+    done )
+}
+
 # "--Models_Dir=x" -> "--models-dir"
 arg_name() {
   an=${1%%=*}

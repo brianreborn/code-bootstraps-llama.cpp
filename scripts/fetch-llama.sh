@@ -5,6 +5,9 @@
 #   scripts/fetch-llama.sh --variant vulkan      # or cuda-12 / cuda-13
 #   scripts/fetch-llama.sh --print-platform
 # Exit 3 when no asset fits. Needs curl, tar, awk, and sha256sum or shasum.
+# A warm start does not re-hash an archive or unpacked tree whose fingerprint
+# still matches the last good sha256. FULL_VERIFY=1 always hashes. A new
+# download, a missing stamp, or a changed fingerprint still hashes.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
@@ -19,7 +22,7 @@ while [ $# -gt 0 ]; do
     --platform) platform=${2:?}; shift ;;
     --variant) variant=${2:?}; shift ;;
     --print-platform) print_only=1 ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
     *) echo "fetch-llama.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
@@ -82,10 +85,36 @@ fi
 
 dest="bin/llama-$tag-$platform-$variant"
 mkdir -p .cache/dl
+# ".cache/dl/<file>.fp" is "<sha256>\n<fingerprint>" from the last good hash.
+archive_unchanged() {
+  au_file=$1
+  au_want=$2
+  au_arc=".cache/dl/$au_file"
+  au_st=".cache/dl/$au_file.fp"
+  if [ "${FULL_VERIFY:-0}" = 1 ]; then return 1; fi
+  if [ ! -f "$au_arc" ] || [ ! -f "$au_st" ]; then return 1; fi
+  au_sha=$(awk 'NR==1 { print; exit }' "$au_st")
+  au_fp=$(awk 'NR==2 { print; exit }' "$au_st")
+  if [ "$au_sha" = "$au_want" ] && [ "$au_fp" = "$(fingerprint "$au_arc")" ]; then
+    return 0
+  fi
+  return 1
+}
+note_archive() {
+  {
+    printf '%s\n' "$2"
+    fingerprint ".cache/dl/$1"
+  } > ".cache/dl/$1.fp"
+}
 fetch() {
   f=$1
   want=$2
+  if archive_unchanged "$f" "$want"; then
+    echo "fetch-llama.sh: $f unchanged since its last sha256 check" >&2
+    return 0
+  fi
   if [ -f ".cache/dl/$f" ] && [ "$(sha256_of ".cache/dl/$f")" = "$want" ]; then
+    note_archive "$f" "$want"
     echo "fetch-llama.sh: $f already downloaded and verified" >&2
     return 0
   fi
@@ -98,6 +127,7 @@ fetch() {
     exit 1
   fi
   mv ".cache/dl/$f.part" ".cache/dl/$f"
+  note_archive "$f" "$want"
   echo "fetch-llama.sh: OK sha256 $f" >&2
 }
 UNPACK_TMP=""
@@ -133,13 +163,25 @@ unpack() {
 fetch "$file" "$sha"
 [ "$extra" = "-" ] || fetch "$extra" "$extra_sha"
 stamp="$dest/.verified-$sha"
-if [ ! -f "$stamp" ] || [ "$(tree_manifest "$dest")" != "$(cat "$stamp")" ]; then
-  [ -f "$stamp" ] && echo "fetch-llama.sh: $dest changed since it was unpacked; unpacking again" >&2
-  rm -rf "$dest"
-  mkdir -p "$dest"
-  unpack "$file"
-  [ "$extra" = "-" ] || unpack "$extra"
-  tree_manifest "$dest" > "$stamp"
+fpstamp="$dest/.verified-$sha.fp"
+tree_same=0
+if [ "${FULL_VERIFY:-0}" != 1 ] && [ -f "$stamp" ] && [ -f "$fpstamp" ]; then
+  if [ "$(tree_fingerprint "$dest")" = "$(cat "$fpstamp")" ]; then
+    tree_same=1
+  fi
+fi
+if [ "$tree_same" != 1 ]; then
+  if [ ! -f "$stamp" ] || [ "$(tree_manifest "$dest")" != "$(cat "$stamp")" ]; then
+    [ -f "$stamp" ] && echo "fetch-llama.sh: $dest changed since it was unpacked; unpacking again" >&2
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    unpack "$file"
+    [ "$extra" = "-" ] || unpack "$extra"
+    tree_manifest "$dest" > "$stamp"
+  fi
+  tree_fingerprint "$dest" > "$fpstamp"
+else
+  echo "fetch-llama.sh: $dest unchanged since its last sha256 check" >&2
 fi
 exe="$dest/llama-server"
 [ -f "$exe.exe" ] && exe="$exe.exe"

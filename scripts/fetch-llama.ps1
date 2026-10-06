@@ -35,11 +35,33 @@ if (-not $asset) {
 $base = if (($asset.PSObject.Properties.Name -contains "base_url") -and $asset.base_url) { $asset.base_url } else { $rel.base_url }
 $dl = Join-Path $Root ".cache\dl"
 New-Item -ItemType Directory -Force -Path $dl | Out-Null
+# "<file>.fp" is the sha256 and fingerprint from the last good hash. A new file,
+# a changed fingerprint, a missing stamp, or FULL_VERIFY=1 still hashes.
+function Test-ArchiveUnchanged([string]$File, [string]$Sha) {
+    if ($env:FULL_VERIFY -eq "1") { return $false }
+    $arc = Join-Path $dl $File
+    $st = Join-Path $dl ($File + ".fp")
+    if (-not (Test-Path -LiteralPath $arc)) { return $false }
+    if (-not (Test-Path -LiteralPath $st)) { return $false }
+    $lines = @(Get-Content -LiteralPath $st)
+    if ($lines.Count -lt 2) { return $false }
+    return (($lines[0] -eq $Sha) -and ($lines[1] -eq (Get-Fingerprint $arc)))
+}
+function Write-ArchiveStamp([string]$File, [string]$Sha) {
+    $arc = Join-Path $dl $File
+    Write-TextFile (Join-Path $dl ($File + ".fp")) @($Sha, (Get-Fingerprint $arc))
+}
 function Get-Asset([string]$File, [string]$Sha) {
     $dest = Join-Path $dl $File
-    if ((Test-Path -LiteralPath $dest) -and ((Get-Sha256 $dest) -eq $Sha)) { Write-Host "fetch-llama: $File already downloaded and verified"; return }
+    if (Test-ArchiveUnchanged $File $Sha) { Write-Host "fetch-llama: $File unchanged since its last sha256 check"; return }
+    if ((Test-Path -LiteralPath $dest) -and ((Get-Sha256 $dest) -eq $Sha)) {
+        Write-ArchiveStamp $File $Sha
+        Write-Host "fetch-llama: $File already downloaded and verified"
+        return
+    }
     Write-Host "fetch-llama: $base$File"
     Get-VerifiedFile -Url "$base$File" -Dest $dest -Sha256 $Sha -Tag "fetch-llama"
+    Write-ArchiveStamp $File $Sha
 }
 function Expand-Stripped([string]$File, [string]$To) {   # unpack; a single top-level directory is stripped
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("llama-unpack-" + [guid]::NewGuid().ToString("N"))
@@ -58,18 +80,35 @@ Get-Asset $asset.file $asset.sha256
 if ($hasExtra) { Get-Asset $asset.extra_file $asset.extra_sha256 }   # CUDA runtime DLLs
 
 $dest = Join-Path $Root "bin\llama-$($rel.tag)-$Platform-$Variant"
-# the stamp lists every unpacked file and its size; a missing or changed file unpacks again
+# the stamp lists every unpacked file and its sha256; the .fp stamp is the
+# fingerprint list. A missing stamp, a changed fingerprint, or FULL_VERIFY=1 hashes.
 $stamp = Join-Path $dest ".verified-$($asset.sha256)"
-$intact = (Test-Path -LiteralPath $stamp) -and
-    ((@(Get-Content -LiteralPath $stamp) -join "`n") -eq ((Get-TreeManifest $dest) -join "`n"))
-if (-not $intact) {
-    if (Test-Path -LiteralPath $stamp) { Write-Host "fetch-llama: $dest changed since it was unpacked; unpacking again" }
-    if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }
-    New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    Expand-Stripped $asset.file $dest
-    if ($hasExtra) { Expand-Stripped $asset.extra_file $dest }
-    if (Test-Windows) { Get-ChildItem -LiteralPath $dest -Recurse -File | Unblock-File }
-    Write-TextFile $stamp (Get-TreeManifest $dest)
+$fpstamp = Join-Path $dest ".verified-$($asset.sha256).fp"
+$treeSame = $false
+if ($env:FULL_VERIFY -ne "1") {
+    if ((Test-Path -LiteralPath $stamp) -and (Test-Path -LiteralPath $fpstamp)) {
+        $curFp = (@(Get-TreeFingerprint $dest) -join "`n")
+        $oldFp = (@(Get-Content -LiteralPath $fpstamp) -join "`n")
+        if ($curFp -eq $oldFp) { $treeSame = $true }
+    }
+}
+if ($treeSame) {
+    Write-Host "fetch-llama: $dest unchanged since its last sha256 check"
+} else {
+    $intact = $false
+    if (Test-Path -LiteralPath $stamp) {
+        $intact = ((@(Get-Content -LiteralPath $stamp) -join "`n") -eq ((@(Get-TreeManifest $dest) -join "`n")))
+    }
+    if (-not $intact) {
+        if (Test-Path -LiteralPath $stamp) { Write-Host "fetch-llama: $dest changed since it was unpacked; unpacking again" }
+        if (Test-Path -LiteralPath $dest) { Remove-Item -Recurse -Force -LiteralPath $dest }
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        Expand-Stripped $asset.file $dest
+        if ($hasExtra) { Expand-Stripped $asset.extra_file $dest }
+        if (Test-Windows) { Get-ChildItem -LiteralPath $dest -Recurse -File | Unblock-File }
+        Write-TextFile $stamp (Get-TreeManifest $dest)
+    }
+    Write-TextFile $fpstamp (Get-TreeFingerprint $dest)
 }
 $exe = Join-Path $dest "llama-server.exe"
 if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $dest "llama-server" }

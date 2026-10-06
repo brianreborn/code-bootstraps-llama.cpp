@@ -171,6 +171,15 @@ function Get-TreeManifest([string]$Dir) {
     @($rows | Sort-Object -CaseSensitive)
 }
 
+# Same files as Get-TreeManifest, without reading bytes. fetch-llama.ps1 hashes
+# only when this differs from the stamp of the last good sha256 (or FULL_VERIFY=1).
+function Get-TreeFingerprint([string]$Dir) {
+    $base = (Resolve-Path -LiteralPath $Dir).Path.TrimEnd('\', '/')
+    $rows = Get-ChildItem -LiteralPath $base -Recurse -File -Force | Where-Object { $_.Name -notlike ".verified-*" -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+        ForEach-Object { "f $(Get-Fingerprint $_.FullName) " + $_.FullName.Substring($base.Length + 1).Replace('\', '/') }
+    @($rows | Sort-Object -CaseSensitive)
+}
+
 # Windows PowerShell 5.1 has no $IsWindows / $IsLinux / $IsMacOS (PowerShell 6+), and reading an
 # unset variable under Set-StrictMode throws: every OS test goes through these two functions.
 # (tests/check-ps1.sh fails on any other use of those variables.)
