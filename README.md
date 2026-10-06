@@ -43,7 +43,7 @@ Prerequisites:
 | Linux x86_64 / arm64 | `git` (or the ZIP), `/bin/sh`, `curl`, `tar`, `awk`, `sha256sum` (or `shasum` or `cksum`) | The release binary needs glibc 2.34+, `libgomp1`, `libssl3`, zlib and libzstd (Ubuntu 22.04+, Debian 12+); otherwise the launcher builds (needs `git`, `cmake`, a C++ compiler). Linux is the fully supported platform. |
 | macOS | `git` (asks to install the Command Line Tools the first time) or the ZIP; `curl`, `tar`, `shasum` are built in | Untested. See "Downloaded ZIP" for Gatekeeper. |
 | Windows 10 1803+ / 11 | `git` or the ZIP; PowerShell 5.1 and `curl.exe` are built in | Tested once (Windows 10, PowerShell 5.1, 2-core CPU without AVX, 2026-10-03; the fixes from that run are in, not yet re-tested). See "Downloaded ZIP" for SmartScreen. Group Policy that enforces `AllSigned` blocks the scripts. |
-| Android (Termux) | `pkg install git python` (`curl`, `tar`, `awk` are in Termux already) | Untested on a phone. See "Android (Termux)" below. |
+| Android (Termux) | `pkg install git python` (`curl`, `tar`, `awk` are in Termux already) | Ran on a Galaxy A57 (SM-A576U, Android 16, Termux). See "Android (Termux)" below. |
 | Any, optional | `python3` (Termux: `pkg install python`; Windows: `python` or `py -3` from python.org) | Only for `scripts/agent.py` and the example MCP server (skipped without it). On Windows `python3` is often only the Microsoft Store placeholder; `serve.ps1` tries `python3`, `python` and `py -3` and uses the first that runs. |
 | Disk | about 3 GB free | 2.4 GB of models, 17.6 MB for the Linux CPU release binary (GPU variants are larger), plus room for the `.part` files while downloading. |
 | RAM | about 3.5 GB free for `PROFILE=lowram`, 5-6 GB for `default` | Measured on x86_64: lowram peaked at 3.1 GB (router + coder, repack on); in `default` the coder alone reached 3.6 GB with 4 slots, and a second model stays loaded (general 1.6 GB, decision 0.9 GB). |
@@ -84,7 +84,7 @@ Limits of the web UI path:
 
 ### Android (Termux)
 
-CPU only, untested on a phone so far. In Termux (F-Droid or the GitHub termux-app build; NewTermux also works but uses the same public test key as GitHub builds):
+CPU only. On a Galaxy A57 (SM-A576U, Android 16, 7430 MB RAM, 4 KB pages) the `android-b11374-1` binary ran: `llama-cli` on the default general model generated at 28 t/s, and `serve.sh` chose `moderate`, `--threads 5` from the big cores, loaded decision as a child process, and answered `chat` (`Hello! How can I help you today`, 8 tokens, cold). `start.sh` itself, the wake lock, and Vulkan were not run. In Termux (F-Droid or the GitHub termux-app build; NewTermux also works but uses the same public test key as GitHub builds):
 
 ```sh
 pkg install git python
@@ -267,7 +267,7 @@ Override with `THREADS=`, `THREADS_BATCH=`, `GPU_LAYERS=`, `REPACK=` and `LOAD_M
 
 **big.LITTLE (Android, arm64 Linux).** Every thread of an op waits for the slowest one, so little cores slow the big ones down. `serve.sh` reads `/sys/devices/system/cpu/cpu*/cpu_capacity` (or `cpufreq/cpuinfo_max_freq` when the kernel does not export capacities) and counts the cores that reach at least 75% of the highest value. If fewer than 2 cores pass (a single prime core on a 3-cluster SoC such as 1+3+4), every core outside the slowest cluster is used; if that is still 1, all physical cores are. Homogeneous CPUs keep the physical-core rule. On macOS, `--threads` counts only the performance cores (`sysctl hw.perflevel0.physicalcpu`, untested), and `fetch-llama.sh` picks the arm64 build on Apple silicon even in a Terminal running under Rosetta. `sh tests/test_cpu.sh` covers the A57 (1+4+3), a 1+3+4 and a 4+4 layout with synthetic sysfs data. No device names are used.
 
-**Android baseline: Samsung Galaxy A57.** Exynos 1680 (4 nm): 1× Cortex-A720 at 2.9 GHz, 4× Cortex-A720 at 2.6 GHz, 3× Cortex-A520 at 1.95 GHz; Xclipse 550 GPU; 8 or 12 GB LPDDR5X (sources: [GSMArena](https://www.gsmarena.com/samsung_galaxy_a57_5g-14379.php), [Notebookcheck](https://www.notebookcheck.net/Samsung-Exynos-1680-Processor-Benchmarks-and-Specs.1339461.0.html), [Samsung US](https://www.samsung.com/us/smartphones/galaxy-a57-5g/)). With the 75% rule, both frequencies of the A720 cores pass (2.6/2.9 = 90%) and the A520 cores do not (1.95/2.9 = 67%), so the expected result is `--threads 5 --threads-batch 5`. That is derived from the published specs; **nothing was run on an A57**, and the real `cpu_capacity` values may differ. The Xclipse 550 would need the Vulkan build (`GPU=vulkan scripts/build-termux.sh`), which is untested.
+**Android baseline: Samsung Galaxy A57.** Exynos 1680 (4 nm): 1× Cortex-A720 at 2.9 GHz, 4× Cortex-A720 at 2.6 GHz, 3× Cortex-A520 at 1.95 GHz; Xclipse 550 GPU; 8 or 12 GB LPDDR5X (sources: [GSMArena](https://www.gsmarena.com/samsung_galaxy_a57_5g-14379.php), [Notebookcheck](https://www.notebookcheck.net/Samsung-Exynos-1680-Processor-Benchmarks-and-Specs.1339461.0.html), [Samsung US](https://www.samsung.com/us/smartphones/galaxy-a57-5g/)). With the 75% rule, both frequencies of the A720 cores pass (2.6/2.9 = 90%) and the A520 cores do not (1.95/2.9 = 67%), so the expected result is `--threads 5 --threads-batch 5`. On SM-A576U the kernel reported `cpu_capacity` 358, 358, 358, 914, 914, 914, 914, 1024 and `serve.sh` used `--threads 5 --threads-batch 5`. The Xclipse 550 would need the Vulkan build (`GPU=vulkan scripts/build-termux.sh`), which is untested.
 
 **Profiles.** `lowram` sets `--models-max 2` so general and coder can both stay loaded, and lowers the preset: coder 2 slots sharing a 16k pool, general 1×8k, decision 1×4k, language 1×4k. Decision is not pinned on lowram. `moderate` keeps general and coder loaded together (`MODELS_MAX=2`) with coder 2 slots sharing a 24k pool (16k per session), general 1×8k, decision 1×4k. `default` uses the preset as written (coder 4×16k in a 32k pool, general 2×8k). In `moderate` and `default` the decision model (Laya, ~0.9 GB) is loaded at startup and stays loaded: `--models-max` is `MODELS_MAX` + 1, so only general and coder take turns (b11374 has no per-model pin, so with more roles than slots the least recently used one, possibly decision, is unloaded and reloads on its next request).
 
@@ -389,7 +389,7 @@ HY-MT is the best interpreter we tested, but **its license excludes the EU, the 
 
 **Language detection.** Asking the decision model (Laya, `/v1/systemone`) to pick the language got 3/20 right (2-6/20 with other option wordings), so it is not used. The built-in heuristic (Unicode script, then function words for Latin scripts) got 20/20 on the same items, but its word lists were written while looking at them; on 16 items written afterwards it got 14/16 (French read as Spanish once; one-word "listo" gave no answer, which falls back to the locale).
 
-**Not tested:** Windows, macOS, Termux/Android, GPU backends, the container tool runtime with these modes, locales other than Japanese for swap, larger Japanese models.
+**Not tested:** Windows, macOS, locale swap on Termux, GPU backends, the container tool runtime with these modes, locales other than Japanese for swap, larger Japanese models.
 
 ### Security
 
