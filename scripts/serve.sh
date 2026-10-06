@@ -562,10 +562,14 @@ fi
 LISTEN_HOST=$(bind_hosts "$HOST")
 PROBE_HOST=$(probe_host_of "$HOST")
 PROBE_URL_HOST=$(url_host "$PROBE_HOST")
+SLOT_DIR=$ROOT/.cache/slot-dumps
+mkdir -p "$SLOT_DIR"
+chmod 700 "$SLOT_DIR" 2>/dev/null || true
 set -- \
   --host "$LISTEN_HOST" --port "$PORT" \
   --models-preset "$EFFECTIVE_PRESET" \
   --models-max "$ROUTER_MAX" \
+  --slot-save-path "$SLOT_DIR/" \
   --threads "$THREADS" --threads-batch "$THREADS_BATCH" \
   --n-gpu-layers "$GPU_LAYERS" --fit on
 [ -n "$LOAD_MODE" ] && set -- "$@" --load-mode "$LOAD_MODE"

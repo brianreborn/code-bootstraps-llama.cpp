@@ -138,6 +138,8 @@ def begin(name=""):
         print(f"tx: name {name} already used", file=sys.stderr)
         return 1
     snap_name = snap.create(name)
+    # Slot dumps are skipped, and no process is stopped, when no server of ours is listening.
+    snap.save_slots(snap_name)
     data["tx"].append({
         "name": name,
         "state": "open",

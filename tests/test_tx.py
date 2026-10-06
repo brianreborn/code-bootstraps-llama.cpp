@@ -147,6 +147,116 @@ class SnapTests(unittest.TestCase):
             child.kill()
             child.wait(timeout=5)
 
+    def test_save_slots_without_a_server_stops_nothing(self):
+        from lib import snap
+        missing = os.path.join(self.dir, "no.ready")
+        self.assertEqual(snap.save_slots("quiet", ready_file=missing), "no server")
+        with open(os.path.join(self.dir, "snaps", "quiet", "SLOTS"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "no server\n")
+
+    def test_save_slots_copies_dump_and_leaves_child_running(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from lib import snap
+        slot_dir = os.path.join(self.dir, "dumps")
+        os.makedirs(slot_dir)
+        child = subprocess.Popen(["sleep", "30"])
+        seen = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'[{"id": 0}]'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(n)
+                seen["state"] = snap._state(child.pid)
+                with open(os.path.join(slot_dir, "slot-0.bin"), "w", encoding="utf-8") as f:
+                    f.write("dump")
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *_args):
+                return
+
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = httpd.server_address[1]
+        thread = __import__("threading").Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        ready = os.path.join(self.dir, "serve.ready")
+        with open(ready, "w", encoding="utf-8") as f:
+            f.write(f"{port} {child.pid}\n")
+        prev = os.environ.get("FEELD_SNAP_ANY_PID")
+        os.environ["FEELD_SNAP_ANY_PID"] = "1"
+        try:
+            self.assertEqual(
+                snap.save_slots("held", ready_file=ready, slot_dir=slot_dir), "saved")
+            self.assertNotEqual(seen.get("state"), "T")
+            self.assertNotEqual(snap._state(child.pid), "T")
+            with open(os.path.join(self.dir, "snaps", "held", "slots", "slot-0.bin"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "dump")
+            with open(os.path.join(self.dir, "snaps", "held", "SLOTS"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), "saved 1\n")
+        finally:
+            if prev is None:
+                os.environ.pop("FEELD_SNAP_ANY_PID", None)
+            else:
+                os.environ["FEELD_SNAP_ANY_PID"] = prev
+            httpd.shutdown()
+            child.kill()
+            child.wait(timeout=5)
+
+    def test_save_slots_refuses_without_stopping(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from lib import snap
+        child = subprocess.Popen(["sleep", "30"])
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'[{"id": 0}]'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                body = b"no slots"
+                self.send_response(500)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                return
+
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = httpd.server_address[1]
+        __import__("threading").Thread(target=httpd.serve_forever, daemon=True).start()
+        ready = os.path.join(self.dir, "serve.ready")
+        with open(ready, "w", encoding="utf-8") as f:
+            f.write(f"{port} {child.pid}\n")
+        prev = os.environ.get("FEELD_SNAP_ANY_PID")
+        os.environ["FEELD_SNAP_ANY_PID"] = "1"
+        try:
+            result = snap.save_slots("bad", ready_file=ready, slot_dir=self.dir)
+            self.assertEqual(result, "no dump")
+            self.assertNotEqual(snap._state(child.pid), "T")
+            with open(os.path.join(self.dir, "snaps", "bad", "SLOTS"), encoding="utf-8") as f:
+                self.assertTrue(f.read().startswith("no dump:"))
+        finally:
+            if prev is None:
+                os.environ.pop("FEELD_SNAP_ANY_PID", None)
+            else:
+                os.environ["FEELD_SNAP_ANY_PID"] = prev
+            httpd.shutdown()
+            child.kill()
+            child.wait(timeout=5)
+
 
 class LocalTests(unittest.TestCase):
     def test_local_rejects_unknown_and_runs_fake_grok(self):
