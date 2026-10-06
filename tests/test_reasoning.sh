@@ -208,5 +208,35 @@ else
   bad "REASONING=yes: $(tail -n 5 "$d/out.txt")"
 fi
 
+# Android cannot hold mlock. Other hosts keep the preset unless LOAD_MODE is set.
+load_of() {
+  ini=$1/.cache/models-preset.effective.ini
+  if [ ! -f "$ini" ]; then echo "MISSING"; return; fi
+  printf '%s %s %s %s\n' "$(val "$ini" general load-mode)" "$(val "$ini" coder load-mode)" \
+    "$(nkey "$ini" decision load-mode)" "$(val "$ini" decision load-mode)"
+}
+d=$(launch linux-lock LOAD_MODE= PREFIX= ANDROID_ROOT=)
+got=$(load_of "$d")
+if [ "$got" = "mmap+mlock mmap+mlock 0 " ]; then
+  ok "Linux LOAD_MODE unset keeps preset mlock on general and coder"
+else
+  bad "Linux LOAD_MODE unset: got '$got' $(tail -n 5 "$d/out.txt")"
+fi
+d=$(launch android-mmap LOAD_MODE= PREFIX=/data/data/com.termux/files/usr ANDROID_ROOT=)
+got=$(load_of "$d")
+ini=$d/.cache/models-preset.effective.ini
+if [ "$got" = "mmap mmap 0 " ] && [ -f "$ini" ] && ! grep -q 'mmap+mlock' "$ini"; then
+  ok "Android LOAD_MODE unset does not request mlock"
+else
+  bad "Android LOAD_MODE unset: got '$got' $(tail -n 8 "$d/out.txt")"
+fi
+d=$(launch android-explicit LOAD_MODE=mmap+mlock PREFIX=/data/data/com.termux/files/usr ANDROID_ROOT=)
+got=$(load_of "$d")
+if [ "$got" = "mmap+mlock mmap+mlock 1 mmap+mlock" ]; then
+  ok "Android LOAD_MODE=mmap+mlock still requests mlock"
+else
+  bad "Android LOAD_MODE=mmap+mlock: got '$got' $(tail -n 8 "$d/out.txt")"
+fi
+
 if [ "$fails" -eq 0 ]; then echo "all reasoning overlay tests passed"
 else echo "$fails failed"; exit 1; fi
