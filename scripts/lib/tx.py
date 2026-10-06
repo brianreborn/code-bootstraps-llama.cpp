@@ -11,6 +11,8 @@ import subprocess
 import sys
 import time
 
+from lib import snap
+
 WORDS = ("begin", "commit", "rollback", "status")
 PROGRAMS = ("grok", "agy", "claude", "codex")
 OUTCOMES = ("", "heuristic")
@@ -135,11 +137,12 @@ def begin(name=""):
     if any(r["name"] == name for r in data["tx"]):
         print(f"tx: name {name} already used", file=sys.stderr)
         return 1
+    snap_name = snap.create(name)
     data["tx"].append({
         "name": name,
         "state": "open",
         "parent": parent,
-        "snap": "",
+        "snap": snap_name,
         "writes": [],
         "outcome": "",
     })
@@ -156,6 +159,8 @@ def declare_write(path):
         print("tx: nothing open", file=sys.stderr)
         return 1
     path = str(path)
+    # Before-image. Rollback does not put these bytes back.
+    snap.capture(rec["snap"], path)
     if path not in rec["writes"]:
         rec["writes"].append(path)
     save(data)

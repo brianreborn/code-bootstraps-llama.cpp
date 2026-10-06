@@ -40,7 +40,8 @@ class TxTests(unittest.TestCase):
         self.assertEqual(by["inner"]["state"], "committed")
         self.assertEqual(by["inner"]["parent"], "outer")
         self.assertEqual(by["outer"]["state"], "open")
-        self.assertEqual(by["inner"]["snap"], "")
+        self.assertEqual(by["inner"]["snap"], "inner")
+        self.assertEqual(by["outer"]["snap"], "outer")
         self.assertFalse(tx.is_durable(rows, by["inner"]))
         self.assertFalse(tx.is_durable(rows, by["outer"]))
         self.assertEqual(tx.commit(), 0)
@@ -93,7 +94,7 @@ class TxTests(unittest.TestCase):
             [sys.executable, AGENT, "--locale", "en", "--key-file", os.devnull, "/local status"],
             capture_output=True, text=True, env=os.environ.copy(), timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("h rolledback null - writes=0 heuristic", out.stdout)
+        self.assertIn("h rolledback null h writes=0 heuristic", out.stdout)
 
     def test_commit_and_rollback_with_nothing_open(self):
         env = os.environ.copy()
@@ -103,6 +104,48 @@ class TxTests(unittest.TestCase):
             self.assertEqual(out.returncode, 1, out.stderr)
             tx_lines = [line for line in out.stderr.splitlines() if line.startswith("tx:")]
             self.assertEqual(tx_lines, ["tx: nothing open"])
+
+
+class SnapTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="snap-")
+        self._prev = os.environ.get("AGENT_REMOTE_DIR")
+        os.environ["AGENT_REMOTE_DIR"] = self.dir
+
+    def tearDown(self):
+        if self._prev is None:
+            os.environ.pop("AGENT_REMOTE_DIR", None)
+        else:
+            os.environ["AGENT_REMOTE_DIR"] = self._prev
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def test_declare_keeps_the_before_image(self):
+        from lib import snap
+        path = os.path.join(self.dir, "note.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("before")
+        self.assertEqual(tx.begin("job"), 0)
+        self.assertEqual(tx.declare_write(path), 0)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("after")
+        with open(snap.blob("job", 0), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "before")
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "after")
+        self.assertEqual(snap.driver(), "virtual")
+
+    def test_freeze_stops_only_our_child(self):
+        from lib import snap
+        child = subprocess.Popen(["sleep", "30"])
+        try:
+            held = snap.freeze([child.pid, os.getpid(), 1])
+            self.assertEqual(held, [child.pid])
+            self.assertEqual(snap._state(child.pid), "T")
+            snap.thaw(held)
+            self.assertNotEqual(snap._state(child.pid), "T")
+        finally:
+            child.kill()
+            child.wait(timeout=5)
 
 
 class LocalTests(unittest.TestCase):
@@ -148,7 +191,7 @@ class LocalTests(unittest.TestCase):
             self.assertEqual(shared.returncode, 0, shared.stderr)
             seen = subprocess.run(base + ["/remote status"], capture_output=True, text=True, env=env, timeout=30)
             self.assertEqual(seen.returncode, 0, seen.stderr)
-            self.assertIn("job open null - writes=0 -", seen.stdout)
+            self.assertIn("job open null job writes=0 -", seen.stdout)
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
