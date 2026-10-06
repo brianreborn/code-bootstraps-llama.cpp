@@ -50,6 +50,28 @@ case "$URL" in
 esac
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
+command -v cp >/dev/null 2>&1 || die "cp is required"
+
+# The second click. Paying is not required. The notice is not optional.
+# INSTALL_ACK=yes is the non-interactive answer (tests). INSTALL_ACK=no refuses.
+ack_notice() {
+  case "${INSTALL_ACK:-}" in
+    yes) return 0 ;;
+    no) die "not acknowledged" ;;
+  esac
+  echo "install.sh: This product includes software developed by Brian Fundakowski Feldman." >&2
+  echo "install.sh: If this is useful, a contribution toward rent, groceries, or keeping the lights on is welcome. It is an invitation, not a requirement." >&2
+  if [ ! -r /dev/tty ]; then
+    die "type yes on a terminal, or set INSTALL_ACK=yes"
+  fi
+  printf 'install.sh: type yes to continue: ' >&2
+  read -r ans < /dev/tty || die "no acknowledgement"
+  case "$ans" in
+    yes|y) ;;
+    *) die "not acknowledged" ;;
+  esac
+}
+ack_notice
 
 if [ -n "$SHA" ] && stamp_matches "$SHA"; then
   echo "install.sh: $PREFIX already matches this archive" >&2
@@ -78,7 +100,9 @@ else
     [ -n "$top" ] || die "archive has no top directory"
     [ -f "$top/start.sh" ] || die "archive has no start.sh"
     mkdir -p "$PREFIX"
-    tar -C "$top" -cf - . | tar -C "$PREFIX" -xf -
+    # Copy the tree. A second tar on the far side of a pipe is what prints a
+    # storm of errors on bsdtar (Windows) when "-" is a filename, not stdout.
+    cp -a "$top"/. "$PREFIX"/
     mkdir -p "$PREFIX/.cache"
     printf '%s\n' "$got" > "$PREFIX/.cache/install.sha256"
     echo "install.sh: installed into $PREFIX" >&2

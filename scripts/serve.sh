@@ -406,6 +406,7 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     for (i = 1; i <= lc[sec]; i++) { k = lord[sec, i]; if (!((sec "." k) in seen)) print k " = " lk[sec "." k] }
     for (i = 1; i <= n; i++) { k = ord[i]; if (index(k, sec ".") == 1 && !(k in seen)) print substr(k, length(sec) + 2) " = " ov[k] }
     if ((sec in rm) && !((sec ".model") in seen) && !((sec ".model") in lk)) print "model = " rm[sec]
+    if (sec == "general" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = chat"
   }
   /^\[.*\]/ { flush(); sec = secname($0); had[sec] = 1; skip = (sec ~ /^locale\./) || (sec == "language" && m_language == ""); if (!skip) print; next }
   skip { next }

@@ -342,7 +342,7 @@ class ReasoningTests(unittest.TestCase):
             self.assertNotIn("[think]", r.stderr)
 
     def test_on_sets_enable_thinking_for_general_and_coder_only(self):
-        for model in ("coder", "general"):
+        for model in ("coder", "general", "chat"):
             fake, r = self._one(env={"REASONING": "on"}, model=model)
             self.assertEqual(r.returncode, 0, r.stderr)
             body = fake.chats[0]

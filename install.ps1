@@ -13,6 +13,13 @@ if ($env:PREFIX) { $Prefix = $env:PREFIX } else { $Prefix = Join-Path $env:USERP
 
 function Die([string]$msg) { throw "install.ps1: $msg" }
 if ($Sha -and ($Sha -notmatch '^[0-9a-f]{64}$')) { Die "sha256 must be 64 hex characters" }
+if ($env:INSTALL_ACK -eq "no") { Die "not acknowledged" }
+if ($env:INSTALL_ACK -ne "yes") {
+    Write-Host "install.ps1: This product includes software developed by Brian Fundakowski Feldman."
+    Write-Host "install.ps1: If this is useful, a contribution toward rent, groceries, or keeping the lights on is welcome. It is an invitation, not a requirement."
+    $ans = Read-Host "install.ps1: type yes to continue"
+    if ($ans -ne "yes" -and $ans -ne "y") { Die "not acknowledged" }
+}
 if ($Url -notmatch '^(https://|file://)') { Die "refusing $Url (https only, or file:// for a local test)" }
 
 $stampPath = Join-Path $Prefix ".cache\install.sha256"
@@ -48,8 +55,10 @@ if (-not $skipDownload) {
             $top = $tops[0].FullName
             if (-not (Test-Path (Join-Path $top "start.sh"))) { Die "archive has no start.sh" }
             New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
-            & tar -C $top -cf - . | tar -C $Prefix -xf -
-            if ($LASTEXITCODE -ne 0) { Die "unpack into $Prefix failed" }
+            Copy-Item -Recurse -Force -Path (Join-Path $top "*") -Destination $Prefix
+            Get-ChildItem -Force -LiteralPath $top -Filter ".*" | ForEach-Object {
+                Copy-Item -Recurse -Force -LiteralPath $_.FullName -Destination $Prefix
+            }
             New-Item -ItemType Directory -Force -Path (Join-Path $Prefix ".cache") | Out-Null
             Set-Content -Path $stampPath -Value $got -Encoding ascii
             Write-Host "install.ps1: installed into $Prefix"

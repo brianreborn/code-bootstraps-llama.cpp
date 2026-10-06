@@ -18,7 +18,7 @@ for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow d
     Start-Sleep -Milliseconds 500
 }
 if (-not $ready) { exit 0 }
-$url = "http://127.0.0.1:$Port/?model=coder"
+$url = "http://127.0.0.1:$Port/?model=chat"
 . (Join-Path $PSScriptRoot "bindhost.ps1")
 $lanHost = if ($env:HOST) { $env:HOST } else { "127.0.0.1" }
 $key = Get-Content -LiteralPath $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | Select-Object -First 1
@@ -30,7 +30,7 @@ Write-Host ""
 Write-Host "  Web UI:  $url"
 $publicHosts = @(Get-PublicHosts $lanHost)
 foreach ($h in $publicHosts) {
-    Write-Host "  Web UI:  http://$(Format-UrlHost $h):$Port/?model=coder"
+    Write-Host "  Web UI:  http://$(Format-UrlHost $h):$Port/?model=chat"
 }
 if ($publicHosts.Count -gt 0) {
     Write-Host "  Other machines can use these addresses. The API key is sent as plain HTTP."

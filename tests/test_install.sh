@@ -18,7 +18,7 @@ tar -C "$tmp/src" -czf "$tmp/v1.tar.gz" pkg
 sum=$(sha256sum "$tmp/v1.tar.gz" | cut -d' ' -f1)
 
 run() {
-  INSTALL_URL="file://$1" INSTALL_PREFIX="$2" INSTALL_NO_START=1 INSTALL_SHA256="${3-}" \
+  INSTALL_ACK=yes INSTALL_URL="file://$1" INSTALL_PREFIX="$2" INSTALL_NO_START=1 INSTALL_SHA256="${3-}" \
     /bin/sh "$ROOT/install.sh"
 }
 
@@ -41,6 +41,15 @@ printf '%s\n' '#!/bin/sh' 'echo start-v2' > "$src/start.sh"
 tar -C "$tmp/src" -czf "$tmp/v2.tar.gz" pkg
 out=$(run "$tmp/v2.tar.gz" "$tmp/plain" 2>&1) || note no "changed archive failed: $out"
 note "$(grep -q start-v2 "$tmp/plain/start.sh" && echo ok || echo no)" "changed archive unpacks again"
+
+bad=0
+out=$(INSTALL_ACK=no INSTALL_URL="file://$tmp/v1.tar.gz" INSTALL_PREFIX="$tmp/noack" INSTALL_NO_START=1 \
+  /bin/sh "$ROOT/install.sh" 2>&1) || bad=1
+note "$( [ "$bad" = 1 ] && printf '%s\n' "$out" | grep -q "not acknowledged" && [ ! -e "$tmp/noack/start.sh" ] && echo ok || echo no)" "INSTALL_ACK=no does not unpack"
+
+for f in start.sh scripts/lib/open-ui.ps1; do
+  note "$(grep -q '?model=chat' "$ROOT/$f" && ! grep -q '?model=coder' "$ROOT/$f" && echo ok || echo no)" "$f opens chat"
+done
 
 [ "$fails" = 0 ] || { echo "test_install: $fails failed" >&2; exit 1; }
 echo "test_install: OK"

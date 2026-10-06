@@ -117,7 +117,7 @@ open_ui() {
     i=$((i + 1))
   done
   [ "$ready" = 1 ] || return 0
-  url="http://127.0.0.1:$port/?model=coder"
+  url="http://127.0.0.1:$port/?model=chat"
   key=$(grep -v -e '^#' -e '^[[:space:]]*$' .secrets/api-keys 2>/dev/null | head -n 1 || true)
   if [ "${COPY_KEY:-0}" = 1 ]; then
     if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy || true
@@ -133,7 +133,7 @@ open_ui() {
     if [ -n "$pubs" ]; then
       printf '%s\n' "$pubs" | while IFS= read -r h; do
         [ -n "$h" ] || continue
-        printf '  Web UI:  http://%s:%s/?model=coder\n' "$(url_host "$h")" "$port"
+        printf '  Web UI:  http://%s:%s/?model=chat\n' "$(url_host "$h")" "$port"
       done
       echo "  $(t "Other machines can use these addresses. The API key is sent as plain HTTP.")"
     else

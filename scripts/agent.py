@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Minimal coding agent for llama-server (stdlib only, runs on Termux/Windows/Linux).
 
-It asks the router's "coder" model for tool calls and runs them through the
+It asks the router's "chat" model for tool calls and runs them through the
 server's own built-in tools and MCP tools (POST /tools), so file access and
 shell commands happen wherever the server's --tools-runtime puts them.
 
@@ -177,9 +177,10 @@ def reasoning_mode():
 
 
 def reasoning_fields(model, mode):
-    """Per-request thinking for general and coder. Off, empty, and other roles send nothing extra.
+    """Per-request thinking for chat (the general route), general, and coder.
+    Off, empty, and other roles send nothing extra.
     on forces enable_thinking; auto only asks for a stream so the server's preset can decide."""
-    if mode not in ("on", "auto") or model not in ("general", "coder"):
+    if mode not in ("on", "auto") or model not in ("general", "coder", "chat"):
         return {}
     fields = {"stream": True}
     if mode == "on":
@@ -434,7 +435,7 @@ def main():
     ap.add_argument("prompt")
     ap.add_argument("--url", default=os.environ.get("LLAMA_URL", "http://127.0.0.1:" + os.environ.get("PORT", "9931")))
     ap.add_argument("--key-file", default=os.environ.get("API_KEY_FILE", os.path.join(ROOT, ".secrets", "api-keys")))
-    ap.add_argument("--model", default=os.environ.get("AGENT_MODEL", "coder"))
+    ap.add_argument("--model", default=os.environ.get("AGENT_MODEL", "chat"))
     ap.add_argument("--cwd", default=None, help="tool working directory (host path, or /work inside a container runtime)")
     ap.add_argument("--max-steps", type=int, default=12)
     ap.add_argument("--max-tokens", type=int, default=1024)
