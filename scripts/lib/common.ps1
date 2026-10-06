@@ -181,6 +181,83 @@ function Get-OsName {
     return "linux"
 }
 
+# Join $Base and a relative path of one or more segments. Join-Path takes two
+# arguments on Windows PowerShell 5.1. Separator follows the OS, not Test-Windows,
+# so a 5.1 emulation on Linux still matches the shell scripts.
+function Join-Child([string]$Base, [string]$Rel) {
+    $p = $Base.TrimEnd('\', '/')
+    foreach ($part in ($Rel -split '[\\/]')) {
+        if ($part -eq '' -or $part -eq '.') { continue }
+        $p = Join-Path $p $part
+    }
+    return $p
+}
+
+# Shared weight store. GGUF_HOME wins; otherwise $XDG_DATA_HOME/gguf or ~/.local/share/gguf.
+function Get-GgufHome {
+    if (-not [string]::IsNullOrEmpty($env:GGUF_HOME)) { return $env:GGUF_HOME.TrimEnd('\', '/') }
+    $base = $env:XDG_DATA_HOME
+    if ([string]::IsNullOrEmpty($base)) {
+        $homeDir = $env:HOME
+        if ([string]::IsNullOrEmpty($homeDir)) { $homeDir = $env:USERPROFILE }
+        if ([string]::IsNullOrEmpty($homeDir)) { throw "GGUF_HOME, XDG_DATA_HOME, HOME and USERPROFILE are unset" }
+        $base = Join-Path (Join-Path $homeDir ".local") "share"
+    }
+    return (Join-Path $base.TrimEnd('\', '/') "gguf")
+}
+
+# Create-path for a layout-relative file. models/<rest> honors MODELS_DIR.
+# $Root is the checkout (set by the caller). Does not create the path.
+function Get-GgufDest([string]$Rel) {
+    $norm = ($Rel -replace '\\', '/').TrimStart('/')
+    if ($norm -like 'models/*' -and -not [string]::IsNullOrEmpty($env:MODELS_DIR)) {
+        $rest = $norm.Substring(7)
+        $base = $env:MODELS_DIR
+        if (-not [System.IO.Path]::IsPathRooted($base)) { $base = Join-Child $Root $base }
+        return (Join-Child $base $rest)
+    }
+    return (Join-Child (Get-GgufHome) $norm)
+}
+
+# Store (or MODELS_DIR) file if it is there; else the checkout copy; else the create path.
+# MODELS_DIR does not fall back to the checkout. Absolute paths are returned unchanged.
+function Resolve-GgufPath([string]$Rel) {
+    if ([string]::IsNullOrEmpty($Rel)) { return "" }
+    if ([System.IO.Path]::IsPathRooted($Rel)) { return $Rel }
+    $norm = ($Rel -replace '\\', '/').TrimStart('/')
+    if ($norm -like 'models/*' -or $norm -like 'models-optional/*' -or $norm -like 'models-inactive/*') {
+        $dest = Get-GgufDest $norm
+        if (Test-Path -LiteralPath $dest -PathType Leaf) { return $dest }
+        if ($norm -like 'models/*' -and -not [string]::IsNullOrEmpty($env:MODELS_DIR)) { return $dest }
+        $co = Join-Child $Root $norm
+        if (Test-Path -LiteralPath $co -PathType Leaf) { return $co }
+        return $dest
+    }
+    return (Join-Child $Root $norm)
+}
+
+function Test-UnderDir([string]$Path, [string]$Dir) {
+    if ([string]::IsNullOrEmpty($Dir) -or [string]::IsNullOrEmpty($Path)) { return $false }
+    $sep = [System.IO.Path]::DirectorySeparatorChar
+    $p = [System.IO.Path]::GetFullPath($Path)
+    $r = [System.IO.Path]::GetFullPath($Dir)
+    if (-not $r.EndsWith([string]$sep)) { $r = $r + $sep }
+    $cmp = [System.StringComparison]::Ordinal
+    if (Test-Windows) { $cmp = [System.StringComparison]::OrdinalIgnoreCase }
+    return $p.StartsWith($r, $cmp)
+}
+
+# Inside the store, or under MODELS_DIR when that override is set. Not a checkout copy.
+function Test-GgufManaged([string]$Path) {
+    if (Test-UnderDir $Path (Get-GgufHome)) { return $true }
+    if (-not [string]::IsNullOrEmpty($env:MODELS_DIR)) {
+        $base = $env:MODELS_DIR
+        if (-not [System.IO.Path]::IsPathRooted($base)) { $base = Join-Child $Root $base }
+        if (Test-UnderDir $Path $base) { return $true }
+    }
+    return $false
+}
+
 # PowerShell binds "--name" on a "-File" command line to the script's own -Name parameter
 # (prefix match: --tools -> -Tools, --threads -> -Threads), so a llama-server flag with the
 # same name would silently change a launcher setting. Refuse it; the user writes -Name.

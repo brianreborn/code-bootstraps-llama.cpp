@@ -28,6 +28,87 @@ arg_name() {
   printf '%s' "$an" | tr '_' '-' | tr '[:upper:]' '[:lower:]'
 }
 
+# Shared weight store so every checkout can use the same GGUF files.
+# GGUF_HOME wins; otherwise ${XDG_DATA_HOME:-$HOME/.local/share}/gguf.
+gguf_home() {
+  if [ -n "${GGUF_HOME:-}" ]; then
+    printf '%s\n' "${GGUF_HOME%/}"
+    return
+  fi
+  printf '%s/gguf\n' "${XDG_DATA_HOME:-$HOME/.local/share}"
+}
+
+# Where a layout-relative path is created. models/<rest> honors MODELS_DIR
+# (the models root, as before). models-optional/ and models-inactive/ stay
+# in the store. ROOT must be set. Does not create the path.
+gguf_dest() {
+  gd_rel=$1
+  gd_rel=${gd_rel#/}
+  case "$gd_rel" in
+    models/*)
+      if [ -n "${MODELS_DIR:-}" ]; then
+        gd_rest=${gd_rel#models/}
+        case "$MODELS_DIR" in
+          /*) printf '%s/%s\n' "${MODELS_DIR%/}" "$gd_rest" ;;
+          *) printf '%s/%s/%s\n' "$ROOT" "${MODELS_DIR%/}" "$gd_rest" ;;
+        esac
+        return
+      fi
+      ;;
+  esac
+  printf '%s/%s\n' "$(gguf_home)" "$gd_rel"
+}
+
+# File to use for a layout-relative GGUF path. The store (or MODELS_DIR) wins.
+# A missing store file falls back to $ROOT/<layout> so a checkout copy is not
+# stranded. MODELS_DIR does not fall back. Missing everywhere: the create path.
+gguf_resolve() {
+  gr_rel=$1
+  gr_rel=${gr_rel#/}
+  gr_dest=$(gguf_dest "$gr_rel")
+  if [ -f "$gr_dest" ]; then
+    printf '%s\n' "$gr_dest"
+    return
+  fi
+  case "$gr_rel" in
+    models/*)
+      if [ -n "${MODELS_DIR:-}" ]; then
+        printf '%s\n' "$gr_dest"
+        return
+      fi
+      ;;
+  esac
+  case "$gr_rel" in
+    models/*|models-optional/*|models-inactive/*)
+      if [ -f "$ROOT/$gr_rel" ]; then
+        printf '%s\n' "$ROOT/$gr_rel"
+        return
+      fi
+      ;;
+  esac
+  printf '%s\n' "$gr_dest"
+}
+
+# True when $1 is inside the store or, for a models/ override, MODELS_DIR.
+# Checkout copies are not managed: callers must not move them on their own.
+gguf_is_managed() {
+  gm_p=$1
+  gm_h=$(gguf_home)
+  case "$gm_p" in
+    "$gm_h"/*) return 0 ;;
+  esac
+  if [ -n "${MODELS_DIR:-}" ]; then
+    case "$MODELS_DIR" in
+      /*) gm_m=${MODELS_DIR%/} ;;
+      *) gm_m=$ROOT/${MODELS_DIR%/} ;;
+    esac
+    case "$gm_p" in
+      "$gm_m"/*) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
 # How many big cores to use. $1 = sysfs cpu directory (tests pass a fake one).
 # Prints nothing when the CPU is homogeneous or sysfs cannot be read.
 big_cores() {

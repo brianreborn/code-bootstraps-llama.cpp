@@ -213,8 +213,10 @@ if ($reasoning -eq "on" -or $reasoning -eq "auto") {
 # --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------
 $presetPath = Get-RepoPath $(if ($env:MODELS_PRESET) { $env:MODELS_PRESET } else { "config\models-preset.ini" })
 $manifestPath = Get-RepoPath $(if ($env:MANIFEST) { $env:MANIFEST } else { "config\models-manifest.json" })
-$modelsDir = Get-RepoPath $(if ($env:MODELS_DIR) { $env:MODELS_DIR } else { "models" })
-$languageDir = Get-RepoPath $(if ($env:LANGUAGE_DIR) { $env:LANGUAGE_DIR } else { "models-optional\language" })
+# MODELS_DIR replaces the models root. Unset: shared store, then the checkout copy.
+# LANGUAGE_DIR, when set, is the only interpreter directory.
+$languageDir = ""
+if (-not [string]::IsNullOrEmpty($env:LANGUAGE_DIR)) { $languageDir = Get-RepoPath $env:LANGUAGE_DIR }
 if (-not (Test-Path -LiteralPath $presetPath -PathType Leaf)) { throw "preset $presetPath not found" }
 $presetLines = @(Get-Content -LiteralPath $presetPath)
 $manifest = @((Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json).candidates)
@@ -237,7 +239,12 @@ function Get-SectionValue([string]$section, [string]$key) {
     $sec = ""
     foreach ($l in $presetLines) {
         if ($l -match '^\[(.*)\]') { $sec = $Matches[1]; continue }
-        if ($sec -eq $section -and $l -match "^$key\s*=\s*(.*)$") { $v = $Matches[1].Trim(); if ($v) { return (Get-RepoPath $v) } else { return "" } }
+        if ($sec -eq $section -and $l -match "^$key\s*=\s*(.*)$") {
+            $v = $Matches[1].Trim()
+            if (-not $v) { return "" }
+            if ($key -eq "model") { return (Resolve-GgufPath $v) }
+            return (Get-RepoPath $v)
+        }
     }
     return ""
 }
@@ -249,15 +256,21 @@ function Get-RoleModel([string]$role) {
     }
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
-        $p = Join-Path (Join-Path $modelsDir $role) $c.file
+        $p = Resolve-GgufPath ("models/" + $role + "/" + $c.file)
         if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
     }
-    throw "no model for the $role role in $(Join-Path $modelsDir $role) (none of the manifest files for it is there): run scripts\fetch-models.ps1"
+    if (-not [string]::IsNullOrEmpty($env:MODELS_DIR)) {
+        $where = Join-Child $env:MODELS_DIR $role
+    } else {
+        $where = (Join-Child (Get-GgufHome) ("models/" + $role)) + " or " + (Join-Child $Root ("models/" + $role))
+    }
+    throw "no model for the $role role in $where (none of the manifest files for it is there): run scripts\fetch-models.ps1"
 }
 $roleModel = [ordered]@{}
 foreach ($r in @("general", "coder", "decision")) {
     $roleModel[$r] = Get-RoleModel $r
-    Get-ChildItem -LiteralPath (Join-Path $modelsDir $r) -Filter *.gguf -File -ErrorAction SilentlyContinue |
+    $roleDir = Split-Path -Parent $roleModel[$r]
+    Get-ChildItem -LiteralPath $roleDir -Filter *.gguf -File -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -ne $roleModel[$r] } |
         ForEach-Object { Write-Host "serve.ps1: note: $($_.FullName) is ignored (the $r role serves $(Split-Path -Leaf $roleModel[$r]))" }
 }
@@ -286,10 +299,15 @@ if ($langCode -eq "en" -or $mode -eq "off") { $mode = "off" } else {
     if ($mode -eq "interpret") {   # the manifest's interpreter entries, in manifest order
         foreach ($c in $manifest) {
             if ($c.role -ne "language") { continue }
-            $p = Join-Path $languageDir $c.file
+            if ($languageDir) { $p = Join-Path $languageDir $c.file }
+            else { $p = Resolve-GgufPath ("models-optional/language/" + $c.file) }
             if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; $langModel = $p; break }
         }
-        if (-not $langModel) { throw "LANGUAGE_MODE=interpret: no interpreter model from $manifestPath in $languageDir (scripts\fetch-models.ps1 -Pick language)" }
+        if (-not $langModel) {
+            if ($languageDir) { $whereLang = $languageDir }
+            else { $whereLang = (Join-Child (Get-GgufHome) "models-optional/language") + " or " + (Join-Child $Root "models-optional/language") }
+            throw "LANGUAGE_MODE=interpret: no interpreter model from $manifestPath in $whereLang (scripts\fetch-models.ps1 -Pick language)"
+        }
     }
 }
 if ($langModel) { $roleModel["language"] = $langModel }
@@ -301,7 +319,7 @@ foreach ($l in $presetLines) {
     if ($p.Count -eq 3 -and $p[0] -eq "locale" -and $p[1] -eq $langCode -and $swapRoles -contains $p[2] -and $l -match '^([A-Za-z0-9_-]+)\s*=\s*(.*)$') {
         $k = $Matches[1]; $v = $Matches[2].Trim()
         if ($k -eq "reasoning" -and $overlay.Contains("$($p[2]).reasoning")) { continue }
-        if ($k -eq "model") { $v = Get-RepoPath $v }
+        if ($k -eq "model") { $v = Resolve-GgufPath $v }
         $localeKeys["$($p[2]).$k"] = $v
         if (-not $localeOrder.ContainsKey($p[2])) { $localeOrder[$p[2]] = New-Object System.Collections.Generic.List[string] }
         $localeOrder[$p[2]].Add($k)

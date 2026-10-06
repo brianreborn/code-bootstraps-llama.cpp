@@ -9,7 +9,8 @@ abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$ROOT/$1" ;
 
 HOST=${HOST:-127.0.0.1}
 PORT=${PORT:-9931}
-MODELS_DIR=${MODELS_DIR:-$ROOT/models}
+# MODELS_DIR, when set, replaces the models root. Unset: the shared GGUF store,
+# then a checkout file of the same relative path (gguf_resolve).
 MODELS_PRESET=${MODELS_PRESET:-$ROOT/config/models-preset.ini}
 MANIFEST=${MANIFEST:-$ROOT/config/models-manifest.json}
 PROFILE=${PROFILE:-auto}
@@ -36,7 +37,7 @@ LANGUAGE_MODE=${LANGUAGE_MODE:-native}
 SWAP_CODER=${SWAP_CODER:-0}
 # empty or off: leave the preset. on or auto: general and coder only (see the case below).
 REASONING=${REASONING:-}
-LANGUAGE_DIR=${LANGUAGE_DIR:-$ROOT/models-optional/language}
+# LANGUAGE_DIR, when set, is the only interpreter directory. Unset: store, then checkout.
 LOG_FILE=${LOG_FILE:-$ROOT/.cache/server.log}
 
 . "$ROOT/scripts/lib/common.sh"
@@ -255,8 +256,8 @@ fi
 
 MODELS_PRESET=$(abspath "$MODELS_PRESET")
 MANIFEST=$(abspath "$MANIFEST")
-MODELS_DIR=$(abspath "$MODELS_DIR")
-LANGUAGE_DIR=$(abspath "$LANGUAGE_DIR")
+if [ -n "${MODELS_DIR:-}" ]; then MODELS_DIR=$(abspath "$MODELS_DIR"); fi
+if [ -n "${LANGUAGE_DIR:-}" ]; then LANGUAGE_DIR=$(abspath "$LANGUAGE_DIR"); fi
 [ -f "$MODELS_PRESET" ] || die "MODELS_PRESET=$MODELS_PRESET not found"
 [ -f "$MANIFEST" ] || die "MANIFEST=$MANIFEST not found"
 MODE=$LANGUAGE_MODE
@@ -287,6 +288,9 @@ section_value() {
   sv=$(awk -v want="$1" -v key="$2" '/^\[/ { sec = substr($0, 2, index($0, "]") - 2); next }
         sec == want && $0 ~ ("^" key "[ \t]*=") { sub(/^[^=]*=[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$MODELS_PRESET")
   if [ -z "$sv" ] || [ "${sv#/}" != "$sv" ]; then printf '%s' "$sv"; return 0; fi
+  case "$sv" in
+    models/*|models-optional/*|models-inactive/*) gguf_resolve "$sv"; return ;;
+  esac
   printf '%s' "$ROOT/$sv"
 }
 role_model() {
@@ -301,14 +305,19 @@ role_model() {
     return 0
   fi
   while IFS=$tab read -r f sha dir; do
-    [ "$dir" = "-" ] && [ -f "$MODELS_DIR/$1/$f" ] || continue
-    verify_model "$MODELS_DIR/$1/$f" "$sha"
-    printf '%s' "$MODELS_DIR/$1/$f"
+    [ "$dir" = "-" ] || continue
+    rm_path=$(gguf_resolve "models/$1/$f")
+    [ -f "$rm_path" ] || continue
+    verify_model "$rm_path" "$sha"
+    printf '%s' "$rm_path"
     rm -f "$rm_rows"
     return 0
   done < "$rm_rows"
   rm -f "$rm_rows"
-  die "no model for the $1 role in $MODELS_DIR/$1/"
+  if [ -n "${MODELS_DIR:-}" ]; then
+    die "no model for the $1 role in $MODELS_DIR/$1/"
+  fi
+  die "no model for the $1 role in $(gguf_home)/models/$1/ or $ROOT/models/$1/"
 }
 M_GENERAL=$(role_model general)
 M_CODER=$(role_model coder)
@@ -319,7 +328,7 @@ for r in general coder decision; do
     coder) m=$M_CODER ;;
     *) m=$M_DECISION ;;
   esac
-  for g in "$MODELS_DIR/$r"/*.gguf; do
+  for g in "$(dirname "$m")"/*.gguf; do
     [ -f "$g" ] && [ "$g" != "$m" ] && echo "serve.sh: note: $g is ignored (the $r role serves $(basename "$m"))" >&2
   done
 done
@@ -350,20 +359,30 @@ else
       lm_rows=$(mktemp)
       manifest_rows "role=language" > "$lm_rows"
       while IFS=$tab read -r f sha _; do
-        [ -f "$LANGUAGE_DIR/$f" ] || continue
-        verify_model "$LANGUAGE_DIR/$f" "$sha"
-        LANG_MODEL=$LANGUAGE_DIR/$f
+        if [ -n "${LANGUAGE_DIR:-}" ]; then lm_path=$LANGUAGE_DIR/$f
+        else lm_path=$(gguf_resolve "models-optional/language/$f"); fi
+        [ -f "$lm_path" ] || continue
+        verify_model "$lm_path" "$sha"
+        LANG_MODEL=$lm_path
         break
       done < "$lm_rows"
       rm -f "$lm_rows"
-      [ -n "$LANG_MODEL" ] || die "LANGUAGE_MODE=interpret: no interpreter model in $LANGUAGE_DIR"
+      if [ -z "$LANG_MODEL" ]; then
+        if [ -n "${LANGUAGE_DIR:-}" ]; then
+          die "LANGUAGE_MODE=interpret: no interpreter model in $LANGUAGE_DIR"
+        fi
+        die "LANGUAGE_MODE=interpret: no interpreter model in $(gguf_home)/models-optional/language or $ROOT/models-optional/language"
+      fi
       ;;
   esac
 fi
 
 mkdir -p "$ROOT/.cache"
 EFFECTIVE_PRESET=$ROOT/.cache/models-preset.effective.ini
+LOC_GENERAL=$(section_value "locale.$LANG_CODE.general" model)
+LOC_CODER=$(section_value "locale.$LANG_CODE.coder" model)
 awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$ROOT" \
+    -v loc_general="$LOC_GENERAL" -v loc_coder="$LOC_CODER" \
     -v m_general="$M_GENERAL" -v m_coder="$M_CODER" -v m_decision="$M_DECISION" -v m_language="$LANG_MODEL" '
   function secname(line) { return substr(line, 2, index(line, "]") - 2) }
   function keyof(line,   k) { k = line; sub(/[ \t]*=.*/, "", k); return k }
@@ -375,7 +394,11 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
   FNR == NR { if ($0 ~ /^\[/) { s = secname($0); split(s, p, "."); cur = (p[1] == "locale" && p[2] == lang && (p[3] in swapped)) ? p[3] : "" ; next }
               if (cur != "" && $0 ~ /^[A-Za-z0-9_-]+[ \t]*=/) { k = keyof($0); v = valof($0)
                 if (k == "reasoning" && ((cur ".reasoning") in ov)) next
-                if (k == "model" && v !~ /^\//) v = root "/" v
+                if (k == "model" && v !~ /^\//) {
+                  if (cur == "general" && loc_general != "") v = loc_general
+                  else if (cur == "coder" && loc_coder != "") v = loc_coder
+                  else v = root "/" v
+                }
                 lk[cur "." k] = v; lord[cur, ++lc[cur]] = k }
               next }
   function flush(   i, k) {
