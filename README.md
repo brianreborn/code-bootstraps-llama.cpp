@@ -1,6 +1,52 @@
 # code-bootstraps-llama.cpp
 
-A minimal, reproducible package of a pinned [llama.cpp](https://github.com/ggml-org/llama.cpp) plus a hand-picked set of models and configuration. llama.cpp is included as a git submodule pinned to a specific upstream release, so every checkout builds the same code. The models and settings are small enough to stand up a CPU-only coding agent on a 4-8 GB machine (Linux, Android/Termux, Windows).
+The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
+
+<img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
+
+## Install
+
+Two steps. Run the command, then tap through the donation notice. You do not have to pay.
+
+Linux, macOS, and Termux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
+```
+
+The page opens on chat: [http://127.0.0.1:9931/?model=chat](http://127.0.0.1:9931/?model=chat). The first visit asks for the key printed in the terminal. Paste it once.
+
+If this folder is already on disk, `./start.sh` does the same job (`start.bat` on Windows). Set `INSTALL_ACK=yes` when nobody is there to tap the notice. On a phone, run the Linux command inside Termux and keep the folder in the Termux home directory, not on shared storage.
+
+## Settings
+
+Change the ordinary choices without editing a script. A value you already set in the shell wins over either of these. Start the server again after you save.
+
+The form listens on [http://127.0.0.1:9932](http://127.0.0.1:9932):
+
+```sh
+python3 scripts/panel.py
+```
+
+The same questions, in the terminal:
+
+```sh
+sh scripts/configure.sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\configure.ps1
+```
+
+The names of those choices, and what they refuse, are under "Light tuning" below.
+
+Everything after this is the detail: the pinned llama.cpp, the models, what was run, and what the server will not do.
 
 ## Pinned llama.cpp
 
@@ -73,7 +119,7 @@ The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on T
 
 Launcher sentences follow `config/messages/<lang>` when that language is primary (`ja` is shipped; anything else stays English). Paths, model names, flags, hashes, JSON, tool names, and the line `serve.sh: listening on` stay as written. `python3 scripts/agent.py --localize FILE --to ja` translates sentences in that file the same way: code, paths, flags, URLs, and hashes are not rewritten. The banner shows the chosen profile (`lowram`, `moderate` or `default`, picked from the RAM that is free); see "Light tuning" to change it, the context sizes or `MODELS_MAX`. Windows: `start.bat -RamProfile lowram`.
 
-On Linux x86_64, from a fresh clone, the first start took 35-80 s in tests here (17.6 MB binary plus 2.4 GB of models; mostly download time, so it depends on the link) and a restart takes about 2 s. If the download fails (no internet), the launcher says so and stops; it builds from source only when no release binary fits the machine or the binary does not run there. **Untested:** the launchers on macOS, Windows and Termux, the Gatekeeper and SmartScreen prompts, and this repository's Android build on a phone (it was only cross-built and inspected). The Windows scripts were only parsed and partly run with PowerShell 7 on Linux.
+On Linux x86_64, from a fresh clone, the first start took 35-80 s in tests here (17.6 MB binary plus 2.4 GB of models; mostly download time, so it depends on the link) and a restart takes about 2 s. If the download fails (no internet), the launcher says so and stops; it builds from source only when no release binary fits the machine or the binary does not run there. **Untested:** the launchers on macOS and Windows, the Gatekeeper and SmartScreen prompts, and this repository's own Android build (it was only cross-built and inspected). Termux ran `serve.sh` from the release binary, not `start.sh`. The Windows scripts were only parsed and partly run with PowerShell 7 on Linux.
 
 Limits of the web UI path:
 - It does not use `/v1/systemone` routing, so the decision model is not used, and it lists the decision model even though that model cannot chat.
@@ -84,7 +130,7 @@ Limits of the web UI path:
 
 ### Android (Termux)
 
-CPU only. On a Galaxy A57 (SM-A576U, Android 16, 7430 MB RAM, 4 KB pages) the `android-b11374-1` binary ran: `llama-cli` on the default general model generated at 28 t/s, and `serve.sh` chose `moderate`, `--threads 5` from the big cores, loaded decision as a child process, and answered `chat` (`Hello! How can I help you today`, 8 tokens, cold). `start.sh` itself, the wake lock, and Vulkan were not run. In Termux (F-Droid or the GitHub termux-app build; NewTermux also works but uses the same public test key as GitHub builds):
+CPU only. On a Galaxy A57 (SM-A576U, Android 16, 7430 MB RAM, 4 KB pages) the `android-b11374-1` binary ran: `llama-cli` on the default general model generated at 28 t/s, and `serve.sh` chose `moderate`, `--threads 5` from the big cores, loaded decision as a child process, and answered `chat` (`Hello! How can I help you today`, 8 tokens, cold). `start.sh` itself and Vulkan were not run. `serve.sh` took the Termux wake lock, and the Termux app accepted it. In Termux (F-Droid or the GitHub termux-app build; NewTermux also works but uses the same public test key as GitHub builds):
 
 ```sh
 pkg install git python
@@ -125,7 +171,7 @@ Parallelism is bounded: `-j "$(nproc)"` on Linux (override with `JOBS=`), `-j 4`
 The builds are **portable** by default: `-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON`. All CPU variants (SSE4.2 up to AVX-512/AMX on x86, armv8.0 up to SME on arm64) are built as `libggml-cpu-*` libraries next to the binaries, and the best one for the running CPU is loaded at startup. That way the same build can be copied to another machine. Use `NATIVE=ON scripts/build-linux.sh` (or `-Native` on Windows) for a build tuned to one machine only.
 
 Notes:
-- Termux: upstream turns `LLAMA_SUBPROCESS` off on Android. Router mode (one child process per model), `exec_shell_command` and stdio MCP servers all need it, so `build-termux.sh` (and `build-android-release.sh`) set `-DLLAMA_SUBPROCESS=ON` with `-DSUBPROCESS_SPAWN_VIA_FORK=1`: the vendored `subprocess.h` otherwise calls `posix_spawn_file_actions_addchdir_np`, which Android's libc only has from API 34 (Android 14), and the build fails. They also link with `-Wl,-rpath,$ORIGIN`, because CMake's Android platform ignores `CMAKE_INSTALL_RPATH` and Android's linker does not look next to the executable. Cross-built with NDK r29 at API 28 here: `libllama-common.so` imports `fork`, `execvpe`, `chdir`, `waitpid` and `pipe2`, and every binary has `RUNPATH [$ORIGIN]`. Whether the child processes work on a phone is **untested**. If they do not, run a single model with `llama-server -m models/coder/*.gguf` instead of the router, or set `TOOLS=""`. Tests and examples are skipped there.
+- Termux: upstream turns `LLAMA_SUBPROCESS` off on Android. Router mode (one child process per model), `exec_shell_command` and stdio MCP servers all need it, so `build-termux.sh` (and `build-android-release.sh`) set `-DLLAMA_SUBPROCESS=ON` with `-DSUBPROCESS_SPAWN_VIA_FORK=1`: the vendored `subprocess.h` otherwise calls `posix_spawn_file_actions_addchdir_np`, which Android's libc only has from API 34 (Android 14), and the build fails. They also link with `-Wl,-rpath,$ORIGIN`, because CMake's Android platform ignores `CMAKE_INSTALL_RPATH` and Android's linker does not look next to the executable. Cross-built with NDK r29 at API 28 here: `libllama-common.so` imports `fork`, `execvpe`, `chdir`, `waitpid` and `pipe2`, and every binary has `RUNPATH [$ORIGIN]`. On a Galaxy A57 the router did start a child for the decision model. A tool call from that child was not run. If they do not, run a single model with `llama-server -m models/coder/*.gguf` instead of the router, or set `TOOLS=""`. Tests and examples are skipped there.
 - Windows: Visual Studio is a multi-config generator, so the build type is chosen at build time: `cmake --build build-windows-x64 --config Release`.
 
 #### GPU backends (opt-in)
@@ -407,4 +453,10 @@ The default tools image is pinned by digest (`python:3.12-slim@sha256:dddfd7e0â€
 
 ## License
 
-MIT, see `LICENSE`. llama.cpp is MIT-licensed by the ggml authors, see `NOTICE`. Each model has its own license, listed in `config/models-manifest.json`.
+MIT, see `LICENSE`. llama.cpp is MIT-licensed by the ggml authors, see `NOTICE`. Each model has its own license, listed in `config/models-manifest.json`. The graph around this checkout is Light-ware and lives in [feeldznutts](https://github.com/brianreborn/feeldznutts).
+
+## Issues
+
+A search of this repository misses the other trackers. The full list is at the end of the [FEELDZNUTTS README](https://github.com/brianreborn/feeldznutts#issues).
+
+Still open on this checkout: a live `/remote` with Claude or Codex ([#1](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/1)), the advisor limits ([#2](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/2), [#3](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/3), [#4](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/4)), keeping route available ([#9](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/9)), the other operating systems ([#11](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/11)), launch time ([#12](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/12)), the Android leftovers ([#13](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/13)), and `install.ps1` never having been run ([#14](https://github.com/brianreborn/code-bootstraps-llama.cpp/issues/14)).
