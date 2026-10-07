@@ -35,7 +35,7 @@ FIELDS = (
     "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
     "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
     "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
-    "WAKE_LOCK", "RAISE",
+    "RAISE", "DETACH_MODE",
 )
 # Empty means the launcher's own default. REASONING off and LOAD_MODE auto match
 # that default, so typing them stores nothing.
@@ -64,8 +64,8 @@ DEFAULTS = {
     "NO_BROWSER": "0",
     "BUILD": "0",
     "COPY_KEY": "0",
-    "WAKE_LOCK": "1",
     "RAISE": "",
+    "DETACH_MODE": "foreground",
 }
 CHOICES = {
     "PROFILE": ("auto", "lowram", "moderate", "default"),
@@ -78,8 +78,8 @@ CHOICES = {
     "NO_BROWSER": ("0", "1"),
     "BUILD": ("0", "1"),
     "COPY_KEY": ("0", "1"),
-    "WAKE_LOCK": ("0", "1"),
     "RAISE": ("0", "1"),
+    "DETACH_MODE": ("foreground", "nohup", "tmux", "screen"),
 }
 HINTS = {
     "PROFILE": "auto|lowram|moderate|default",
@@ -106,8 +106,8 @@ HINTS = {
     "NO_BROWSER": "0|1",
     "BUILD": "0|1",
     "COPY_KEY": "0|1",
-    "WAKE_LOCK": "0|1",
     "RAISE": "0|1; Enter asks once",
+    "DETACH_MODE": "foreground|nohup|tmux|screen",
 }
 # No quotes, dollars, or backticks: the line is sourced as : "${KEY:=value}".
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9_./:+,@-]+$")

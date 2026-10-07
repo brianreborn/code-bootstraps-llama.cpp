@@ -389,7 +389,6 @@ if ($Tools -eq "auto") { $Tools = if ($RamProfile -eq "lowram") { "lean" } else 
 if ($Tools -eq "full") { $Tools = "read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info" }
 if ($Tools -eq "lean") {
     $Tools = "read_file,write_file,edit_file,exec_shell_command"
-    if (-not $McpConfig) { $McpConfig = "config\mcp-servers.empty.json"; Write-Host "serve.ps1: -Tools lean: example MCP server off (pass -McpConfig to use one)" }
 }
 
 # MCP: the example server needs a Python that really runs. "python3" on Windows is often the

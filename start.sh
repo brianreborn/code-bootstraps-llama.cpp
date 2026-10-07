@@ -156,7 +156,43 @@ open_ui() {
 }
 rm -f .cache/serve.ready
 open_ui "$$" &
-if [ "$TERMUX" = 1 ] && [ "${WAKE_LOCK:-1}" != 0 ] && command -v termux-wake-lock >/dev/null 2>&1; then
+if [ "$TERMUX" = 1 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true
 fi
-exec scripts/serve.sh "$@"
+case "${DETACH_MODE:-foreground}" in
+  tmux)
+    if command -v tmux >/dev/null 2>&1; then
+      say "launching detached inside tmux session feeld-server"
+      exec tmux new-session -d -s feeld-server "sh scripts/serve.sh $*"
+    else
+      say "tmux requested but not found; falling back to nohup"
+      mkdir -p .cache
+      nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+      disown $! 2>/dev/null || true
+    fi
+    ;;
+  screen)
+    if command -v screen >/dev/null 2>&1; then
+      say "launching detached inside screen session feeld-server"
+      exec screen -dmS feeld-server sh scripts/serve.sh "$@"
+    else
+      say "screen requested but not found; falling back to nohup"
+      mkdir -p .cache
+      nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+      disown $! 2>/dev/null || true
+    fi
+    ;;
+  nohup)
+    say "launching detached with nohup (logging to .cache/server.log)"
+    mkdir -p .cache
+    nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+    disown $! 2>/dev/null || true
+    ;;
+  foreground|"")
+    exec scripts/serve.sh "$@"
+    ;;
+  *)
+    say "unknown DETACH_MODE=$DETACH_MODE (foreground|nohup|tmux|screen)"
+    exit 1
+    ;;
+esac

@@ -168,12 +168,13 @@ weak_cpu() {
 WEAK=$(weak_cpu || true)
 if [ "$PROFILE" = auto ]; then
   if [ "$MEM_MB" -gt 0 ] && [ "$MEM_MB" -lt 6900 ]; then PROFILE=lowram; PROFILE_WHY="auto: ${MEM_MB} MB RAM"
-  elif [ -n "$WEAK" ]; then PROFILE=lowram; PROFILE_WHY="auto: slow CPU, $WEAK"
-    warn "$(t "this CPU is slow, so the lighter profile is used")"
   elif [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt 2048 ]; then PROFILE=lowram; PROFILE_WHY="auto: only ${AVAIL_MB} MB RAM free"
   elif [ "$IS_ANDROID" = 1 ]; then PROFILE=moderate; PROFILE_WHY="auto: Android, ${MEM_MB} MB RAM"
   elif [ "$AVAIL_MB" -gt 0 ] && [ "$AVAIL_MB" -lt 6500 ]; then PROFILE=moderate; PROFILE_WHY="auto: ${AVAIL_MB} MB RAM free"
   else PROFILE=default; PROFILE_WHY="auto: ${MEM_MB} MB RAM, ${AVAIL_MB} MB free"; fi
+  if [ -n "$WEAK" ]; then
+    warn "$(t "this CPU is slow; operations may take longer")"
+  fi
 else
   PROFILE_WHY="PROFILE=$PROFILE"
   if [ -n "$WEAK" ] && [ "$PROFILE" != lowram ]; then
@@ -238,10 +239,6 @@ if [ "$TOOLS" = auto ]; then
   if [ "$PROFILE" = lowram ]; then TOOLS=lean; else TOOLS=full; fi
 fi
 TOOLS_SET=$TOOLS
-if [ "$TOOLS" = lean ] && [ "$MCP_CONFIG" = "$ROOT/config/mcp-servers.json" ]; then
-  MCP_CONFIG=""
-  echo "serve.sh: $(t "example MCP server is off while tools are lean")" >&2
-fi
 case "$TOOLS" in
   full) TOOLS=$TOOLS_FULL ;;
   lean) TOOLS=$TOOLS_LEAN ;;
@@ -506,7 +503,7 @@ cleanup() {
 trap cleanup EXIT
 # start.sh takes this lock and then execs serve.sh. A direct serve.sh must
 # take it too, or Android freezes the server once Termux is in the background.
-if [ "$IS_ANDROID" = 1 ] && [ "${WAKE_LOCK:-1}" != 0 ] && [ "${TERMUX_WAKE_LOCKED:-0}" != 1 ] \
+if [ "$IS_ANDROID" = 1 ] && [ "${TERMUX_WAKE_LOCKED:-0}" != 1 ] \
   && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && TERMUX_WAKE_LOCKED=1 || true
 fi

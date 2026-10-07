@@ -509,7 +509,7 @@ def main():
         missing = [t for t in want if t not in {x["tool"] for x in all_tools}]
         if missing:
             print(f"[agent] not on the server, skipped: {','.join(missing)}", file=sys.stderr)
-        tools = [t for t in all_tools if t["tool"] in want]
+        tools = [t for t in all_tools if t["tool"] in want or (a.tools == "lean" and t.get("type") != "server")]
     defs = [t["definition"] for t in tools]
     offered = {t["tool"] for t in tools}
     # approval comes from the server's full list, never from the offered subset or a tool's name:
