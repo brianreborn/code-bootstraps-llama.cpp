@@ -236,7 +236,7 @@ if [ -n "$LOAD_MODE" ]; then
   ov_set decision.load-mode "$LOAD_MODE"
 fi
 if [ "$TOOLS" = auto ]; then
-  if [ "$PROFILE" = lowram ]; then TOOLS=lean; else TOOLS=full; fi
+  TOOLS=full
 fi
 TOOLS_SET=$TOOLS
 case "$TOOLS" in
@@ -453,8 +453,7 @@ API_KEYS=$(grep -v -e '^#' -e '^[[:space:]]*$' "$API_KEY_FILE" | tr -d ' \r' | t
 [ -n "$API_KEYS" ] || die "no key in $API_KEY_FILE"
 
 if [ -n "$MCP_CONFIG" ] && [ "$MCP_CONFIG" = "$ROOT/config/mcp-servers.json" ] && ! command -v python3 >/dev/null 2>&1; then
-  warn "$(t "python3 is missing, so the example MCP server is off")"
-  MCP_CONFIG=""
+  warn "$(t "python3 is missing; the bundled example MCP server will not run, but MCP stays active for any other configured servers")"
 fi
 
 mkdir -p "$WORKDIR"

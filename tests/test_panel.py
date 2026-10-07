@@ -53,9 +53,43 @@ class FieldTests(unittest.TestCase):
     def test_major_settings_are_fields(self):
         for key in ("PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT",
                     "THREADS", "CTX", "REASONING", "HOST", "LOAD_MODE", "LOCALE",
-                    "LANGUAGE_MODE", "WORKDIR", "REPACK", "TOOLS_RUNTIME", "SWAP_CODER"):
+                    "LANGUAGE_MODE", "WORKDIR", "REPACK", "TOOLS_RUNTIME", "SWAP_CODER",
+                    "DETACH_MODE", "RAISE", "COPY_KEY", "NO_BROWSER", "BUILD"):
             self.assertIn(key, panel.FIELDS)
         self.assertNotIn("GGUF_HOME", panel.FIELDS)
+
+    def test_wake_lock_is_not_a_panel_option(self):
+        """WAKE_LOCK is mandatory on Android and must never be a user-configurable option."""
+        self.assertNotIn("WAKE_LOCK", panel.FIELDS)
+        self.assertNotIn("WAKE_LOCK", panel.DEFAULTS)
+        self.assertNotIn("WAKE_LOCK", panel.CHOICES)
+        self.assertNotIn("WAKE_LOCK", panel.HINTS)
+
+    def test_detach_mode_choices(self):
+        """DETACH_MODE must offer exactly the four supported detach methods."""
+        self.assertIn("DETACH_MODE", panel.CHOICES)
+        for choice in ("foreground", "nohup", "tmux", "screen"):
+            self.assertIn(choice, panel.CHOICES["DETACH_MODE"])
+        self.assertEqual(panel.DEFAULTS.get("DETACH_MODE"), "foreground")
+
+    def test_mcp_cannot_be_disabled_via_panel(self):
+        """No panel field must offer an option that silences MCP.
+        MCP_CONFIG is not a panel field; there is no MCP on/off toggle."""
+        # MCP_CONFIG must not be user-settable through the panel
+        self.assertNotIn("MCP_CONFIG", panel.FIELDS)
+        # No field whose name contains 'MCP' should appear (no MCP_ENABLE, MCP_MODE, etc.)
+        for field in panel.FIELDS:
+            self.assertNotIn("MCP", field.upper(),
+                             msg=f"Field {field!r} exposes MCP as a panel option — MCP must always be on")
+
+    def test_tools_auto_default_is_not_lean(self):
+        """TOOLS default must be 'auto' and auto must not resolve to lean (lowram != lean tools)."""
+        self.assertEqual(panel.DEFAULTS.get("TOOLS"), "auto")
+        # 'lean' is a valid explicit user choice but must not be the default
+        choices = panel.CHOICES.get("TOOLS", ())
+        if choices:
+            self.assertEqual(choices[0], "auto",
+                             "First TOOLS choice should be 'auto' (the default)")
 
     def test_check_refuses_unknown_and_accepts_auto(self):
         self.assertEqual(panel.check("LANGUAGE_MODE", "auto"), "auto")

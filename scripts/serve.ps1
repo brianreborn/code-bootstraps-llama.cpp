@@ -156,14 +156,14 @@ elseif ((Test-Windows) -and $env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
 # under 2 GB free; moderate when less is free than default needs (6.5 GB); else default
 if ($RamProfile -eq "auto") {
     if ($memMB -gt 0 -and $memMB -lt 6900) { $RamProfile = "lowram"; $profileWhy = "auto: $memMB MB RAM" }
-    elseif ($weak) { $RamProfile = "lowram"; $profileWhy = "auto: slow CPU, $weak"; Write-Warning "slow CPU ($weak): using the lowram profile (lean tools, smaller contexts); the first answer can still take minutes" }
     elseif ($availMB -gt 0 -and $availMB -lt 2048) { $RamProfile = "lowram"; $profileWhy = "auto: only $availMB MB RAM free" }
     elseif ($availMB -gt 0 -and $availMB -lt 6500) { $RamProfile = "moderate"; $profileWhy = "auto: $availMB MB RAM free" }
     else { $RamProfile = "default"; $profileWhy = "auto: $memMB MB RAM, $availMB MB free" }
+    if ($weak) { Write-Warning "slow CPU ($weak): responses may be slow; profile is $RamProfile (memory-only)" }
 } else {
     $profileWhy = "PROFILE=$RamProfile"
     if ($weak -and $RamProfile -ne "lowram") {
-        Write-Warning "slow CPU ($weak): -RamProfile $RamProfile is heavy here; -RamProfile lowram (or -Tools lean) answers much sooner"
+        Write-Warning "slow CPU ($weak): -RamProfile $RamProfile is heavy here; responses may be slow"
     }
 }
 # same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
@@ -385,7 +385,7 @@ $keys = (Get-Content $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith
 if (-not $keys) { throw "no key in $keyFile" }
 
 # Tools: every definition is in every prompt (Qwen3.5 template: full 1732 tokens, lean 843)
-if ($Tools -eq "auto") { $Tools = if ($RamProfile -eq "lowram") { "lean" } else { "full" } }
+if ($Tools -eq "auto") { $Tools = "full" }
 if ($Tools -eq "full") { $Tools = "read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info" }
 if ($Tools -eq "lean") {
     $Tools = "read_file,write_file,edit_file,exec_shell_command"
@@ -403,7 +403,7 @@ if (-not $McpConfig -or $McpConfig -eq "config\mcp-servers.json") {
     }
     $ErrorActionPreference = $eap
     if ($pyCmd) { $McpConfig = "config\mcp-servers.json" }
-    else { Write-Host "serve.ps1: note: no working Python 3 (python3, python, py -3): the example MCP server is off; the built-in tools still work"; $McpConfig = "config\mcp-servers.empty.json" }
+    else { Write-Warning "serve.ps1: no working Python 3 (python3, python, py -3): the bundled example MCP server will not run, but MCP stays active for any other configured servers"; $McpConfig = "config\mcp-servers.json" }
 }
 
 # Tools runtime: Docker Desktop if it answers, else the host
