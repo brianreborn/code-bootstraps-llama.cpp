@@ -612,6 +612,14 @@ PROBE_URL_HOST=$(url_host "$PROBE_HOST")
 SLOT_DIR=$ROOT/.cache/slot-dumps
 mkdir -p "$SLOT_DIR"
 chmod 700 "$SLOT_DIR" 2>/dev/null || true
+engine_tag=$("$BIN" --version 2>/dev/null | head -n 1) || engine_tag="unknown"
+if [ -f "$SLOT_DIR/engine-tag.txt" ]; then
+  if [ "$(cat "$SLOT_DIR/engine-tag.txt")" != "$engine_tag" ]; then
+    echo "serve.sh: engine changed; discarding incompatible slot snapshots" >&2
+    rm -f "$SLOT_DIR"/* 2>/dev/null || true
+  fi
+fi
+echo "$engine_tag" > "$SLOT_DIR/engine-tag.txt"
 set -- \
   --host "$LISTEN_HOST" --port "$PORT" \
   --models-preset "$EFFECTIVE_PRESET" \

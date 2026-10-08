@@ -35,7 +35,7 @@ FIELDS = (
     "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
     "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
     "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
-    "RAISE", "DETACH_MODE",
+    "RAISE", "DETACH_MODE", "FEELD_SNAP_FS", "ENGINE_CHAT",
 )
 # Empty means the launcher's own default. REASONING off and LOAD_MODE auto match
 # that default, so typing them stores nothing.
@@ -67,6 +67,8 @@ DEFAULTS = {
     "COPY_KEY": "0",
     "RAISE": "",
     "DETACH_MODE": "foreground",
+    "FEELD_SNAP_FS": "auto",
+    "ENGINE_CHAT": "",
 }
 CHOICES = {
     "PROFILE": ("auto", "lowram", "moderate", "default"),
@@ -81,6 +83,7 @@ CHOICES = {
     "COPY_KEY": ("0", "1"),
     "RAISE": ("0", "1"),
     "DETACH_MODE": ("foreground", "nohup", "tmux", "screen"),
+    "FEELD_SNAP_FS": ("auto", "zfs", "btrfs", "bcachefs", "apfs", "hardlink", "virtual"),
 }
 HINTS = {
     "PROFILE": "auto|lowram|moderate|default",
@@ -110,6 +113,8 @@ HINTS = {
     "COPY_KEY": "0|1",
     "RAISE": "0|1; Enter asks once",
     "DETACH_MODE": "foreground|nohup|tmux|screen",
+    "FEELD_SNAP_FS": "auto|zfs|btrfs|bcachefs|apfs|hardlink|virtual",
+    "ENGINE_CHAT": "alternate engine tag for chat route",
 }
 # No quotes, dollars, or backticks: the line is sourced as : "${KEY:=value}".
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9_./:+,@-]+$")

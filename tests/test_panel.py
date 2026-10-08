@@ -51,10 +51,10 @@ class ReadyPortTests(unittest.TestCase):
 
 class FieldTests(unittest.TestCase):
     def test_major_settings_are_fields(self):
-        for key in ("PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT",
+        for key in ("PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT", "EMBED_PORT",
                     "THREADS", "CTX", "REASONING", "HOST", "LOAD_MODE", "LOCALE",
                     "LANGUAGE_MODE", "WORKDIR", "REPACK", "TOOLS_RUNTIME", "SWAP_CODER",
-                    "DETACH_MODE", "RAISE", "COPY_KEY", "NO_BROWSER", "BUILD"):
+                    "DETACH_MODE", "RAISE", "COPY_KEY", "NO_BROWSER", "BUILD", "FEELD_SNAP_FS", "ENGINE_CHAT"):
             self.assertIn(key, panel.FIELDS)
         self.assertNotIn("GGUF_HOME", panel.FIELDS)
 
