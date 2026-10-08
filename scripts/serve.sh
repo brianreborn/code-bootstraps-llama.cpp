@@ -9,6 +9,7 @@ abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$ROOT/$1" ;
 
 HOST=${HOST:-127.0.0.1}
 PORT=${PORT:-9931}
+EMBED_PORT=${EMBED_PORT:-}
 # MODELS_DIR, when set, replaces the models root. Unset: the shared GGUF store,
 # then a checkout file of the same relative path (gguf_resolve).
 MODELS_PRESET=${MODELS_PRESET:-$ROOT/config/models-preset.ini}
@@ -330,6 +331,35 @@ role_model() {
 M_GENERAL=$(role_model general)
 M_CODER=$(role_model coder)
 M_DECISION=$(role_model decision)
+# embed_model: like role_model but returns empty (no die) when no file exists.
+# The embed server is optional — only started when a model is on disk.
+embed_model() {
+  em_rows=$(mktemp)
+  manifest_rows "role=embed" > "$em_rows"
+  ef=$(section_value embed model)
+  if [ -n "$ef" ]; then
+    if [ -f "$ef" ]; then
+      check_model "$ef" "[embed] model"
+      printf '%s' "$ef"
+    else
+      warn "[embed] model = $ef: file not found; embedding server will not start"
+    fi
+    rm -f "$em_rows"
+    return 0
+  fi
+  while IFS=$tab read -r ef esha edir; do
+    [ "$edir" = "-" ] || continue
+    em_path=$(gguf_resolve "models/embed/$ef")
+    [ -f "$em_path" ] || continue
+    verify_model "$em_path" "$esha"
+    printf '%s' "$em_path"
+    rm -f "$em_rows"
+    return 0
+  done < "$em_rows"
+  rm -f "$em_rows"
+  return 0
+}
+M_EMBED=$(embed_model)
 for r in general coder decision; do
   case "$r" in
     general) m=$M_GENERAL ;;
@@ -391,14 +421,15 @@ LOC_GENERAL=$(section_value "locale.$LANG_CODE.general" model)
 LOC_CODER=$(section_value "locale.$LANG_CODE.coder" model)
 awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$ROOT" \
     -v loc_general="$LOC_GENERAL" -v loc_coder="$LOC_CODER" \
-    -v m_general="$M_GENERAL" -v m_coder="$M_CODER" -v m_decision="$M_DECISION" -v m_language="$LANG_MODEL" '
+    -v m_general="$M_GENERAL" -v m_coder="$M_CODER" -v m_decision="$M_DECISION" -v m_language="$LANG_MODEL" -v m_embed="$M_EMBED" '
   function secname(line) { return substr(line, 2, index(line, "]") - 2) }
   function keyof(line,   k) { k = line; sub(/[ \t]*=.*/, "", k); return k }
   function valof(line,   v) { v = line; sub(/^[^=]*=[ \t]*/, "", v); return v }
   BEGIN { n = split(overlay, o, " "); for (i = 1; i <= n; i++) { split(o[i], kv, "="); ov[kv[1]] = kv[2]; ord[i] = kv[1] }
           ns = split(swap, sw, " "); for (i = 1; i <= ns; i++) swapped[sw[i]] = 1
           rm["general"] = m_general; rm["coder"] = m_coder; rm["decision"] = m_decision
-          if (m_language != "") rm["language"] = m_language }
+          if (m_language != "") rm["language"] = m_language
+          if (m_embed != "") rm["embed"] = m_embed }
   FNR == NR { if ($0 ~ /^\[/) { s = secname($0); split(s, p, "."); cur = (p[1] == "locale" && p[2] == lang && (p[3] in swapped)) ? p[3] : "" ; next }
               if (cur != "" && $0 ~ /^[A-Za-z0-9_-]+[ \t]*=/) { k = keyof($0); v = valof($0)
                 if (k == "reasoning" && ((cur ".reasoning") in ov)) next
@@ -417,6 +448,7 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     if (sec == "general" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = chat"
     if (sec == "decision" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = route"
     if (sec == "language" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = translate"
+    if (sec == "embed" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = embed"
   }
   /^\[.*\]/ { flush(); sec = secname($0); had[sec] = 1; skip = (sec ~ /^locale\./) || (sec == "language" && m_language == ""); if (!skip) print; next }
   skip { next }
@@ -426,12 +458,13 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     if (k == "model" && (sec in rm)) { print "model = " rm[sec]; seen[key] = 1; next }
     if (k ~ /^(model|mmproj)$|-(file|config|dir|path)$/) { v = valof($0); if (v != "" && v !~ /^\//) { print k " = " root "/" v; next } } }
   { print }
-  END { flush(); split("general coder decision language", rr, " ")
-        for (i = 1; i <= 4; i++) if ((rr[i] in rm) && !(rr[i] in had)) {
+  END { flush(); split("general coder decision language embed", rr, " ")
+        for (i = 1; i <= 5; i++) if ((rr[i] in rm) && !(rr[i] in had)) {
           print ""; print "[" rr[i] "]"; print "model = " rm[rr[i]]
           if (rr[i] == "general") print "alias = chat"
           if (rr[i] == "decision") print "alias = route"
           if (rr[i] == "language") print "alias = translate"
+          if (rr[i] == "embed") print "alias = embed"
         } }
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"
 printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" "$SWAP_ROLES" > "$ROOT/.cache/language.json"
@@ -490,6 +523,7 @@ start_container() {
 cleanup() {
   if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
+  if [ -n "${EMBED_PID:-}" ]; then kill "$EMBED_PID" 2>/dev/null || true; fi
   if [ -n "${SERVER_PID:-}" ] && [ -f "$ROOT/.cache/serve.ready" ] && [ "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" = "$SERVER_PID" ]; then
     rm -f "$ROOT/.cache/serve.ready"
   fi
@@ -627,7 +661,21 @@ else
   ( cd "$SERVER_CWD" && exec "$BIN" "$@" ) &
 fi
 SERVER_PID=$!
+EMBED_PID=""
+if [ -n "$M_EMBED" ]; then
+  actual_embed_port=${EMBED_PORT:-$((PORT+1))}
+  embed_log="$ROOT/.cache/embed.log"
+  rm -f "$embed_log"
+  echo "serve.sh: starting embed server on port $actual_embed_port with $M_EMBED" >&2
+  if command -v setsid >/dev/null 2>&1; then
+    ( cd "$SERVER_CWD" && exec setsid "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings --log-file "$embed_log" ) &
+  else
+    ( cd "$SERVER_CWD" && exec "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings --log-file "$embed_log" ) &
+  fi
+  EMBED_PID=$!
+fi
 RECOVER_PID=""
+
 if command -v python3 >/dev/null 2>&1; then
   RECOVER_URL="http://$PROBE_URL_HOST:$PORT" API_KEY_FILE="$API_KEY_FILE" \
     python3 "$ROOT/scripts/recover.py" >>"$ROOT/.cache/recover.log" 2>&1 &
@@ -684,7 +732,7 @@ if command -v curl >/dev/null 2>&1; then
     done
   ) &
 fi
-forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; }
+forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; if [ -n "$EMBED_PID" ]; then kill "-$1" "$EMBED_PID" 2>/dev/null || true; fi; }
 trap 'forward INT' INT
 trap 'forward TERM' TERM
 trap 'forward TERM' HUP
@@ -695,6 +743,7 @@ trap 'forward TERM' HUP
     sleep 2
   done
   kill -0 "$SERVER_PID" 2>/dev/null && kill -TERM "-$SERVER_PID" 2>/dev/null
+  [ -n "$EMBED_PID" ] && kill -0 "$EMBED_PID" 2>/dev/null && kill -TERM "-$EMBED_PID" 2>/dev/null
   exit 0
 ) </dev/null >/dev/null 2>&1 &
 status=0

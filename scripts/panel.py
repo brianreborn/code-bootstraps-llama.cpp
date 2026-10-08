@@ -31,7 +31,7 @@ PORT = int(os.environ.get("PANEL_PORT", "9932"))
 
 # Names start.sh / serve.sh already read. GGUF_HOME is not one of them.
 FIELDS = (
-    "PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT",
+    "PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT", "EMBED_PORT",
     "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
     "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
     "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
@@ -46,6 +46,7 @@ DEFAULTS = {
     "TOOLS": "auto",
     "GPU_LAYERS": "auto",
     "PORT": "9931",
+    "EMBED_PORT": "",
     "THREADS": "auto",
     "THREADS_BATCH": "auto",
     "CTX": "",
@@ -88,6 +89,7 @@ HINTS = {
     "TOOLS": "auto|full|lean|comma list",
     "GPU_LAYERS": "auto or 0-9999",
     "PORT": "1-65535",
+    "EMBED_PORT": "1-65535; empty for PORT+1",
     "THREADS": "auto or 1-4096",
     "THREADS_BATCH": "auto or 1-4096",
     "CTX": "2048-262144; Enter keeps the profile",
