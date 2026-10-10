@@ -230,5 +230,41 @@
             "ctx": 32768,
             "tested": false
         }
+    ],
+    "unplaced_options": [
+        {
+            "_comment": "Listed for consideration only. Not a candidate: fetch-models.sh and serve.sh never read this key. Move into candidates only after a GGUF exists and a runtime branch is verified end to end.",
+            "id": "tencent/Youtu-Parsing-Omni",
+            "revision": "01f7e3e4916898c30bf9593735a9b3bd328492fa",
+            "role": "vision",
+            "roles": [
+                "vision",
+                "parsing"
+            ],
+            "arch": "YoutuVITAForCausalLM (model_type youtu_vita, custom_code)",
+            "params": "~5B",
+            "weights": "safetensors bf16, ~10.7 GB",
+            "license": "other (youtu-parsing, see repo LICENSE)",
+            "ctx": null,
+            "ctx_note": "max_position_embeddings=1048576 in config; practical context unverified",
+            "modalities": [
+                "document",
+                "image",
+                "chart",
+                "flowchart",
+                "geometry",
+                "audio",
+                "video"
+            ],
+            "output": "structured JSON",
+            "runtime": {
+                "llama_cpp_b11374": "unsupported (no youtu converter in convert_hf_to_gguf.py)",
+                "llama_cpp_upstream_master": "unsupported as of 2026-10-09 (no youtu converter)",
+                "llama_cpp_forks": "none known",
+                "gguf": "none for Omni (wangjazz/youtu-parsing-gguf is the earlier non-omni Youtu-Parsing, youtu_vl)",
+                "supported": "transformers (trust_remote_code) or vLLM with Tencent's plugin (github.com/TencentCloudADP/youtu-parsing)"
+            },
+            "tested": false
+        }
     ]
 }
