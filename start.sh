@@ -164,6 +164,15 @@ for _old in feeld-server; do
   { command -v tmux >/dev/null 2>&1 && tmux has-session -t "$_old" 2>/dev/null; } && say "note: an old tmux session '$_old' is still running (pre-rename); attach with: tmux attach -t $_old"
   { command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | grep -q "\.$_old\b"; } && say "note: an old screen session '$_old' is still running (pre-rename)"
 done
+# Parent (familia start.sh) already detached: stay in foreground and share its log (#18).
+if [ "${FAMILIA_DETACHED:-0}" = 1 ]; then
+  DETACH_MODE=foreground
+  if [ -n "${LOG_FILE:-}" ]; then
+    say "familia already detached; running serve in foreground (log $LOG_FILE)"
+  else
+    say "familia already detached; running serve in foreground"
+  fi
+fi
 case "${DETACH_MODE:-foreground}" in
   tmux)
     if command -v tmux >/dev/null 2>&1; then
@@ -171,8 +180,9 @@ case "${DETACH_MODE:-foreground}" in
       exec tmux new-session -d -s "$SESSION_NAME" "sh scripts/serve.sh $*"
     else
       say "tmux requested but not found; falling back to nohup"
-      mkdir -p .cache
-      nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+      _log=${LOG_FILE:-.cache/server.log}
+      mkdir -p "$(dirname "$_log")"
+      nohup sh scripts/serve.sh "$@" >> "$_log" 2>&1 &
       disown $! 2>/dev/null || true
     fi
     ;;
@@ -182,15 +192,17 @@ case "${DETACH_MODE:-foreground}" in
       exec screen -dmS "$SESSION_NAME" sh scripts/serve.sh "$@"
     else
       say "screen requested but not found; falling back to nohup"
-      mkdir -p .cache
-      nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+      _log=${LOG_FILE:-.cache/server.log}
+      mkdir -p "$(dirname "$_log")"
+      nohup sh scripts/serve.sh "$@" >> "$_log" 2>&1 &
       disown $! 2>/dev/null || true
     fi
     ;;
   nohup)
-    say "launching detached with nohup (logging to .cache/server.log)"
-    mkdir -p .cache
-    nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
+    _log=${LOG_FILE:-.cache/server.log}
+    say "launching detached with nohup (logging to $_log)"
+    mkdir -p "$(dirname "$_log")"
+    nohup sh scripts/serve.sh "$@" >> "$_log" 2>&1 &
     disown $! 2>/dev/null || true
     ;;
   foreground|"")
