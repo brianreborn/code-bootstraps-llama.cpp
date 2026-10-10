@@ -159,11 +159,16 @@ open_ui "$$" &
 if [ "$TERMUX" = 1 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true
 fi
+SESSION_NAME=${FAMILIA_SESSION:-familia-server}
+for _old in feeld-server; do
+  { command -v tmux >/dev/null 2>&1 && tmux has-session -t "$_old" 2>/dev/null; } && say "note: an old tmux session '$_old' is still running (pre-rename); attach with: tmux attach -t $_old"
+  { command -v screen >/dev/null 2>&1 && screen -ls 2>/dev/null | grep -q "\.$_old\b"; } && say "note: an old screen session '$_old' is still running (pre-rename)"
+done
 case "${DETACH_MODE:-foreground}" in
   tmux)
     if command -v tmux >/dev/null 2>&1; then
-      say "launching detached inside tmux session feeld-server"
-      exec tmux new-session -d -s feeld-server "sh scripts/serve.sh $*"
+      say "launching detached inside tmux session $SESSION_NAME"
+      exec tmux new-session -d -s "$SESSION_NAME" "sh scripts/serve.sh $*"
     else
       say "tmux requested but not found; falling back to nohup"
       mkdir -p .cache
@@ -173,8 +178,8 @@ case "${DETACH_MODE:-foreground}" in
     ;;
   screen)
     if command -v screen >/dev/null 2>&1; then
-      say "launching detached inside screen session feeld-server"
-      exec screen -dmS feeld-server sh scripts/serve.sh "$@"
+      say "launching detached inside screen session $SESSION_NAME"
+      exec screen -dmS "$SESSION_NAME" sh scripts/serve.sh "$@"
     else
       say "screen requested but not found; falling back to nohup"
       mkdir -p .cache
