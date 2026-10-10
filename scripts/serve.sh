@@ -51,8 +51,29 @@ warn() { echo "serve.sh: WARNING: $*" >&2; }
 
 ua_dir=$(mktemp -d)
 ua_n=0
+# Explicit -c/--ctx-size and -np/--parallel beat the auto profile (issue #15).
+# Consumed here into CODER_CTX / PARALLEL so they are not also passed as
+# global llama-server flags that fight the models-preset overlay.
+EXPLICIT_CTX=0
+EXPLICIT_PARALLEL=0
+_prev=""
 for a in "$@"; do
-  case "$(arg_name "$a")" in
+  an=$(arg_name "$a")
+  # value glued: --ctx-size=65536 or -c=65536
+  case "$an" in
+    --ctx-size=*|-c=*|--ctx_size=*)
+      CODER_CTX=${a#*=}; EXPLICIT_CTX=1; _prev=""; continue ;;
+    --parallel=*|-np=*)
+      PARALLEL=${a#*=}; EXPLICIT_PARALLEL=1; _prev=""; continue ;;
+  esac
+  # value in next argv
+  case "$_prev" in
+    --ctx-size|-c|--ctx_size) CODER_CTX=$a; EXPLICIT_CTX=1; _prev=""; continue ;;
+    --parallel|-np) PARALLEL=$a; EXPLICIT_PARALLEL=1; _prev=""; continue ;;
+  esac
+  case "$an" in
+    --ctx-size|-c|--ctx_size) _prev=$an; continue ;;
+    --parallel|-np) _prev=$an; continue ;;
     --tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-*|--ui-mcp-proxy|--webui-mcp-proxy|\
     --no-ui-mcp-proxy|--no-webui-mcp-proxy|--api-key|--api-key-file)
       echo "serve.sh: argument '$a' is not allowed here; use the TOOLS / TOOLS_RUNTIME / MCP_CONFIG / API_KEY_FILE variables" >&2
@@ -75,9 +96,17 @@ for a in "$@"; do
   esac
   ua_n=$((ua_n + 1))
   printf '%s' "$a" > "$ua_dir/$ua_n"
+  _prev=""
 done
+if [ -n "$_prev" ]; then die "$_prev needs a value"; fi
 if [ "$ua_n" -gt 0 ]; then
   echo "serve.sh: extra llama-server arguments apply to EVERY role (general, coder, decision)" >&2
+fi
+if [ "$EXPLICIT_CTX" = 1 ]; then
+  echo "serve.sh: explicit --ctx-size/CODER_CTX=$CODER_CTX beats profile" >&2
+fi
+if [ "$EXPLICIT_PARALLEL" = 1 ]; then
+  echo "serve.sh: explicit --parallel/PARALLEL=$PARALLEL beats profile" >&2
 fi
 
 BIN=${LLAMA_SERVER:-}
@@ -186,11 +215,13 @@ case "$PROFILE" in
   default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
-    OVERLAY="coder.parallel=2 coder.ctx-size=24576 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true"
+    # Consistent: parallel * kv-unified-per-slot == ctx-size (was 2*16384 > 24576; #15).
+    OVERLAY="coder.parallel=2 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true"
     ;;
   lowram)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
-    OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    # Consistent: parallel * kv-unified-per-slot == ctx-size (was 2*16384 > 16384; #15).
+    OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=8192 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
@@ -210,11 +241,42 @@ ov_set() {
 num_ok MODELS_MAX "$MODELS_MAX" 1 8
 ROUTER_MAX=$((MODELS_MAX + RESIDENT))
 TUNED=""
+ov_get() {
+  for ov_x in $OVERLAY; do
+    if [ "${ov_x%%=*}" = "$1" ]; then printf '%s' "${ov_x#*=}"; return 0; fi
+  done
+  return 1
+}
+# Fail loud when parallel * per-slot KV overcommits ctx-size (#15).
+check_role_kv() {
+  role=$1
+  c=$(ov_get "$role.ctx-size" || true)
+  p=$(ov_get "$role.parallel" || true)
+  s=$(ov_get "$role.kv-unified-per-slot" || true)
+  [ -n "$c" ] && [ -n "$p" ] && [ -n "$s" ] || return 0
+  need=$((p * s))
+  if [ "$need" -gt "$c" ]; then
+    die "profile inconsistent for $role: ctx-size=$c but parallel=$p * kv-unified-per-slot=$s = $need (overcommit). Set CODER_CTX/PARALLEL or fix PROFILE."
+  fi
+  echo "serve.sh: $role ctx=$c parallel=$p per-slot-kv=$s (floor $((c / p)) tokens/slot)" >&2
+}
 if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 2048 262144
-  ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
+  ov_set coder.ctx-size "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
 if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 2048 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
+# Keep coder per-slot KV = ctx / parallel when either was set explicitly.
+if [ -n "$CODER_CTX" ] || [ -n "$PARALLEL" ]; then
+  _cc=$(ov_get coder.ctx-size || echo 0)
+  _cp=$(ov_get coder.parallel || echo 1)
+  if [ "$_cc" -gt 0 ] && [ "$_cp" -gt 0 ]; then
+    ov_set coder.kv-unified-per-slot $((_cc / _cp))
+  fi
+fi
+check_role_kv coder
+check_role_kv general
+check_role_kv decision
+check_role_kv language
 # Language and decision stay as the preset wrote them. A locale section's reasoning = off
 # would otherwise win over this overlay when that role is swapped in.
 case "$REASONING" in
