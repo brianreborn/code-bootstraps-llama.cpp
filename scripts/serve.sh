@@ -50,8 +50,10 @@ die() { echo "serve.sh: $*" >&2; exit 1; }
 warn() { echo "serve.sh: WARNING: $*" >&2; }
 
 ua_dir=$(mktemp -d)
+UA_CACHE_RAM=""
 ua_n=0
 for a in "$@"; do
+  case "$(arg_name "$a")" in --cache-ram|-cram) UA_CACHE_RAM=1 ;; esac
   case "$(arg_name "$a")" in
     --tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-*|--ui-mcp-proxy|--webui-mcp-proxy|\
     --no-ui-mcp-proxy|--no-webui-mcp-proxy|--api-key|--api-key-file)
@@ -215,6 +217,22 @@ if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 2048 262144
 if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 2048 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
+# Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens, so the old
+# 256 MiB stored nothing and every turn re-read the whole prompt. Per profile: lowram 768,
+# moderate 1024, default 2048 MiB, never more than a quarter of the free RAM. CACHE_RAM
+# (MiB, 0 = off) or a --cache-ram argument wins.
+CACHE_RAM_MIB=""
+if [ -n "$UA_CACHE_RAM" ]; then :
+elif [ -n "${CACHE_RAM:-}" ]; then num_ok CACHE_RAM "$CACHE_RAM" 0 1048576
+  CACHE_RAM_MIB=$CACHE_RAM; TUNED="$TUNED CACHE_RAM=$CACHE_RAM"
+else
+  case "$PROFILE" in lowram) CACHE_RAM_MIB=768 ;; moderate) CACHE_RAM_MIB=1024 ;; *) CACHE_RAM_MIB=2048 ;; esac
+  if [ "$AVAIL_MB" -gt 0 ] && [ $((AVAIL_MB / 4)) -lt "$CACHE_RAM_MIB" ]; then CACHE_RAM_MIB=$((AVAIL_MB / 4)); fi
+  if [ "$CACHE_RAM_MIB" -lt 512 ]; then
+    warn "prompt cache limited to ${CACHE_RAM_MIB} MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached"
+  fi
+fi
+[ -n "$CACHE_RAM_MIB" ] && ov_set "*.cache-ram" "$CACHE_RAM_MIB"
 # Language and decision stay as the preset wrote them. A locale section's reasoning = off
 # would otherwise win over this overlay when that role is swapped in.
 case "$REASONING" in

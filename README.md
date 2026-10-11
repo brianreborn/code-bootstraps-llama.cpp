@@ -290,6 +290,7 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `CTX` | tokens (profile) | context pool of the coder and the general model | `CTX=8192 ./start.sh` |
 | `CODER_CTX`, `GENERAL_CTX` | tokens (profile) | the same for one role (wins over `CTX`); one session may use the whole pool | `CODER_CTX=32768 ./start.sh` |
 | `PARALLEL` | 1-16 (lowram/moderate 2, default 4) | coder sessions at once, sharing the coder's pool | `PARALLEL=1 ./start.sh` |
+| `CACHE_RAM` | MiB, 0 = off (lowram 768, moderate 1024, default 2048; at most a quarter of free RAM) | prompt cache kept for reuse; one long coder prompt is about 500 MiB, so under 512 nothing long is cached | `CACHE_RAM=1024 ./start.sh` |
 | `THREADS` | number (auto: big/physical cores) | generation threads | `THREADS=4 ./start.sh` |
 | `TOOLS` | `auto` \| `full` \| `lean` \| list \| `""` | tools offered to the model; lean = 4 tools, half the prompt (auto: lean in lowram) | `TOOLS=lean ./start.sh` |
 
