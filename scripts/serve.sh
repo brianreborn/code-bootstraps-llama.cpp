@@ -655,6 +655,20 @@ while [ "$j" -le "$ua_n" ]; do
   j=$((j + 1))
 done
 
+# Vulkan builds allocate large Vulkan host buffers in shared memory even with -ngl 0
+# (miryam, b11374: ~1.83 GB shmem, counted against a memory-cap scope, stalled the server).
+# With no GPU layers, hide the Vulkan devices so the build runs truly CPU-only. An explicit
+# GGML_VK_VISIBLE_DEVICES (even empty) from the user is respected.
+eff_ngl=$GPU_LAYERS; prev=""
+for a in "$@"; do
+  case "$prev" in -ngl|--n-gpu-layers|--gpu-layers) eff_ngl=$a ;; esac
+  case "$a" in --n-gpu-layers=*|--gpu-layers=*) eff_ngl=${a#*=} ;; esac
+  prev=$a
+done
+if [ "$eff_ngl" = 0 ] && [ -z "${GGML_VK_VISIBLE_DEVICES+set}" ]; then
+  export GGML_VK_VISIBLE_DEVICES=
+  echo "serve.sh: gpu-layers 0: GGML_VK_VISIBLE_DEVICES= (Vulkan off, no host-buffer bloat)" >&2
+fi
 echo "serve.sh: $BIN $*" >&2
 echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_ARG_TOOLS:-} LLAMA_ARG_TOOLS_RUNTIME=${LLAMA_ARG_TOOLS_RUNTIME:-}" >&2
 resident_note=""
