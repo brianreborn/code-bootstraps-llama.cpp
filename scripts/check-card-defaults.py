@@ -96,7 +96,9 @@ def check(preset_path, manifest_path):
         want_set = sec["card_set"]          # not inherited: a set label belongs to one model's card
         modes = c.get("card_sampling_modes") or {}
         if want_set:
-            hit = [k for k in modes if want_set.lower() in k.lower()]
+            w = want_set.lower().strip()   # exact label, else unique prefix, else substring
+            hit = ([k for k in modes if k.lower().strip() == w] or [k for k in modes if k.lower().startswith(w)]
+                   or [k for k in modes if w in k.lower()])
             if len(hit) != 1:
                 errors.append("[%s] %s: card-set %r matches %d card sets (%s)" % (name, c["file"], want_set, len(hit), "; ".join(modes) or "none"))
                 continue
