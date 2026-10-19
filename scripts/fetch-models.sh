@@ -132,10 +132,44 @@ kv="pick=$pick"
 [ -n "$role" ] && kv="$kv role=$role"
 rows=$(mktemp)
 awk -v match_kv="$kv" \
-  -v fields="role repo revision file sha256 tested dir notice" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
+  -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256" \
+  -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
 [ -s "$rows" ] || { echo "fetch-models.sh: no manifest entries for pick='$pick'" >&2; rm -f "$rows"; exit 1; }
 
-while IFS=$tab read -r r repo rev file sha tested dir notice; do
+# fetch_template GGUF_PATH REPO REV PATH SHA: the repo chat template the model must be served with
+# (its GGUF's differs; familia #51) as <model>.chat-template.jinja, pinned and sha256-checked.
+# PATH "X.json:key" is the template stored as key of X.json (needs python3).
+fetch_template() {
+  ft_dest="${1%.gguf}.chat-template.jinja"
+  if [ -f "$ft_dest" ] && [ "$(sha256_of "$ft_dest")" = "$5" ]; then
+    echo "fetch-models.sh: chat template $ft_dest OK"
+    mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"; return 0
+  fi
+  case "$4" in
+    *:*) ft_file=${4%%:*}; ft_key=${4#*:} ;;
+    *) ft_file=$4; ft_key="" ;;
+  esac
+  ft_url="https://huggingface.co/$2/resolve/$3/$ft_file"
+  echo "fetch-models.sh: chat template $ft_url -> $ft_dest"
+  curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 -o "$ft_dest.part" "$ft_url" ||
+    { echo "fetch-models.sh: could not fetch the chat template $ft_url" >&2; exit 1; }
+  if [ -n "$ft_key" ]; then
+    command -v python3 >/dev/null 2>&1 ||
+      { echo "fetch-models.sh: the chat template of $(basename "$1") is $ft_key in $ft_file; extracting it needs python3" >&2; exit 1; }
+    python3 -c 'import json,sys; t=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; open(sys.argv[3],"w",encoding="utf-8",newline="").write(t)' \
+      "$ft_dest.part" "$ft_key" "$ft_dest.tmpl" && mv -f "$ft_dest.tmpl" "$ft_dest.part"
+  fi
+  ft_got=$(sha256_of "$ft_dest.part")
+  if [ "$ft_got" != "$5" ]; then
+    mv -f "$ft_dest.part" "$ft_dest.bad"
+    echo "fetch-models.sh: chat template sha256 mismatch for $(basename "$1") (got $ft_got, want $5)" >&2
+    exit 1
+  fi
+  mv -f "$ft_dest.part" "$ft_dest"
+  mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"
+}
+
+while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_path ct_sha; do
   [ -n "$file_only" ] && [ "$file" != "$file_only" ] && continue
   case "$sha" in
     ""|-) echo "fetch-models.sh: $file has no sha256; not fetched" >&2; exit 1 ;;
@@ -214,6 +248,9 @@ while IFS=$tab read -r r repo rev file sha tested dir notice; do
   fi
   mkdir -p .cache/verified
   fingerprint "$path" > "$stamp"
+  if [ "$ct_sha" != "-" ] && [ -n "$ct_sha" ]; then
+    fetch_template "$path" "$ct_repo" "$ct_rev" "$ct_path" "$ct_sha"
+  fi
   echo "fetch-models.sh: OK $r = $file"
 done < "$rows"
 echo "fetch-models.sh: done. Restart scripts/serve.sh (or start.sh) to serve a newly installed model."

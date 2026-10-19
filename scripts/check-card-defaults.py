@@ -12,14 +12,20 @@ says why, in a comment:
     ; override KEY: reason (at least 10 characters)
     ; card-set: LABEL           use another card set; needs ; override card-set: reason
 Keys the preset leaves unset are compared at llama.cpp's defaults (b11374).
-A model whose card states nothing is not checked. Exit 1 on any failure."""
+A model whose card states nothing is not checked.
+
+REQUIRED server parameters (the manifest's "required", from familia's registry/models
+required_params) must be met by the section, [embed] included: e.g. pooling = mean,
+ubatch-size >= the per-slot context. --jinja (the default), --chat-template-file (added by
+serve.sh from chat_template_*) and client-side items ("@...") are not preset keys.
+Exit 1 on any failure."""
 import json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEYS = ("temp", "top-p", "top-k", "min-p", "repeat-penalty", "presence-penalty", "frequency-penalty")
 LLAMA_DEFAULTS = {"temp": 0.8, "top-p": 0.95, "top-k": 40, "min-p": 0.05,
                   "repeat-penalty": 1.0, "presence-penalty": 0.0, "frequency-penalty": 0.0}
-SERVED = ("general", "coder", "decision", "language")   # [embed] is a separate process
+SERVED = ("general", "coder", "decision", "language", "embed")   # [embed]: a separate process
 OVR_RE = re.compile(r"^;\s*override\s+([\w.-]+)\s*:\s*(.+?)\s*$")
 SET_RE = re.compile(r"^;\s*card-set\s*:\s*(.+?)\s*$")
 
@@ -53,6 +59,46 @@ def num(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+# REQUIRED items a preset key cannot or need not carry
+REQ_SKIP = ("--jinja", "--chat-template-file", "--reasoning-format deepseek", "--embeddings", "--embedding")
+# llama-server defaults that already meet an item (b11374 --help)
+REQ_DEFAULT = {"--reasoning-format": "deepseek"}
+
+
+def required_errors(name, c, get):
+    """The candidate's REQUIRED server flags vs the section's effective keys."""
+    out = []
+    ctx = num(get("ctx-size"))
+    par = num(get("parallel")) or 1
+    slot = num(get("kv-unified-per-slot")) or (ctx / par if ctx else None)
+    for r in c.get("required") or []:
+        if r.startswith("@") or r.split()[0] in REQ_SKIP or r in REQ_SKIP:
+            continue
+        flag, _, val = r.partition(" ")
+        key = flag.lstrip("-")
+        if key.startswith("no-"):                     # --no-context-shift -> context-shift = false
+            have = get(key) or ({"false": "on", "off": "on"}.get(str(get(key[3:])).lower()) if get(key[3:]) is not None else None)
+            if have is None:
+                out.append("[%s] %s: REQUIRED %s is not set (add '%s = false')" % (name, c["file"], flag, key[3:]))
+            continue
+        have = get(key)
+        if val in ("${slot_ctx}", "${ctx}"):
+            need = slot if val == "${slot_ctx}" else ctx
+            if need is None:
+                continue
+            if have is None or (num(have) or 0) < need:
+                out.append("[%s] %s: REQUIRED %s must be >= %d (the %s context); the section has %s"
+                           % (name, c["file"], flag, need, "per-slot" if val == "${slot_ctx}" else "", have))
+            continue
+        if have is None and REQ_DEFAULT.get(flag) == val:
+            continue
+        if have is None:
+            out.append("[%s] %s: REQUIRED %s%s is not set" % (name, c["file"], flag, " " + val if val else ""))
+        elif val and str(have) != val and num(have) != num(val):
+            out.append("[%s] %s: REQUIRED %s %s, the section has %s" % (name, c["file"], flag, val, have))
+    return out
 
 
 def check(preset_path, manifest_path):
@@ -132,6 +178,7 @@ def check(preset_path, manifest_path):
             if not r or len(r[0]) < 10:
                 errors.append("[%s] %s: ctx-size = %s but the model's context is %s (%s); add '; override ctx-size: reason'"
                               % (name, c["file"], have, cctx, "card" if c.get("card_ctx") else "GGUF"))
+        errors += required_errors(name, c, get)
         for k, (r, n) in sec["override"].items():
             if k not in used and name != "*":
                 warns.append("[%s] line %d: override %s is not needed (value matches the card)" % (name, n, k))

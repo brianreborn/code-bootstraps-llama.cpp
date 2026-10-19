@@ -26,7 +26,14 @@
             "card_defaults_source": {"temp": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69", "top-k": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69", "repeat-penalty": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69"},
             "card_sampling_modes": {"Generation parameters": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05}},
             "card_ctx": 32768,
-            "card_ctx_source": "LiquidAI/LFM2.5-1.2B-Instruct README.md:L64"
+            "card_ctx_source": "LiquidAI/LFM2.5-1.2B-Instruct README.md:L64",
+            "native_ctx": 32768,
+            "native_ctx_source": "card: LiquidAI/LFM2.5-1.2B-Instruct README.md:L64",
+            "required": ["--jinja", "--chat-template-file ${template:ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6}", "@tools tools in the system prompt as a JSON list; calls come back as a Python list between <|tool_call_start|> and <|tool_call_end|>"],
+            "chat_template_repo": "LiquidAI/LFM2.5-1.2B-Instruct",
+            "chat_template_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+            "chat_template_path": "chat_template.jinja",
+            "chat_template_sha256": "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6"
         },
         {
             "role": "coder",
@@ -50,7 +57,10 @@
             "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
             "card_default_mode": "non-thinking",
             "card_ctx": 262144,
-            "card_ctx_source": "Qwen/Qwen3.5-2B README.md:L64"
+            "card_ctx_source": "Qwen/Qwen3.5-2B README.md:L64",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: Qwen/Qwen3.5-2B README.md:L64",
+            "required": ["--jinja"]
         },
         {
             "role": "decision",
@@ -67,7 +77,10 @@
             "tested": true,
             "db_id": "ggml-org--Laya-GGUF--Laya-Q8_0",
             "base_model": "convaiinnovations/laya",
-            "base_revision": "7b928d828b7b0e022f929d9bd2e44165aa270148"
+            "base_revision": "7b928d828b7b0e022f929d9bd2e44165aa270148",
+            "native_ctx": 8192,
+            "native_ctx_source": "GGUF modern-bert.context_length",
+            "required": ["@endpoint POST /v1/systemone", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}"]
         },
         {
             "role": "general",
@@ -91,7 +104,14 @@
             "card_defaults_source": {"temp": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70", "top-k": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70", "repeat-penalty": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70"},
             "card_sampling_modes": {"Generation parameters": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05}},
             "card_ctx": 32768,
-            "card_ctx_source": "LiquidAI/LFM2.5-350M README.md:L65"
+            "card_ctx_source": "LiquidAI/LFM2.5-350M README.md:L65",
+            "native_ctx": 32768,
+            "native_ctx_source": "card: LiquidAI/LFM2.5-350M README.md:L65",
+            "required": ["--jinja", "--chat-template-file ${template:ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6}"],
+            "chat_template_repo": "LiquidAI/LFM2.5-350M",
+            "chat_template_revision": "9e6c6ccf47cd318696e137d381a7ded8fe4df09f",
+            "chat_template_path": "chat_template.jinja",
+            "chat_template_sha256": "ba551d58630afa3190b1be3602e28301f3d2e9bbac978dfc49d6d825171648b6"
         },
         {
             "role": "coder",
@@ -116,7 +136,10 @@
             "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
             "card_default_mode": "non-thinking",
             "card_ctx": 262144,
-            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63"
+            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: Qwen/Qwen3.5-0.8B README.md:L63",
+            "required": ["--jinja"]
         },
         {
             "role": "decision",
@@ -134,7 +157,10 @@
             "note": "optional: tested once (2/3 sanity routes correct); no decision.temperature.* keys, probabilities not calibrated",
             "db_id": "ggml-org--Julia-1-GGUF--Julia-1-Q8_0",
             "base_model": "SupersonicLabs/Julia-1",
-            "base_revision": "a85b127321d580d65176c89ced8273f305745d85"
+            "base_revision": "a85b127321d580d65176c89ced8273f305745d85",
+            "native_ctx": 8192,
+            "native_ctx_source": "GGUF modern-bert.context_length",
+            "required": ["@endpoint POST /v1/systemone", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}"]
         },
         {
             "role": "coder",
@@ -159,7 +185,14 @@
             "card_defaults": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0},
             "card_default_set": "Thinking mode for general tasks",
             "card_defaults_source": {"temp": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "top-p": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "top-k": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "min-p": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "presence-penalty": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "repeat-penalty": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835"},
-            "card_default_mode": "thinking"
+            "card_default_mode": "thinking",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: Qwen/Qwen3.5-4B README.md:L64",
+            "required": ["--jinja", "--chat-template-file ${template:a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715}", "--reasoning-format deepseek"],
+            "chat_template_repo": "Qwen/Qwen3.5-4B",
+            "chat_template_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+            "chat_template_path": "chat_template.jinja",
+            "chat_template_sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
         },
         {
             "role": "language",
@@ -181,8 +214,13 @@
             "db_id": "tencent--HY-MT1.5-1.8B-GGUF--HY-MT1.5-1.8B-Q4_K_M",
             "card_defaults": {"top-k": 20, "top-p": 0.6, "repeat-penalty": 1.05, "temp": 0.7},
             "card_default_set": "We recommend using the following set of parameters for inference. Note that our model does not have the default system prompt",
-            "card_defaults_source": {"top-k": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "top-p": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "repeat-penalty": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "temp": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168"},
-            "card_sampling_modes": {"We recommend using the following set of parameters for inference. Note that our model does not have the default system prompt": {"top-k": 20, "top-p": 0.6, "repeat-penalty": 1.05, "temp": 0.7}}
+            "card_defaults_source": {"top-k": "tencent/HY-MT1.5-1.8B tencent/HY-MT1.5-1.8B README.md:L190", "top-p": "tencent/HY-MT1.5-1.8B tencent/HY-MT1.5-1.8B README.md:L190", "repeat-penalty": "tencent/HY-MT1.5-1.8B tencent/HY-MT1.5-1.8B README.md:L190", "temp": "tencent/HY-MT1.5-1.8B tencent/HY-MT1.5-1.8B README.md:L190"},
+            "card_sampling_modes": {"We recommend using the following set of parameters for inference. Note that our model does not have the default system prompt": {"top-k": 20, "top-p": 0.6, "repeat-penalty": 1.05, "temp": 0.7}},
+            "base_model": "tencent/HY-MT1.5-1.8B",
+            "base_revision": "dbad03788f49709801014c95d481a514c272ca52",
+            "native_ctx": 262144,
+            "native_ctx_source": "tencent/HY-MT1.5-1.8B config.json max_position_embeddings",
+            "required": ["--jinja", "@prompt \u5c06\u4ee5\u4e0b\u6587\u672c\u7ffb\u8bd1\u4e3a{target_language}\uff0c\u6ce8\u610f\u53ea\u9700\u8981\u8f93\u51fa\u7ffb\u8bd1\u540e\u7684\u7ed3\u679c\uff0c\u4e0d\u8981\u989d\u5916\u89e3\u91ca\uff1a\n\n{source_text}", "@prompt Translate the following segment into {target_language}, without additional explanation.\n\n{source_text}", "@system none"]
         },
         {
             "role": "language",
@@ -208,7 +246,10 @@
             "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
             "card_default_mode": "non-thinking",
             "card_ctx": 262144,
-            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63"
+            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: Qwen/Qwen3.5-0.8B README.md:L63",
+            "required": ["--jinja"]
         },
         {
             "role": "general",
@@ -236,7 +277,10 @@
             "card_sampling_modes": {"\u63a8\u5968\u306e\u751f\u6210\u8a2d\u5b9a": {"temp": 1.0, "top-k": 20, "top-p": 1.0, "presence-penalty": 2.0}},
             "card_defaults": {"temp": 1.0, "top-k": 20, "top-p": 1.0, "presence-penalty": 2.0},
             "card_default_set": "\u63a8\u5968\u306e\u751f\u6210\u8a2d\u5b9a",
-            "card_defaults_source": {"temp": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-k": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-p": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "presence-penalty": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139"}
+            "card_defaults_source": {"temp": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-k": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-p": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "presence-penalty": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139"},
+            "native_ctx": 262144,
+            "native_ctx_source": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 config.json max_position_embeddings",
+            "required": ["--jinja", "--reasoning off"]
         },
         {
             "role": "coder",
@@ -254,7 +298,11 @@
             "notice": "AgentHorse-4B Q4_K_M is an untested optional coder. Installing it parks the previous coder file. On lowram it is the only loaded model. On moderate and default the decision model stays loaded. Its license is not stated on the Hugging Face card. Tool calling was not verified.",
             "db_id": "mradermacher--AgentHorse-4B-GGUF--AgentHorse-4B.Q4_K_M",
             "base_model": "CloudGoat/AgentHorse-4B",
-            "base_revision": "19f9ca4f2e0288da139f073faaf8e2d5aabd04f0"
+            "base_revision": "19f9ca4f2e0288da139f073faaf8e2d5aabd04f0",
+            "native_ctx": 262144,
+            "native_ctx_source": "CloudGoat/AgentHorse-4B config.json max_position_embeddings",
+            "required": ["--jinja"],
+            "blockers": ["license not stated: neither the GGUF card, CloudGoat/AgentHorse-4B's card nor the GGUF header names one (no GitHub repo found)"]
         },
         {
             "role": "jev",
@@ -266,7 +314,7 @@
             "bytes": 639446688,
             "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
             "license": "apache-2.0 (weights). Meanblock/JEV-CPU code is MIT at commit 759fa60603a0e312cda38824e63e58f18445c14a",
-            "ctx": 32768,
+            "ctx": 40960,
             "dir": "models-optional/jev",
             "tested": false,
             "note": "optional, untested. Small brain named by Meanblock/JEV-CPU (semantic-if / option logits, SemIf CPU port). The repo distributes no weights. Qwen3.5-4B is the accurate brain and is too big here, so this is the quant-down (Q8_0, 639 MB). Fetching it does not replace Laya or run the JEV scorer.",
@@ -280,7 +328,14 @@
             "card_defaults": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0},
             "card_default_set": "For thinking mode, use",
             "card_defaults_source": {"temp": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "top-p": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "top-k": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "min-p": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132"},
-            "card_default_mode": "thinking"
+            "card_default_mode": "thinking",
+            "native_ctx": 40960,
+            "native_ctx_source": "Qwen/Qwen3-0.6B-GGUF README.md:L49-49 (the card's own llama.cpp command)",
+            "required": ["--jinja", "--chat-template-file ${template:a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8}", "--no-context-shift", "--reasoning-format deepseek"],
+            "chat_template_repo": "Qwen/Qwen3-0.6B",
+            "chat_template_revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+            "chat_template_path": "tokenizer_config.json:chat_template",
+            "chat_template_sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
         },
         {
             "role": "embed",
@@ -291,52 +346,60 @@
             "quant": "Q8_0",
             "sha256": "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc",
             "license": "apache-2.0",
-            "ctx": 8192,
+            "ctx": 262144,
             "tested": false,
             "db_id": "unsloth--embeddinggemma-2-GGUF--embeddinggemma-2-Q8_0",
             "base_model": "google/embeddinggemma-2",
             "base_revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
             "card_ctx": 8192,
-            "card_ctx_source": "google/embeddinggemma-2 README.md:L45"
+            "card_ctx_source": "google/embeddinggemma-2 README.md:L45",
+            "bytes": 309855520,
+            "native_ctx": 8192,
+            "native_ctx_source": "card: google/embeddinggemma-2 README.md:L45",
+            "required": ["--embeddings", "--pooling mean", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}", "@prompt task: search result | query: ", "@prompt task: classification | query: ", "@prompt task: clustering | query: ", "@prompt task: code retrieval | query: ", "@prompt title: none | text: ", "@prompt task: fact checking | query: ", "@prompt task: sentence similarity | query: ", "@prompt task: question answering | query: ", "@normalize euclidean", "@prompt title: {title} | text: {content}"]
         },
         {
-            "role": "decision",
-            "pick": "fallback",
+            "role": "general",
+            "pick": "candidate-gev",
             "repo": "mradermacher/GEV-26B-Decide-GGUF",
             "revision": "6a97ccdaccdbdb0bbbe274f8f92d5771009e314f",
             "file": "GEV-26B-Decide.Q4_K_M.gguf",
             "quant": "Q4_K_M",
             "sha256": "f26cb0de214c58f8495468a2ed075af29bc93972120564e220538414cecba726",
             "license": "apache-2.0",
-            "ctx": 8192,
-            "decision_type": "gev",
+            "ctx": 262144,
             "tested": false,
             "db_id": "mradermacher--GEV-26B-Decide-GGUF--GEV-26B-Decide.Q4_K_M",
             "base_model": "autotrust/GEV-26B-Decide",
             "base_revision": "eea849038e792cd09aa731d59d586f0eaf2c18f6",
-            "card_defaults": {"top-k": 0, "top-p": 1.0},
-            "card_default_set": "If you call /v1/completions for System 1 yourself, pass",
-            "card_defaults_source": {"top-k": "autotrust/GEV-26B-Decide autotrust/GEV-26B-Decide README.md:L481", "top-p": "autotrust/GEV-26B-Decide autotrust/GEV-26B-Decide README.md:L481"},
-            "card_sampling_modes": {"If you call /v1/completions for System 1 yourself, pass": {"top-k": 0, "top-p": 1.0}}
+            "bytes": 16796018528,
+            "native_ctx": 262144,
+            "native_ctx_source": "autotrust/GEV-26B-Decide config.json max_position_embeddings",
+            "required": ["--jinja", "--chat-template-kwargs {\"enable_thinking\":false}"],
+            "blockers": ["the GGUF converts only the Gemma-4 backbone: System 1 (the typed decisions) needs adapter/ (LoRA) and head.safetensors, which are not in the GGUF repo and have no llama.cpp loader; as a decision model it does not work"],
+            "note": "Gemma-4 26B backbone only; not a decision model in GGUF form (see blockers). Not fetched by --fallback. 16.8 GB."
         },
         {
-            "role": "general",
-            "pick": "fallback",
+            "role": "decision",
+            "pick": "candidate-drex",
             "repo": "nace-ai/drex-dlm-Q8_0",
             "revision": "4622c4086d40f5be932bc2a6fd67605d2247f6a5",
             "file": "drex-dlm-Q8_0.gguf",
             "quant": "Q8_0",
             "sha256": "04a592249958762d04ba0daf8e851eb89506e9fd0a38291e1e2ec9e6f6d61710",
-            "license": "apache-2.0",
+            "license": "cc-by-nc-4.0",
             "ctx": 32768,
             "tested": false,
             "db_id": "nace-ai--drex-dlm-Q8_0--drex-dlm-Q8_0",
             "base_model": "nace-ai/drex-dlm",
             "base_revision": "8f6f8244ce0b186b3caa4cdbaae1c9f3986bf63e",
-            "card_defaults": {"temp": 1.0},
-            "card_default_set": "This repository holds the weights: model- -of-00004.safetensors (about 16 GB in bfloat16) and head.pt , the 256-dim pointer head with",
-            "card_defaults_source": {"temp": "nace-ai/drex-dlm nace-ai/drex-dlm README.md:L276"},
-            "card_sampling_modes": {"This repository holds the weights: model- -of-00004.safetensors (about 16 GB in bfloat16) and head.pt , the 256-dim pointer head with": {"temp": 1.0}}
+            "bytes": 8713715232,
+            "native_ctx": 32768,
+            "native_ctx_source": "nace-ai/drex-dlm-Q8_0 README.md:L22",
+            "required": ["@runtime nace-ai/llama.cpp branch edlm (llama-server with the edlm architecture and POST /v1/systemone)", "@endpoint POST /v1/systemone", "--embedding", "--pooling none", "--batch-size ${ctx}", "--ubatch-size ${ctx}", "--parallel 1", "@env SYSTEMONE_CONTEXT=${ctx} when ctx > 16384"],
+            "runtime": "llama-server__nace-ai__edlm (nace-ai/llama.cpp edlm; arch edlm is not in b11374)",
+            "note": "DReX-DLM decision model (System 1, diffusion): served on the embeddings endpoint with --embedding --pooling none --parallel 1, -b/-ub = ctx (nace-ai/drex-decision-models models/drex-dlm/README.md L22). Not fetched by --fallback; needs its own runtime.",
+            "blockers": ["needs the nace-ai edlm llama.cpp fork; the pinned b11374 has no edlm architecture"]
         }
     ]
 }

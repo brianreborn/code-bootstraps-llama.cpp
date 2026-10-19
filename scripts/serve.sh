@@ -311,6 +311,18 @@ check_model() {
   if [ -n "$cm_sha" ]; then verify_model "$1" "$cm_sha"
   else warn "$2: $1 is not in $MANIFEST, so its sha256 is not checked"; fi
 }
+# chat_template_for GGUF: the repo chat template a manifest model must be served with
+# (manifest chat_template_sha256; its GGUF template differs, familia #51), fetched next to
+# the model by fetch-models.sh as <model>.chat-template.jinja. Empty when the GGUF's own is used.
+chat_template_for() {
+  ct_sha=$(awk -v match_kv="" -v fields="file chat_template_sha256" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
+           awk -F '\t' -v f="$(basename "$1")" '$1 == f { print $2; exit }')
+  case "$ct_sha" in ""|-) return 0 ;; esac
+  ct_path="${1%.gguf}.chat-template.jinja"
+  [ -f "$ct_path" ] || die "$(basename "$1") needs its repo chat template ($ct_path, sha256 $ct_sha): run scripts/fetch-models.sh again"
+  verify_model "$ct_path" "$ct_sha"
+  printf '%s' "$ct_path"
+}
 section_value() {
   sv=$(awk -v want="$1" -v key="$2" '/^\[/ { sec = substr($0, 2, index($0, "]") - 2); next }
         sec == want && $0 ~ ("^" key "[ \t]*=") { sub(/^[^=]*=[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$MODELS_PRESET")
@@ -433,13 +445,19 @@ else
   esac
 fi
 
+T_GENERAL=$(chat_template_for "$( case " $SWAP_ROLES " in *" general "*) locale_model general ;; *) printf '%s' "$M_GENERAL" ;; esac )")
+T_CODER=$(chat_template_for "$( case " $SWAP_ROLES " in *" coder "*) locale_model coder ;; *) printf '%s' "$M_CODER" ;; esac )")
+T_DECISION=$(chat_template_for "$M_DECISION")
+T_LANGUAGE=""
+[ -n "$LANG_MODEL" ] && T_LANGUAGE=$(chat_template_for "$LANG_MODEL")
 mkdir -p "$ROOT/.cache"
 EFFECTIVE_PRESET=$ROOT/.cache/models-preset.effective.ini
 LOC_GENERAL=$(section_value "locale.$LANG_CODE.general" model)
 LOC_CODER=$(section_value "locale.$LANG_CODE.coder" model)
 awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$ROOT" \
     -v loc_general="$LOC_GENERAL" -v loc_coder="$LOC_CODER" \
-    -v m_general="$M_GENERAL" -v m_coder="$M_CODER" -v m_decision="$M_DECISION" -v m_language="$LANG_MODEL" -v m_embed="$M_EMBED" '
+    -v m_general="$M_GENERAL" -v m_coder="$M_CODER" -v m_decision="$M_DECISION" -v m_language="$LANG_MODEL" -v m_embed="$M_EMBED" \
+    -v t_general="$T_GENERAL" -v t_coder="$T_CODER" -v t_decision="$T_DECISION" -v t_language="$T_LANGUAGE" '
   function secname(line) { return substr(line, 2, index(line, "]") - 2) }
   function keyof(line,   k) { k = line; sub(/[ \t]*=.*/, "", k); return k }
   function valof(line,   v) { v = line; sub(/^[^=]*=[ \t]*/, "", v); return v }
@@ -447,7 +465,9 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
           ns = split(swap, sw, " "); for (i = 1; i <= ns; i++) swapped[sw[i]] = 1
           rm["general"] = m_general; rm["coder"] = m_coder; rm["decision"] = m_decision
           if (m_language != "") rm["language"] = m_language
-          if (m_embed != "") rm["embed"] = m_embed }
+          if (m_embed != "") rm["embed"] = m_embed
+          if (t_general != "") tf["general"] = t_general; if (t_coder != "") tf["coder"] = t_coder
+          if (t_decision != "") tf["decision"] = t_decision; if (t_language != "") tf["language"] = t_language }
   FNR == NR { if ($0 ~ /^\[/) { s = secname($0); split(s, p, "."); cur = (p[1] == "locale" && p[2] == lang && (p[3] in swapped)) ? p[3] : "" ; next }
               if (cur != "" && $0 ~ /^[A-Za-z0-9_-]+[ \t]*=/) { k = keyof($0); v = valof($0)
                 if (k == "reasoning" && ((cur ".reasoning") in ov)) next
@@ -463,6 +483,7 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
     for (i = 1; i <= lc[sec]; i++) { k = lord[sec, i]; if (!((sec "." k) in seen)) print k " = " lk[sec "." k] }
     for (i = 1; i <= n; i++) { k = ord[i]; if (index(k, sec ".") == 1 && !(k in seen)) print substr(k, length(sec) + 2) " = " ov[k] }
     if ((sec in rm) && !((sec ".model") in seen) && !((sec ".model") in lk)) print "model = " rm[sec]
+    if ((sec in tf) && !((sec ".chat-template-file") in seen)) print "chat-template-file = " tf[sec]
     if (sec == "general" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = chat"
     if (sec == "decision" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = route"
     if (sec == "language" && !((sec ".alias") in seen) && !((sec ".alias") in lk)) print "alias = translate"
@@ -479,6 +500,7 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
   END { flush(); split("general coder decision language embed", rr, " ")
         for (i = 1; i <= 5; i++) if ((rr[i] in rm) && !(rr[i] in had)) {
           print ""; print "[" rr[i] "]"; print "model = " rm[rr[i]]
+          if (rr[i] in tf) print "chat-template-file = " tf[rr[i]]
           if (rr[i] == "general") print "alias = chat"
           if (rr[i] == "decision") print "alias = route"
           if (rr[i] == "language") print "alias = translate"
@@ -703,14 +725,19 @@ fi
 SERVER_PID=$!
 EMBED_PID=""
 if [ -n "$M_EMBED" ]; then
+  # [embed] keys become flags (pooling, ctx-size, batch/ubatch: REQUIRED, familia #51)
+  EMBED_ARGS=$(awk '/^\[/ { sec = substr($0, 2, index($0, "]") - 2); next }
+      sec == "embed" && /^[A-Za-z0-9_-]+[ \t]*=/ { k = $0; sub(/[ \t]*=.*/, "", k); v = $0; sub(/^[^=]*=[ \t]*/, "", v); sub(/[ \t\r]+$/, "", v)
+        if (k != "model" && k != "alias") printf "--%s %s ", k, v }' "$MODELS_PRESET")
+  case " $EMBED_ARGS " in *" --pooling "*) ;; *) die "[embed] has no pooling key: an embedder needs --pooling (REQUIRED by its card, familia #51)" ;; esac
   actual_embed_port=${EMBED_PORT:-$((PORT+1))}
   embed_log="$ROOT/.cache/embed.log"
   rm -f "$embed_log"
   echo "serve.sh: starting embed server on port $actual_embed_port with $M_EMBED" >&2
   if command -v setsid >/dev/null 2>&1; then
-    ( cd "$SERVER_CWD" && exec setsid "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings --log-file "$embed_log" ) &
+    ( cd "$SERVER_CWD" && exec setsid "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings $EMBED_ARGS --log-file "$embed_log" ) &
   else
-    ( cd "$SERVER_CWD" && exec "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings --log-file "$embed_log" ) &
+    ( cd "$SERVER_CWD" && exec "$BIN" --host "$LISTEN_HOST" --port "$actual_embed_port" --model "$M_EMBED" --embeddings $EMBED_ARGS --log-file "$embed_log" ) &
   fi
   EMBED_PID=$!
 fi

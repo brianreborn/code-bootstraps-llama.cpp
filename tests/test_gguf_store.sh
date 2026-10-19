@@ -221,12 +221,16 @@ model_of() {
 place_defaults() {
   base=$1
   stamp_root=$2
-  awk -v match_kv="pick=default" -v fields="role file sha256" -f "$ROOT/scripts/lib/manifest.awk" \
+  awk -v match_kv="pick=default" -v fields="role file sha256 chat_template_sha256" -f "$ROOT/scripts/lib/manifest.awk" \
     "$ROOT/config/models-manifest.json" > "$T/default-rows"
-  while IFS=$tab read -r role f sha; do
+  while IFS=$tab read -r role f sha ctsha; do
     mkdir -p "$base/$role" "$stamp_root/.cache/verified"
     echo "placeholder $f" > "$base/$role/$f"
     fingerprint "$base/$role/$f" > "$stamp_root/.cache/verified/$sha"
+    if [ "$ctsha" != "-" ]; then   # the repo chat template serve.sh requires (familia #51)
+      echo "placeholder template" > "$base/$role/${f%.gguf}.chat-template.jinja"
+      fingerprint "$base/$role/${f%.gguf}.chat-template.jinja" > "$stamp_root/.cache/verified/$ctsha"
+    fi
   done < "$T/default-rows"
 }
 run_serve() {
