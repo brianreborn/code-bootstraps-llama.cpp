@@ -568,10 +568,10 @@ def layout(title, body, crumbs=True):
     nav = ('<nav aria-label="Where you are"><p><a href="/">%s: start page</a></p></nav>' % esc(app)) if crumbs else ""
     return ("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-            "<title>%s - %s</title>\n<style>%s</style>\n</head>\n<body>\n"
+            "<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n"
             "<a class=\"skip\" href=\"#main\">Skip to the main content</a>\n<header>%s</header>\n"
             "<main id=\"main\">\n<h1>%s</h1>\n%s\n</main>\n</body>\n</html>\n"
-            % (esc(title), esc(app), CSS, nav, esc(title), body))
+            % (esc(title if title == app else "%s - %s" % (title, app)), CSS, nav, esc(title), body))
 
 
 def notice(msg, ok=True):
