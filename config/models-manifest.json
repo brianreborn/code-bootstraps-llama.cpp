@@ -17,7 +17,16 @@
             "license": "lfm1.0 (LiquidAI custom)",
             "ctx": 128000,
             "tested": true,
-            "notice": "LFM2.5-1.2B-Instruct (the default general model) is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE"
+            "notice": "LFM2.5-1.2B-Instruct (the default general model) is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE",
+            "db_id": "LiquidAI--LFM2.5-1.2B-Instruct-GGUF--LFM2.5-1.2B-Instruct-Q4_K_M",
+            "base_model": "LiquidAI/LFM2.5-1.2B-Instruct",
+            "base_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05},
+            "card_default_set": "Generation parameters",
+            "card_defaults_source": {"temp": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69", "top-k": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69", "repeat-penalty": "LiquidAI/LFM2.5-1.2B-Instruct LiquidAI/LFM2.5-1.2B-Instruct README.md:L69"},
+            "card_sampling_modes": {"Generation parameters": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05}},
+            "card_ctx": 32768,
+            "card_ctx_source": "LiquidAI/LFM2.5-1.2B-Instruct README.md:L64"
         },
         {
             "role": "coder",
@@ -31,7 +40,17 @@
             "license": "apache-2.0",
             "ctx": 262144,
             "parser": "Qwen3-Coder XML (common/parsers/qwen3-coder.cpp)",
-            "tested": true
+            "tested": true,
+            "db_id": "unsloth--Qwen3.5-2B-GGUF--Qwen3.5-2B-Q4_K_M",
+            "base_model": "Qwen/Qwen3.5-2B",
+            "base_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+            "card_defaults": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0},
+            "card_default_set": "Non-thinking mode for text tasks",
+            "card_defaults_source": {"temp": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705", "top-p": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705", "top-k": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705", "min-p": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705", "presence-penalty": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705", "repeat-penalty": "Qwen/Qwen3.5-2B Qwen/Qwen3.5-2B README.md:L705"},
+            "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
+            "card_default_mode": "non-thinking",
+            "card_ctx": 262144,
+            "card_ctx_source": "Qwen/Qwen3.5-2B README.md:L64"
         },
         {
             "role": "decision",
@@ -45,7 +64,10 @@
             "license": "apache-2.0",
             "ctx": 8192,
             "decision_type": "laya",
-            "tested": true
+            "tested": true,
+            "db_id": "ggml-org--Laya-GGUF--Laya-Q8_0",
+            "base_model": "convaiinnovations/laya",
+            "base_revision": "7b928d828b7b0e022f929d9bd2e44165aa270148"
         },
         {
             "role": "general",
@@ -60,7 +82,16 @@
             "ctx": 128000,
             "tested": false,
             "note": "optional, untested: smallest general model for the weakest devices",
-            "notice": "LFM2.5-350M is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-350M/blob/main/LICENSE"
+            "notice": "LFM2.5-350M is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM2.5-350M/blob/main/LICENSE",
+            "db_id": "LiquidAI--LFM2.5-350M-GGUF--LFM2.5-350M-Q4_K_M",
+            "base_model": "LiquidAI/LFM2.5-350M",
+            "base_revision": "9e6c6ccf47cd318696e137d381a7ded8fe4df09f",
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05},
+            "card_default_set": "Generation parameters",
+            "card_defaults_source": {"temp": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70", "top-k": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70", "repeat-penalty": "LiquidAI/LFM2.5-350M LiquidAI/LFM2.5-350M README.md:L70"},
+            "card_sampling_modes": {"Generation parameters": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.05}},
+            "card_ctx": 32768,
+            "card_ctx_source": "LiquidAI/LFM2.5-350M README.md:L65"
         },
         {
             "role": "coder",
@@ -75,7 +106,17 @@
             "ctx": 262144,
             "parser": "Qwen3-Coder XML (common/parsers/qwen3-coder.cpp)",
             "tested": false,
-            "note": "optional, untested: tool-calling reliability not verified"
+            "note": "optional, untested: tool-calling reliability not verified",
+            "db_id": "unsloth--Qwen3.5-0.8B-GGUF--Qwen3.5-0.8B-Q4_K_M",
+            "base_model": "Qwen/Qwen3.5-0.8B",
+            "base_revision": "2fc06364715b967f1860aea9cf38778875588b17",
+            "card_defaults": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0},
+            "card_default_set": "Non-thinking mode for text tasks",
+            "card_defaults_source": {"temp": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "top-p": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "top-k": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "min-p": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "presence-penalty": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "repeat-penalty": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705"},
+            "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
+            "card_default_mode": "non-thinking",
+            "card_ctx": 262144,
+            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63"
         },
         {
             "role": "decision",
@@ -90,7 +131,10 @@
             "ctx": 8192,
             "decision_type": "modern-bert decision head (same metadata keys as laya); no decision.temperature.* keys in the GGUF, so probabilities are not temperature-scaled",
             "tested": true,
-            "note": "optional: tested once (2/3 sanity routes correct); no decision.temperature.* keys, probabilities not calibrated"
+            "note": "optional: tested once (2/3 sanity routes correct); no decision.temperature.* keys, probabilities not calibrated",
+            "db_id": "ggml-org--Julia-1-GGUF--Julia-1-Q8_0",
+            "base_model": "SupersonicLabs/Julia-1",
+            "base_revision": "a85b127321d580d65176c89ced8273f305745d85"
         },
         {
             "role": "coder",
@@ -105,7 +149,17 @@
             "ctx": 262144,
             "parser": "Qwen3-Coder XML (common/parsers/qwen3-coder.cpp)",
             "tested": true,
-            "note": "optional, for 8 GB+ devices: tested once, 5.8 GB peak RSS at 16k ctx on x86 (incl. ~2.6 GB AMX repack copy)"
+            "note": "optional, for 8 GB+ devices: tested once, 5.8 GB peak RSS at 16k ctx on x86 (incl. ~2.6 GB AMX repack copy)",
+            "db_id": "unsloth--Qwen3.5-4B-GGUF--Qwen3.5-4B-Q4_K_M",
+            "base_model": "Qwen/Qwen3.5-4B",
+            "base_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+            "card_sampling_modes": {"Thinking mode for general tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for precise coding tasks (e.g. WebDev": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}, "Instruct (or non-thinking) mode for general tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Instruct (or non-thinking) mode for reasoning tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 40, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}},
+            "card_ctx": 262144,
+            "card_ctx_source": "Qwen/Qwen3.5-4B README.md:L64",
+            "card_defaults": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0},
+            "card_default_set": "Thinking mode for general tasks",
+            "card_defaults_source": {"temp": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "top-p": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "top-k": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "min-p": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "presence-penalty": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835", "repeat-penalty": "Qwen/Qwen3.5-4B Qwen/Qwen3.5-4B README.md:L835"},
+            "card_default_mode": "thinking"
         },
         {
             "role": "language",
@@ -123,7 +177,12 @@
             "tested": true,
             "note": "Opt-in interpreter for LANGUAGE_MODE=interpret only; never fetched by default. Best round trip on the 8-item test (chrF 78.8 to English / 80.7 from English, 0 wrong-language outputs, 93/95 code spans kept), 23 tok/s. For Japanese agent tasks it was slower and less reliable than native mode (README Languages).",
             "ctx_note": "GGUF metadata (hunyuan-dense.context_length); preset uses 8k",
-            "notice": "HY-MT1.5-1.8B is under the Tencent HY Community License: it is NOT licensed for use in the EU, the UK or South Korea, and needs extra terms above 100 million monthly active users. Read https://huggingface.co/tencent/HY-MT1.5-1.8B before using it."
+            "notice": "HY-MT1.5-1.8B is under the Tencent HY Community License: it is NOT licensed for use in the EU, the UK or South Korea, and needs extra terms above 100 million monthly active users. Read https://huggingface.co/tencent/HY-MT1.5-1.8B before using it.",
+            "db_id": "tencent--HY-MT1.5-1.8B-GGUF--HY-MT1.5-1.8B-Q4_K_M",
+            "card_defaults": {"top-k": 20, "top-p": 0.6, "repeat-penalty": 1.05, "temp": 0.7},
+            "card_default_set": "We recommend using the following set of parameters for inference. Note that our model does not have the default system prompt",
+            "card_defaults_source": {"top-k": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "top-p": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "repeat-penalty": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168", "temp": "tencent/HY-MT1.5-1.8B-GGUF tencent/HY-MT1.5-1.8B-GGUF README.md:L168"},
+            "card_sampling_modes": {"We recommend using the following set of parameters for inference. Note that our model does not have the default system prompt": {"top-k": 20, "top-p": 0.6, "repeat-penalty": 1.05, "temp": 0.7}}
         },
         {
             "role": "language",
@@ -139,7 +198,17 @@
             "dir": "models-optional/language",
             "languages": "201 languages and dialects (Qwen3.5 family claim)",
             "tested": true,
-            "note": "Opt-in smallest interpreter for LANGUAGE_MODE=interpret (--language-small only): weak (chrF 48.9 / 64.3 with code placeholders), but Apache-2.0 and 0.5 GB"
+            "note": "Opt-in smallest interpreter for LANGUAGE_MODE=interpret (--language-small only): weak (chrF 48.9 / 64.3 with code placeholders), but Apache-2.0 and 0.5 GB",
+            "db_id": "unsloth--Qwen3.5-0.8B-GGUF--Qwen3.5-0.8B-Q4_K_M",
+            "base_model": "Qwen/Qwen3.5-0.8B",
+            "base_revision": "2fc06364715b967f1860aea9cf38778875588b17",
+            "card_defaults": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0},
+            "card_default_set": "Non-thinking mode for text tasks",
+            "card_defaults_source": {"temp": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "top-p": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "top-k": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "min-p": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "presence-penalty": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705", "repeat-penalty": "Qwen/Qwen3.5-0.8B Qwen/Qwen3.5-0.8B README.md:L705"},
+            "card_sampling_modes": {"Non-thinking mode for text tasks": {"temp": 1.0, "top-p": 1.0, "top-k": 20, "min-p": 0.0, "presence-penalty": 2.0, "repeat-penalty": 1.0}, "Non-thinking mode for VL tasks": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for text tasks": {"temp": 1.0, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 1.5, "repeat-penalty": 1.0}, "Thinking mode for VL or precise coding (e.g. WebDev) tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}},
+            "card_default_mode": "non-thinking",
+            "card_ctx": 262144,
+            "card_ctx_source": "Qwen/Qwen3.5-0.8B README.md:L63"
         },
         {
             "role": "general",
@@ -160,7 +229,14 @@
             ],
             "languages": "ja, en (card)",
             "tested": true,
-            "note": "LANGUAGE_MODE=swap model for Japanese locales (general role); not a translator and not a coder (no tool calls in the agent test), see README Languages"
+            "note": "LANGUAGE_MODE=swap model for Japanese locales (general role); not a translator and not a coder (no tool calls in the agent test), see README Languages",
+            "db_id": "Takenoko12345678--Qwen3.5-0.8B-Japanese-SFT-v2-GGUF--Qwen3.5-0.8B-Japanese-SFT-v2-Q4_K_M",
+            "base_model": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2",
+            "base_revision": "969b0903193cc0028b3bac5d23a7aa21db971233",
+            "card_sampling_modes": {"\u63a8\u5968\u306e\u751f\u6210\u8a2d\u5b9a": {"temp": 1.0, "top-k": 20, "top-p": 1.0, "presence-penalty": 2.0}},
+            "card_defaults": {"temp": 1.0, "top-k": 20, "top-p": 1.0, "presence-penalty": 2.0},
+            "card_default_set": "\u63a8\u5968\u306e\u751f\u6210\u8a2d\u5b9a",
+            "card_defaults_source": {"temp": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-k": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "top-p": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139", "presence-penalty": "Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 Takenoko12345678/Qwen3.5-0.8B-Japanese-SFT-v2 README.md:L139"}
         },
         {
             "role": "coder",
@@ -175,7 +251,10 @@
             "ctx": 262144,
             "tested": false,
             "note": "optional, untested. Q4_K_M is 2708288960 bytes. --pick agenthorse parks the previous coder file. lowram loads one model, so the peak is this file. moderate and default keep the decision model loaded and can load general beside the coder. Japanese-oriented 4B merge (NeoHorse + Agents-A1). Not the default coder. Tool calling was not run. License is not stated on the card.",
-            "notice": "AgentHorse-4B Q4_K_M is an untested optional coder. Installing it parks the previous coder file. On lowram it is the only loaded model. On moderate and default the decision model stays loaded. Its license is not stated on the Hugging Face card. Tool calling was not verified."
+            "notice": "AgentHorse-4B Q4_K_M is an untested optional coder. Installing it parks the previous coder file. On lowram it is the only loaded model. On moderate and default the decision model stays loaded. Its license is not stated on the Hugging Face card. Tool calling was not verified.",
+            "db_id": "mradermacher--AgentHorse-4B-GGUF--AgentHorse-4B.Q4_K_M",
+            "base_model": "CloudGoat/AgentHorse-4B",
+            "base_revision": "19f9ca4f2e0288da139f073faaf8e2d5aabd04f0"
         },
         {
             "role": "jev",
@@ -191,7 +270,17 @@
             "dir": "models-optional/jev",
             "tested": false,
             "note": "optional, untested. Small brain named by Meanblock/JEV-CPU (semantic-if / option logits, SemIf CPU port). The repo distributes no weights. Qwen3.5-4B is the accurate brain and is too big here, so this is the quant-down (Q8_0, 639 MB). Fetching it does not replace Laya or run the JEV scorer.",
-            "notice": "Qwen3-0.6B-Q8_0 is the small model Meanblock/JEV-CPU points at instead of a 4B. JEV-CPU itself is MIT code (commit 759fa60603a0e312cda38824e63e58f18445c14a) and is not started by serve.sh. This file does not replace the decision model."
+            "notice": "Qwen3-0.6B-Q8_0 is the small model Meanblock/JEV-CPU points at instead of a 4B. JEV-CPU itself is MIT code (commit 759fa60603a0e312cda38824e63e58f18445c14a) and is not started by serve.sh. This file does not replace the decision model.",
+            "db_id": "Qwen--Qwen3-0.6B-GGUF--Qwen3-0.6B-Q8_0",
+            "base_model": "Qwen/Qwen3-0.6B",
+            "base_revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+            "card_sampling_modes": {"For thinking mode, use": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0}, "For non-thinking mode, we suggest using": {"temp": 0.7, "top-p": 0.8, "top-k": 20, "min-p": 0}},
+            "card_ctx": 32768,
+            "card_ctx_source": "Qwen/Qwen3-0.6B README.md:L34",
+            "card_defaults": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0},
+            "card_default_set": "For thinking mode, use",
+            "card_defaults_source": {"temp": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "top-p": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "top-k": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132", "min-p": "Qwen/Qwen3-0.6B Qwen/Qwen3-0.6B README.md:L132"},
+            "card_default_mode": "thinking"
         },
         {
             "role": "embed",
@@ -203,7 +292,12 @@
             "sha256": "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc",
             "license": "apache-2.0",
             "ctx": 8192,
-            "tested": false
+            "tested": false,
+            "db_id": "unsloth--embeddinggemma-2-GGUF--embeddinggemma-2-Q8_0",
+            "base_model": "google/embeddinggemma-2",
+            "base_revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+            "card_ctx": 8192,
+            "card_ctx_source": "google/embeddinggemma-2 README.md:L45"
         },
         {
             "role": "decision",
@@ -216,7 +310,14 @@
             "license": "apache-2.0",
             "ctx": 8192,
             "decision_type": "gev",
-            "tested": false
+            "tested": false,
+            "db_id": "mradermacher--GEV-26B-Decide-GGUF--GEV-26B-Decide.Q4_K_M",
+            "base_model": "autotrust/GEV-26B-Decide",
+            "base_revision": "eea849038e792cd09aa731d59d586f0eaf2c18f6",
+            "card_defaults": {"top-k": 0, "top-p": 1.0},
+            "card_default_set": "If you call /v1/completions for System 1 yourself, pass",
+            "card_defaults_source": {"top-k": "autotrust/GEV-26B-Decide autotrust/GEV-26B-Decide README.md:L481", "top-p": "autotrust/GEV-26B-Decide autotrust/GEV-26B-Decide README.md:L481"},
+            "card_sampling_modes": {"If you call /v1/completions for System 1 yourself, pass": {"top-k": 0, "top-p": 1.0}}
         },
         {
             "role": "general",
@@ -228,7 +329,14 @@
             "sha256": "04a592249958762d04ba0daf8e851eb89506e9fd0a38291e1e2ec9e6f6d61710",
             "license": "apache-2.0",
             "ctx": 32768,
-            "tested": false
+            "tested": false,
+            "db_id": "nace-ai--drex-dlm-Q8_0--drex-dlm-Q8_0",
+            "base_model": "nace-ai/drex-dlm",
+            "base_revision": "8f6f8244ce0b186b3caa4cdbaae1c9f3986bf63e",
+            "card_defaults": {"temp": 1.0},
+            "card_default_set": "This repository holds the weights: model- -of-00004.safetensors (about 16 GB in bfloat16) and head.pt , the 256-dim pointer head with",
+            "card_defaults_source": {"temp": "nace-ai/drex-dlm nace-ai/drex-dlm README.md:L276"},
+            "card_sampling_modes": {"This repository holds the weights: model- -of-00004.safetensors (about 16 GB in bfloat16) and head.pt , the 256-dim pointer head with": {"temp": 1.0}}
         }
     ]
 }
