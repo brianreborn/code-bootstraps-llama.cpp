@@ -242,7 +242,11 @@ scripts/fetch-models.sh --language             # opt-in interpreter (license: no
 scripts/fetch-models.sh --pick agenthorse      # optional untested coder, Q4_K_M; parks the previous coder
 scripts/fetch-models.sh --pick jev             # optional Qwen3-0.6B for JEV-CPU; does not replace Laya
 scripts/fetch-models.sh --ask                  # ask which one extra to add; empty or unknown downloads nothing
+scripts/fetch-models.sh --dry-run              # print each file, size, sha256, license, template: present or would download; writes nothing
+scripts/fetch-models.sh --damp-run             # fetch only the pinned chat templates; list the skipped weights with size and sha256
 ```
+
+`--dry-run` and `--damp-run` work with every pick option above. `--dry-run` makes no request and writes nothing. `--damp-run` fetches only the small pieces (the pinned chat templates, capped by `--max-file-mb`, default 50) and never a weight; it prints each skipped weight with its size and sha256 and a total. The full run, without either flag, stays the default. The PowerShell `fetch-models.ps1` does not have these modes yet.
 
 `scripts/fetch-models.sh --ask` (Windows: `scripts\fetch-models.ps1 -Ask`) reads one name from stdin. It does not open a terminal. The list is only manifest rows that already have a sha256, except the default general and coder files, so AgentHorse and JEV are offered only because their hashes are already in the manifest. There is no default extra. An empty line, or a name that is not one listed row (`pick/file`, or a pick or file name that matches a single row), downloads nothing. The chosen file uses the same download and sha256 check as the other picks; a mismatch is kept as `*.bad` and is not the live file. Rows with an empty sha256 are not offered and are not fetched. The default general and coder files are not replaced, moved, or downloaded again as a side effect.
 
