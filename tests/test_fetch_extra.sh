@@ -313,5 +313,47 @@ else
   bad "agenthorse ask: $(tail -n 15 "$T/agent.out") log=$(cat "$T/agent.log" 2>/dev/null || true)"
 fi
 
+# --dry-run / --damp-run (familia #51): no weight download; dry writes nothing at all.
+tsha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cat > "$T/modes.json" <<EOF
+{
+  "candidates": [
+    {
+      "role": "general",
+      "pick": "default",
+      "repo": "example/general",
+      "revision": "abc",
+      "file": "general-default.gguf",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bytes": 123000000,
+      "license": "apache-2.0",
+      "tested": true,
+      "chat_template_repo": "example/base",
+      "chat_template_revision": "def",
+      "chat_template_path": "chat_template.jinja",
+      "chat_template_sha256": "$tsha"
+    }
+  ]
+}
+EOF
+sb "$T/sbm"
+for m in dry damp; do
+  store="$T/store-$m"; log="$T/$m.log"; : > "$log"
+  if PATH="$T/stubs:$PATH" GGUF_HOME="$store" MANIFEST="$T/modes.json" CURL_LOG="$log" WANT_SHA="$tsha" \
+      sh "$T/sbm/scripts/fetch-models.sh" --$m-run > "$T/$m.out" 2>&1; then
+    grep -q "$m-run: general example/general@abc general-default.gguf bytes=123000000 sha256=aaaa.* license=apache-2.0" "$T/$m.out" &&
+      ok "$m-run lists file, size, sha256 and license" || bad "$m-run listing: $(cat "$T/$m.out")"
+    if grep -q 'gguf' "$log"; then bad "$m-run downloaded a weight: $(cat "$log")"; else ok "$m-run downloads no weight"; fi
+  else
+    bad "$m-run failed: $(cat "$T/$m.out")"
+  fi
+done
+if [ -s "$T/dry.log" ]; then bad "dry-run used the network: $(cat "$T/dry.log")"; else ok "dry-run makes no request"; fi
+if [ -e "$T/store-dry" ]; then bad "dry-run wrote to the store"; else ok "dry-run writes nothing"; fi
+if [ -e "$T/sbm/.cache/verified/$tsha" ] && [ -f "$T/store-damp/models/general/general-default.chat-template.jinja" ] &&
+  grep -q 'example/base/resolve/def/chat_template.jinja' "$T/damp.log"; then
+  ok "damp-run fetches the pinned chat template"; else bad "damp-run template: $(cat "$T/damp.out")"; fi
+if grep -q 'damp run: 1 weight file(s) skipped (123 MB)' "$T/damp.out"; then ok "damp-run totals"; else bad "damp totals: $(tail -n 2 "$T/damp.out")"; fi
+
 if [ "$fails" -eq 0 ]; then echo "all extra-model ask tests passed"
 else echo "$fails failed"; exit 1; fi

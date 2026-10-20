@@ -15,6 +15,12 @@
 # general and coder files, and reads one name from stdin. It does not open a
 # TTY. Empty or unknown input downloads nothing. The chosen file uses the
 # download below and does not replace, move, or re-download that default pair.
+# Run modes (familia #51; the full run stays the default):
+#   --dry-run       no network, no writes: print each row's file, size, sha256,
+#                   license, chat template and present/would-download status.
+#   --damp-run      fetch only the small pieces (pinned chat templates); list the
+#                   weights it skips with their size and sha256.
+#   --max-file-mb N damp-run size cap for a small piece (default 50).
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
@@ -22,6 +28,8 @@ MANIFEST=${MANIFEST:-config/models-manifest.json}
 pick=default
 role=""
 ask=0
+mode=full
+max_mb=50
 while [ $# -gt 0 ]; do
   case "$1" in
     --fallback) pick=fallback ;;
@@ -32,7 +40,10 @@ while [ $# -gt 0 ]; do
     --pick) pick=${2:?--pick needs a name}; shift ;;
     --role) role=${2:?--role needs a name}; shift ;;
     --ask) ask=1 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    --dry-run) mode=dry ;;
+    --damp-run) mode=damp ;;
+    --max-file-mb) max_mb=${2:?--max-file-mb needs a number}; shift ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "fetch-models.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
@@ -132,16 +143,79 @@ kv="pick=$pick"
 [ -n "$role" ] && kv="$kv role=$role"
 rows=$(mktemp)
 awk -v match_kv="$kv" \
-  -v fields="role repo revision file sha256 tested dir notice" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
+  -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license" \
+  -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
 [ -s "$rows" ] || { echo "fetch-models.sh: no manifest entries for pick='$pick'" >&2; rm -f "$rows"; exit 1; }
 
-while IFS=$tab read -r r repo rev file sha tested dir notice; do
+# fetch_template GGUF_PATH REPO REV PATH SHA: the repo chat template the model must be served with
+# (its GGUF's differs; familia #51) as <model>.chat-template.jinja, pinned and sha256-checked.
+# PATH "X.json:key" is the template stored as key of X.json (needs python3).
+fetch_template() {
+  ft_dest="${1%.gguf}.chat-template.jinja"
+  if [ -f "$ft_dest" ] && [ "$(sha256_of "$ft_dest")" = "$5" ]; then
+    echo "fetch-models.sh: chat template $ft_dest OK"
+    mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"; return 0
+  fi
+  case "$4" in
+    *:*) ft_file=${4%%:*}; ft_key=${4#*:} ;;
+    *) ft_file=$4; ft_key="" ;;
+  esac
+  ft_url="https://huggingface.co/$2/resolve/$3/$ft_file"
+  echo "fetch-models.sh: chat template $ft_url -> $ft_dest"
+  curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 -o "$ft_dest.part" "$ft_url" ||
+    { echo "fetch-models.sh: could not fetch the chat template $ft_url" >&2; exit 1; }
+  if [ -n "$ft_key" ]; then
+    command -v python3 >/dev/null 2>&1 ||
+      { echo "fetch-models.sh: the chat template of $(basename "$1") is $ft_key in $ft_file; extracting it needs python3" >&2; exit 1; }
+    python3 -c 'import json,sys; t=json.load(open(sys.argv[1],encoding="utf-8"))[sys.argv[2]]; open(sys.argv[3],"w",encoding="utf-8",newline="").write(t)' \
+      "$ft_dest.part" "$ft_key" "$ft_dest.tmpl" && mv -f "$ft_dest.tmpl" "$ft_dest.part"
+  fi
+  ft_got=$(sha256_of "$ft_dest.part")
+  if [ "$ft_got" != "$5" ]; then
+    mv -f "$ft_dest.part" "$ft_dest.bad"
+    echo "fetch-models.sh: chat template sha256 mismatch for $(basename "$1") (got $ft_got, want $5)" >&2
+    exit 1
+  fi
+  mv -f "$ft_dest.part" "$ft_dest"
+  mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"
+}
+
+damp_skipped=0
+damp_bytes=0
+while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_path ct_sha bytes lic; do
   [ -n "$file_only" ] && [ "$file" != "$file_only" ] && continue
+  [ "$dir" = "-" ] && dir="models/$r"
+  rel="$dir/$file"
+  if [ "$mode" != full ]; then
+    # dry/damp: never a weight download. Unknown values are printed as unknown.
+    [ "$bytes" = "-" ] && bytes=unknown
+    [ "$lic" = "-" ] && lic=unknown
+    case "$sha" in ""|-) sha=unknown ;; esac
+    path=$(gguf_resolve "$rel")
+    if [ -f "$path" ]; then st=present
+    elif [ "$mode" = dry ]; then st="would download (full run)"
+    else st="skipped weight (damp)"; damp_skipped=$((damp_skipped + 1))
+      case "$bytes" in unknown) ;; *) damp_bytes=$((damp_bytes + bytes)) ;; esac
+    fi
+    echo "fetch-models.sh: $mode-run: $r $repo@$rev $file bytes=$bytes sha256=$sha license=$lic: $st"
+    [ "$notice" = "-" ] || echo "fetch-models.sh: LICENSE NOTICE: $notice" >&2
+    if [ "$ct_sha" != "-" ]; then
+      if [ "$mode" = dry ]; then
+        tp="${path%.gguf}.chat-template.jinja"
+        if [ -f "$tp" ]; then tst=present; else tst="would download"; fi
+        echo "fetch-models.sh: dry-run:   chat template $ct_repo@$ct_rev $ct_path sha256=$ct_sha: $tst"
+      else
+        # the template is a few KB; it sits next to where the model goes
+        [ -f "$path" ] || path=$(gguf_dest "$rel")
+        mkdir -p "$(dirname "$path")"
+        fetch_template "$path" "$ct_repo" "$ct_rev" "$ct_path" "$ct_sha"
+      fi
+    fi
+    continue
+  fi
   case "$sha" in
     ""|-) echo "fetch-models.sh: $file has no sha256; not fetched" >&2; exit 1 ;;
   esac
-  [ "$dir" = "-" ] && dir="models/$r"
-  rel="$dir/$file"
   inactive_rel="models-inactive/${dir#*/}/$file"
   fresh=0
   [ "$tested" = yes ] || echo "fetch-models.sh: NOTE: $file is untested with this repo" >&2
@@ -214,6 +288,13 @@ while IFS=$tab read -r r repo rev file sha tested dir notice; do
   fi
   mkdir -p .cache/verified
   fingerprint "$path" > "$stamp"
+  if [ "$ct_sha" != "-" ] && [ -n "$ct_sha" ]; then
+    fetch_template "$path" "$ct_repo" "$ct_rev" "$ct_path" "$ct_sha"
+  fi
   echo "fetch-models.sh: OK $r = $file"
 done < "$rows"
+case "$mode" in
+  dry) echo "fetch-models.sh: dry run: nothing downloaded or written"; exit 0 ;;
+  damp) echo "fetch-models.sh: damp run: $damp_skipped weight file(s) skipped ($((damp_bytes / 1000000)) MB); small pieces capped at $max_mb MB; run without --damp-run to download them"; exit 0 ;;
+esac
 echo "fetch-models.sh: done. Restart scripts/serve.sh (or start.sh) to serve a newly installed model."

@@ -28,12 +28,16 @@ sandbox() {
   d=$1
   mkdir -p "$d/.cache/verified"
   cp -R "$ROOT/scripts" "$ROOT/config" "$d/"
-  awk -v match_kv="pick=default" -v fields="role file sha256" -f "$ROOT/scripts/lib/manifest.awk" \
+  awk -v match_kv="pick=default" -v fields="role file sha256 chat_template_sha256" -f "$ROOT/scripts/lib/manifest.awk" \
     "$ROOT/config/models-manifest.json" > "$d/.cache/default-rows"
-  while IFS=$tab read -r role f sha; do
+  while IFS=$tab read -r role f sha ctsha; do
     mkdir -p "$d/models/$role"
     echo "placeholder $f" > "$d/models/$role/$f"
     fingerprint "$d/models/$role/$f" > "$d/.cache/verified/$sha"
+    if [ "$ctsha" != "-" ]; then   # the repo chat template serve.sh requires (familia #51)
+      echo "placeholder template" > "$d/models/$role/${f%.gguf}.chat-template.jinja"
+      fingerprint "$d/models/$role/${f%.gguf}.chat-template.jinja" > "$d/.cache/verified/$ctsha"
+    fi
   done < "$d/.cache/default-rows"
 }
 place() {
@@ -132,6 +136,10 @@ launch() {
   d=$T/$name
   rm -rf "$d"
   sandbox "$d"
+  if [ "${1:-}" = --no-template ]; then
+    shift
+    rm -f "$d"/models/*/*.chat-template.jinja
+  fi
   if [ "${1:-}" = --language ]; then
     shift
     place 4383ac0c3c8e476de98ff979c2a3f069f8c4fb385e7860cf2d28da896cc477c7 \
@@ -236,6 +244,21 @@ if [ "$got" = "mmap+mlock mmap+mlock 1 mmap+mlock" ]; then
   ok "Android LOAD_MODE=mmap+mlock still requests mlock"
 else
   bad "Android LOAD_MODE=mmap+mlock: got '$got' $(tail -n 8 "$d/out.txt")"
+fi
+
+# familia #51: a model whose GGUF template differs from its repo's is served with the repo's
+ini="$d/.cache/models-preset.effective.ini"
+if [ "$(val "$ini" general chat-template-file)" = "$d/models/general/LFM2.5-1.2B-Instruct-Q4_K_M.chat-template.jinja" ] \
+  && [ "$(nkey "$ini" coder chat-template-file)" = 0 ]; then
+  ok "general gets its repo chat template, coder keeps the GGUF's"
+else
+  bad "chat-template-file: general '$(val "$ini" general chat-template-file)', coder $(nkey "$ini" coder chat-template-file)"
+fi
+d2=$(launch no-template --no-template)
+if grep -q "needs its repo chat template" "$d2/out.txt" 2>/dev/null; then
+  ok "a missing repo chat template stops serve.sh"
+else
+  bad "missing chat template not refused: $(tail -n 4 "$d2/out.txt")"
 fi
 
 if [ "$fails" -eq 0 ]; then echo "all reasoning overlay tests passed"

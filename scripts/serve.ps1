@@ -200,6 +200,21 @@ $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
 if ($parallelKnob) { Set-Overlay "coder.parallel" $parallelKnob; $tuned += " PARALLEL=$parallelKnob" }
+# Prompt cache (issue #16, same rules as serve.sh): lowram 768, moderate 1024, default 2048 MiB,
+# never more than a quarter of the free RAM. CACHE_RAM (MiB, 0 = off) or a --cache-ram argument wins.
+$uaCacheRam = $false
+foreach ($a in $Extra) { $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant(); if ($n -eq '--cache-ram' -or $n -eq '-cram') { $uaCacheRam = $true } }
+if (-not $uaCacheRam) {
+    $cacheRamKnob = Get-Knob "CACHE_RAM" 0 1048576
+    if ($env:CACHE_RAM -eq "0") { $cacheRamKnob = "0" }
+    if ($cacheRamKnob) { $cacheRam = [int]$cacheRamKnob; $tuned += " CACHE_RAM=$cacheRamKnob" }
+    else {
+        $cacheRam = switch ($RamProfile) { "lowram" { 768 } "moderate" { 1024 } default { 2048 } }
+        if ($availMB -gt 0 -and [int][math]::Floor($availMB / 4) -lt $cacheRam) { $cacheRam = [int][math]::Floor($availMB / 4) }
+        if ($cacheRam -lt 512) { Write-Warning "prompt cache limited to $cacheRam MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached" }
+    }
+    Set-Overlay "*.cache-ram" "$cacheRam"
+}
 # Empty and off leave the preset. on and auto overlay general and coder only.
 $reasoning = [Environment]::GetEnvironmentVariable("REASONING")
 if (-not $reasoning) { $reasoning = "" }
