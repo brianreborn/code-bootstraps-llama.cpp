@@ -185,14 +185,14 @@ else
   fi
 fi
 case "$PROFILE" in
-  default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
+  default) MODELS_MAX=${MODELS_MAX:-8}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
-    MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
-    OVERLAY="coder.parallel=2 coder.ctx-size=24576 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true"
+    MODELS_MAX=${MODELS_MAX:-4}; RESIDENT=1
+    OVERLAY="coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     ;;
   lowram)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
-    OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    OVERLAY="coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
