@@ -7,7 +7,7 @@ cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$ROOT/$1" ;; esac; }
 
-HOST=${HOST:-127.0.0.1}
+HOST=${HOST:-127.0.0.1,::1} # 0.0.0.0 is IPv4 all interfaces; ::1 is IPv6 localhost; etc.
 PORT=${PORT:-9931}
 EMBED_PORT=${EMBED_PORT:-}
 # MODELS_DIR, when set, replaces the models root. Unset: the shared GGUF store,
@@ -25,7 +25,7 @@ MCP_CONFIG=${MCP_CONFIG-$ROOT/config/mcp-servers.json}
 TOOLS=${TOOLS-auto}
 TOOLS_FULL="read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info"
 TOOLS_LEAN="read_file,write_file,edit_file,exec_shell_command"
-TOOLS_RUNTIME=${TOOLS_RUNTIME:-auto}
+TOOLS_RUNTIME= # default = none: host executes directly
 TOOLS_IMAGE=${TOOLS_IMAGE:-docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016}
 WORKDIR=${WORKDIR:-$ROOT/workspace}
 THREADS=${THREADS:-auto}
@@ -185,14 +185,14 @@ else
   fi
 fi
 case "$PROFILE" in
-  default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
+  default) MODELS_MAX=${MODELS_MAX:-4}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
-    MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
-    OVERLAY="coder.parallel=2 coder.ctx-size=24576 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096 decision.load-on-startup=true"
+    MODELS_MAX=${MODELS_MAX:-4}; RESIDENT=1
+    OVERLAY="coder.ctx-size=32768 general.ctx-size=65536 decision.ctx-size=65536 language.ctx-size=65536 decision.load-on-startup=true"
     ;;
+  # No forcing extra models like decision on low-RAM systems. Let them decide.
   lowram)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
-    OVERLAY="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
@@ -212,9 +212,9 @@ ov_set() {
 num_ok MODELS_MAX "$MODELS_MAX" 1 8
 ROUTER_MAX=$((MODELS_MAX + RESIDENT))
 TUNED=""
-if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 2048 262144
+if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 32768 262144
   ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
-if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 2048 262144
+if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 16384 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
 # Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens, so the old
@@ -511,7 +511,7 @@ printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" 
 
 case "$HOST" in
   127.0.0.1|localhost|::1) ;;
-  *) warn "$(t "the chosen host is not loopback; keep the API key secret")" ;;
+  *) warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")" ;;
 esac
 
 mkdir -p "$(dirname "$API_KEY_FILE")"
