@@ -1,7 +1,6 @@
 #!/bin/sh
 # Maintainer script (not run by users): cross-build the pinned llama.cpp for Android arm64
-# (Termux) with the Android NDK on a Linux x86_64 machine, and pack the release asset that
-# config/llama-release.json pins for platform android-arm64.
+# (Termux) with the Android NDK on a Linux x86_64 machine, and pack an optional custom release.
 # Why not upstream's android-arm64 asset: it is built with LLAMA_SUBPROCESS=OFF (router mode,
 # the server tools and stdio MCP all fail: "subprocess is not enabled on this build") and
 # has no RUNPATH (llama-server cannot find its own libraries without LD_LIBRARY_PATH).
@@ -186,7 +185,7 @@ dirty_note=""
   echo "target:           arm64-v8a, Android API $api (Android 9+), CPU only (GGML_CPU_ALL_VARIANTS: the best armv8/armv9 variant is loaded at run time)"
   echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
   echo "web UI:           $LLAMA_UI_URL (sha256 $LLAMA_UI_SHA256, checked; embedded from llama.cpp/tools/ui/dist)"
-  echo "BoringSSL:        $BORINGSSL_COMMIT (tag 0.20260929.0 named by llama.cpp $LLAMA_TAG)"
+  echo "BoringSSL commit: $BORINGSSL_COMMIT (pinned independently)"
   echo "reproducible with: the same NDK, cmake 3.31.6 and ninja 1.12.1 gave bit-identical binaries on two machines"
   echo "cmake arguments:"
   sed "s|$ANDROID_NDK|\$ANDROID_NDK|g; s|$BUILD_ABS|<build>|g; s|$ROOT|<repo>|g; s/^/  /" "$argsf"

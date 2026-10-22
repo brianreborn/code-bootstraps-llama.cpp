@@ -1,106 +1,97 @@
 {
-  "_comment": "Official llama.cpp release binaries used by scripts/fetch-llama.sh and the start launchers instead of building. sha256 = the digest GitHub reports for each release asset (API field 'digest'), copied here so downloads are checked against this repository, not against the live release. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains the fallback for platforms or GPUs not listed. An asset with its own base_url is not an upstream build (android-arm64: this repository's release android-b11374-1, sha256 = our own published digest).",
-  "tag": "b11374",
-  "commit": "b92761a515ea31e852e7fbc1fad5f874b46f3718",
-  "published_at": "2026-10-03T11:51:21Z",
-  "base_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11374/",
+  "_comment": "Official llama.cpp 0.7.0 (b11669) release binaries. sha256 and byte counts are copied from the GitHub release API. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains available for platforms or variants not listed. The upstream Android archive is intentionally not used because it disables subprocess support required by router mode and server tools; Termux builds the pinned source instead.",
+  "tag": "b11669",
+  "commit": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+  "published_at": "2026-10-15T16:10:46Z",
+  "base_url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/",
   "assets": [
     {
       "platform": "linux-x64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-ubuntu-x64.tar.gz",
-      "sha256": "a197c3d60845c097339c6ecdf7339cf52a7bf39114c163dfc598fe386dd2b819",
-      "bytes": 17659271,
+      "file": "llama-b11669-bin-ubuntu-x64.tar.gz",
+      "sha256": "cf07c1c112d709bd67e522017471de57ed0ec8bea031d732c5422351c07f65ac",
+      "bytes": 17851611,
       "note": "glibc 2.34+, needs libgomp1, libssl3, zlib, libzstd (Ubuntu 22.04+ / Debian 12+); all x86 CPU variants, picked at run time"
     },
     {
       "platform": "linux-x64",
       "variant": "vulkan",
-      "file": "llama-b11374-bin-ubuntu-vulkan-x64.tar.gz",
-      "sha256": "826ca9d0f0f38c7485297261f5291abd14c6f634be1dde4baf7a43816a036db9",
-      "bytes": 31599959,
+      "file": "llama-b11669-bin-ubuntu-vulkan-x64.tar.gz",
+      "sha256": "e8709e5ba6c1b093dea7f3de57f4aba842f9a188fba6b465782d65d6fcfa4d9f",
+      "bytes": 30497889,
       "note": "needs a Vulkan driver (libvulkan1)"
     },
     {
       "platform": "linux-x64",
       "variant": "cuda-12",
-      "file": "llama-b11374-bin-ubuntu-cuda-12.8-x64.tar.gz",
-      "sha256": "bd3885b4997a25afc22e9d568fd646d223fec97ca0ccd1a65ab1d423edf624f9",
-      "bytes": 171513778,
-      "extra_file": "cudart-llama-b11374-bin-ubuntu-cuda-12.8-x64.tar.gz",
-      "extra_sha256": "19446ae5d77290502096a7f1b9d71472d9fe8e6e90789d767af3ccef15862d35",
-      "extra_bytes": 594377951,
+      "file": "llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "sha256": "4703ed1a3cd6e8504affb6cb9866f501e96d634d68a002dc9a8251c9e2819b49",
+      "bytes": 172525113,
+      "extra_file": "cudart-llama-b11669-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      "extra_sha256": "ab3eda89a82096bcba00b6448218c3c11eec2016b0f38d64884dc29736549f26",
+      "extra_bytes": 594377811,
       "note": "NVIDIA driver for CUDA 12.8; CUDA runtime in extra_file"
     },
     {
       "platform": "linux-x64",
       "variant": "cuda-13",
-      "file": "llama-b11374-bin-ubuntu-cuda-13.4-x64.tar.gz",
-      "sha256": "f3632c94aa8f4f96c6d9d7fafb01317e733e75aacac456b8c8f89d736b908815",
-      "bytes": 152369798,
-      "extra_file": "cudart-llama-b11374-bin-ubuntu-cuda-13.4-x64.tar.gz",
-      "extra_sha256": "1aa63382b95962982c26a92b5fc7e97193ebee65f77b41d38816faf5f2c51679",
-      "extra_bytes": 440236625,
+      "file": "llama-b11669-bin-ubuntu-cuda-13.4-x64.tar.gz",
+      "sha256": "80878473d27278dbe9c38fb7e704f292a51e889d3c28a1e863137cdee1e2ba4e",
+      "bytes": 153679828,
+      "extra_file": "cudart-llama-b11669-bin-ubuntu-cuda-13.4-x64.tar.gz",
+      "extra_sha256": "1108bd9300a281e8eabb18d3fa028d4240ecd983f9f90dbbbc3297671016d697",
+      "extra_bytes": 440236547,
       "note": "NVIDIA driver for CUDA 13.4; CUDA runtime in extra_file"
     },
     {
       "platform": "linux-arm64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-ubuntu-arm64.tar.gz",
-      "sha256": "5541cbbcf064cb065beee4830ba454177215166361207cc1a94508d807d76a00",
-      "bytes": 13688667
+      "file": "llama-b11669-bin-ubuntu-arm64.tar.gz",
+      "sha256": "9ac6fda2058d35677608a06f751a50122ddfa4ce0ddb7f084466b8e79b6d4a99",
+      "bytes": 13900160
     },
     {
       "platform": "linux-arm64",
       "variant": "vulkan",
-      "file": "llama-b11374-bin-ubuntu-vulkan-arm64.tar.gz",
-      "sha256": "63e6139f979ba669cc734b4500f9c98525b972c028478509380c237cec0a163b",
-      "bytes": 24849096
-    },
-    {
-      "platform": "android-arm64",
-      "variant": "cpu",
-      "file": "llama-b11374-bin-android-arm64-cbl1.tar.gz",
-      "sha256": "f5e1df0bcb19d96f0f700fd3ababbc78ec078eb573453f1cb0863195299a0053",
-      "bytes": 73241334,
-      "base_url": "https://github.com/brianreborn/code-bootstraps-llama.cpp/releases/download/android-b11374-1/",
-      "note": "built by this repository (scripts/build-android-release.sh, NDK r29, API 28) with subprocess support and RUNPATH $ORIGIN; upstream's llama-b11374-bin-android-arm64.tar.gz (sha256 9436b23e95b4060489e5081fc47e70e857918c36c3c697d9f934b49e91f80282) has LLAMA_SUBPROCESS=OFF, so router mode and the tools fail"
+      "file": "llama-b11669-bin-ubuntu-vulkan-arm64.tar.gz",
+      "sha256": "d283522e479c0d532e3a04d715dd852ffb2d95925caa6d41ef2ba53a65e46a51",
+      "bytes": 24187561
     },
     {
       "platform": "macos-arm64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-macos-arm64.tar.gz",
-      "sha256": "60e530c63000a1fdf792c4903f5398b9335ffde97b5ab19fa0e62cc15dd117c9",
-      "bytes": 11918888,
+      "file": "llama-b11669-bin-macos-arm64.tar.gz",
+      "sha256": "dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd",
+      "bytes": 12191582,
       "note": "Metal GPU support built in"
     },
     {
       "platform": "macos-x64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-macos-x64.tar.gz",
-      "sha256": "4a0dbc5433fbc466f32c549f927eaed89e3ccea0a145f1c79c9f78addb26f81c",
-      "bytes": 11473251
+      "file": "llama-b11669-bin-macos-x64.tar.gz",
+      "sha256": "cab28238d78158109b48deb27b05d50e0dcef56275d2e76da9ca8281526c7532",
+      "bytes": 11677404
     },
     {
       "platform": "windows-x64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-win-cpu-x64.zip",
-      "sha256": "07e4d54570d40a572cd9a8c506667e0ec35ed969dcb149ee5ff664600532d00c",
-      "bytes": 19352576
+      "file": "llama-b11669-bin-win-cpu-x64.zip",
+      "sha256": "37b3efcf962847ca869745fd4ccf7f5e7e8dacfeff9fa3523b4ca8cdc66d632b",
+      "bytes": 19537886
     },
     {
       "platform": "windows-x64",
       "variant": "vulkan",
-      "file": "llama-b11374-bin-win-vulkan-x64.zip",
-      "sha256": "af1a3ce9e267d0c9696200564e7cc719c281f2e88fb84d78ceb3d577705533f0",
-      "bytes": 33272836
+      "file": "llama-b11669-bin-win-vulkan-x64.zip",
+      "sha256": "2c07574e7bde71321cb785282b20cc821e951132149eeceeea32ddebdbf0598e",
+      "bytes": 32182350
     },
     {
       "platform": "windows-x64",
       "variant": "cuda-12",
-      "file": "llama-b11374-bin-win-cuda-12.4-x64.zip",
-      "sha256": "616630b03075b632a937199ae7f611a67b95bf1f7d256f64aae38f3c1d1553d6",
-      "bytes": 263794897,
+      "file": "llama-b11669-bin-win-cuda-12.4-x64.zip",
+      "sha256": "c2da1f73ed176ae093ac5aceb978a7b167a16113f6d74c6789eeaee2135cb8dc",
+      "bytes": 266582698,
       "extra_file": "cudart-llama-bin-win-cuda-12.4-x64.zip",
       "extra_sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
       "extra_bytes": 391443627,
@@ -109,9 +100,9 @@
     {
       "platform": "windows-x64",
       "variant": "cuda-13",
-      "file": "llama-b11374-bin-win-cuda-13.4-x64.zip",
-      "sha256": "b571aeff9b7337ce8ab9c5b61fda8051649758354f227fb87b28d98c70cfe57a",
-      "bytes": 152990823,
+      "file": "llama-b11669-bin-win-cuda-13.4-x64.zip",
+      "sha256": "3b92d5c064f5032e603e531d3ec8961f3bd6613e5dfad047399a92dec8e95dbc",
+      "bytes": 154582227,
       "extra_file": "cudart-llama-bin-win-cuda-13.4-x64.zip",
       "extra_sha256": "738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668",
       "extra_bytes": 423535356,
@@ -120,9 +111,10 @@
     {
       "platform": "windows-arm64",
       "variant": "cpu",
-      "file": "llama-b11374-bin-win-cpu-arm64.zip",
-      "sha256": "e5c10b22478a000ad5004248730b5b99711e59659370c81756c81ba6d23fb885",
-      "bytes": 12205129
+      "file": "llama-b11669-bin-win-cpu-arm64.zip",
+      "sha256": "9cff39ffed17edcd03a7d876073f74d7b48cd43a1e5eafdd59ee094185ad871b",
+      "bytes": 12442177
     }
-  ]
+  ],
+  "version": "0.7.0"
 }

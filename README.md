@@ -50,12 +50,16 @@ Everything after this is the detail: the pinned llama.cpp, the models, what was 
 
 ## Pinned llama.cpp
 
+The current pin is llama.cpp **0.7.0** (`b11669`); release binaries are sha256-pinned in
+`config/llama-release.json`, and source builds use the same commit from `config/llama-pin.env`.
+
 | | |
 |---|---|
-| Tag | `b11374` |
-| Commit | `b92761a515ea31e852e7fbc1fad5f874b46f3718` |
-| Commit date | 2026-10-03 08:59 UTC |
-| Build number | `11374` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11374`) |
+| Version | `0.7.0` |
+| Tag | `b11669` |
+| Commit | `620d2225cc436ab0b001e3200e590e3b286ef9ab` |
+| Commit date | 2026-10-15 13:48 UTC |
+| Build number | `11669` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11669`) |
 
 The pin is also recorded in `config/llama-pin.env`, which the build scripts read.
 
@@ -99,7 +103,7 @@ Prerequisites:
 - Windows: before unpacking, right-click the ZIP > Properties > tick **Unblock** > OK (or `Unblock-File .\code-bootstraps-llama.cpp-main.zip` in PowerShell). Otherwise SmartScreen shows "Windows protected your PC" for `start.bat`: click "More info" > "Run anyway". The launcher runs its `.ps1` files with `-ExecutionPolicy Bypass` and unblocks the llama.cpp files it downloads.
 - A `git clone` does not set these marks. The llama.cpp binaries the launchers download with `curl` are not marked either. None of these prompts were tested here.
 
-No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1`, `COPY_KEY=1`, `RAISE=0|1` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`; `RAISE` is an environment variable there too), plus everything `serve.sh` reads. On Linux, `VARIANT=auto` fetches `cuda-12` when `nvidia-smi -L` works, otherwise `vulkan` when `/dev/dri/renderD128` exists, otherwise `cpu`. A CPU-only binary with a GPU present prints a warning; `--fit` does not invent a GPU backend. macOS stays on the `cpu` asset (Metal is built into it). Android stays on `cpu`.
+No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1`, `COPY_KEY=1`, `RAISE=0|1`, `DETACH_MODE=foreground|nohup|tmux|screen|screen-attached` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`; `RAISE` is an environment variable there too), plus everything `serve.sh` reads. `screen` detaches into the `familia-server` session; `screen-attached` starts there without detaching, with 10,000 lines of scrollback. Detach using `Ctrl-A`, then `D`; resume with `screen -r familia-server`; review history with `Ctrl-A`, then `[`. Foreground is the default. On Linux, `VARIANT=auto` fetches `cuda-12` when `nvidia-smi -L` works, otherwise `vulkan` when `/dev/dri/renderD128` exists, otherwise `cpu`. A CPU-only binary with a GPU present prints a warning; `--fit` does not invent a GPU backend. macOS stays on the `cpu` asset (Metal is built into it). Android stays on `cpu`.
 
 One-line install:
 
@@ -139,7 +143,7 @@ cd ~/cbl && ./start.sh
 ```
 
 - **Clone with git, not the ZIP**, and keep the folder in `$HOME` (`/data/data/com.termux/files/home`), not on `/sdcard`: shared storage is mounted noexec (the binaries cannot run there) and slow to read models from. About 3 GB free are needed (4-5 GB more for a source build).
-- `start.sh` downloads **this repository's own build** of llama.cpp b11374 for Android arm64 (release [`android-b11374-1`](https://github.com/brianreborn/code-bootstraps-llama.cpp/releases/tag/android-b11374-1), sha256 pinned in `config/llama-release.json`), not upstream's Android asset: upstream builds it with `LLAMA_SUBPROCESS=OFF`, so router mode (one child process per model), every server tool and stdio MCP fail (`subprocess is not enabled on this build`), and its binaries have no RUNPATH, so `llama-server` cannot find its own libraries. Ours uses upstream's release flags plus subprocess support (fork+exec, `SUBPROCESS_SPAWN_VIA_FORK=1`) and `RUNPATH $ORIGIN`; `scripts/build-android-release.sh` rebuilds it, and the `BUILDINFO` file in the archive lists the NDK, flags, source commit and every file's sha256. Its inputs are pinned: the llama.cpp commit, the web UI archive (sha256 in `config/llama-pin.env`, never "latest"), the BoringSSL commit and NDK r29 (download URL and Google's sha1; the script can fetch and check it itself). With cmake 3.31.6 and ninja 1.12.1 two machines produced bit-identical binaries; other cmake/ninja versions may change them. The archive itself is deterministic (sorted, fixed owners, modes and mtime). If that download is not possible, `start.sh` builds on the phone instead (`pkg install git clang cmake ninja`; 30-90 min, `JOBS=2` if clang gets killed).
+- The tested `android-b11374-1` build described above is historical; there is no prebuilt Android archive for 0.7.0 yet. The upstream Android asset disables subprocess support required by router mode and server tools, so Termux builds the pinned 0.7.0 source instead (`pkg install git clang cmake ninja`; 30-90 min, `JOBS=2` if clang gets killed). `scripts/build-android-release.sh` can create a custom subprocess-enabled archive for maintainers.
 - `start.sh` takes a Termux wake lock (`termux-wake-lock`, released when the server stops; `WAKE_LOCK=0` skips it) and opens the UI with `termux-open-url`. Android gets the `moderate` profile with 6.9 GB of RAM or more (Galaxy A57: general, coder and decision all loaded), `lowram` below that (note9).
 - When Termux is in the background, Android may run it on the slow cores only, or stop it. Keep Termux visible (split screen), or view the UI from a PC through an SSH tunnel: in Termux `pkg install openssh`, set a password with `passwd`, run `sshd` (port 8022), then on the PC `ssh -p 8022 -L 9931:127.0.0.1:9931 <phone-ip>` and open `http://127.0.0.1:9931/?model=chat` there.
 - Android 12 and later (for example a Galaxy A57 on Android 16) kill "phantom" child processes, which the router and its model processes are. In Developer options turn on **Disable child process restrictions** and reboot. On Samsung phones also turn **Auto Blocker** off (Settings > Security and privacy) to install a Termux APK from GitHub or use USB debugging, and set Termux's battery use to **Unrestricted**. Android 10 (for example a Galaxy Note 9) has neither restriction.
@@ -147,7 +151,16 @@ cd ~/cbl && ./start.sh
 
 ### Release binaries (no build)
 
-`scripts/fetch-llama.sh` downloads the official llama.cpp **b11374** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), macOS arm64 (Metal) and x64, Windows x64/arm64. For Android arm64 (Termux) it uses this repository's own build of the same commit (see "Android (Termux)"; the asset has its own `base_url` in the manifest). Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b11374-<platform>-<variant>/` (git-ignored). The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
+`scripts/fetch-llama.sh` downloads the official llama.cpp **0.7.0 (b11669)** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), macOS arm64 (Metal) and x64, Windows x64/arm64. Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b11669-<platform>-<variant>/` (git-ignored). Termux builds from the pinned source because the upstream Android asset disables subprocess support. The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
+
+FreeBSD has no upstream release archive here. `start.sh` builds natively with
+`scripts/build-linux.sh` (CPU backend) into `build-freebsd/`. For a local build
+check, run `sh tests/test-freebsd.sh`; it checks the pinned source build and
+`llama-server --version` without downloading model weights. To also load a model
+already on disk and make a small inference request on loopback only, run
+`MODEL=/path/to/local-model.gguf sh tests/test-freebsd.sh`. `PORT` can select a
+different loopback port. The graph records `angel` as the FreeBSD test host and
+keeps it unmeasured until its hardware is recorded.
 
 ```sh
 scripts/fetch-llama.sh                    # CPU build for this machine (prints the llama-server path)
@@ -161,6 +174,7 @@ scripts/fetch-llama.sh --variant vulkan   # or cuda-12 / cuda-13 where listed
 | Host | Command | Output |
 |---|---|---|
 | Linux (x86_64, aarch64) | `scripts/build-linux.sh` | `build-linux-<arch>/bin/` |
+| FreeBSD (native CPU) | `GPU=off BUILD_DIR=build-freebsd scripts/build-linux.sh` | `build-freebsd/bin/` |
 | Android, Termux (arm64) | `pkg install git clang cmake ninja` (plus `python` for the agent and the example MCP server), then `scripts/build-termux.sh` (builds `llama-server` only) | `build-termux-<arch>/bin/` |
 | Android release asset (maintainers, on Linux x86_64) | `ANDROID_NDK=/path/to/android-ndk-r29 scripts/build-android-release.sh` | `dist/llama-b11374-bin-android-arm64-cbl<REV>.tar.gz`, `SHA256SUMS`, `BUILDINFO` |
 | macOS (Apple silicon / Intel) | `scripts/build-macos.sh` (same options as `build-linux.sh`) | `build-macos-<arch>/bin/` |
