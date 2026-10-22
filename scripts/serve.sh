@@ -100,6 +100,7 @@ case "${PREFIX:-}" in *com.termux*) IS_ANDROID=1 ;; esac
 
 mem_total_mb() {
   if [ "$OS" = Darwin ]; then echo $(( $(sysctl -n hw.memsize) / 1048576 ))
+  elif [ "$OS" = FreeBSD ]; then echo $(( $(sysctl -n hw.physmem) / 1048576 ))
   elif [ -r /proc/meminfo ]; then awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo
   else echo 0; fi
 }

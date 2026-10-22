@@ -2,6 +2,7 @@
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
 # Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
+# DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -43,6 +44,7 @@ else
   say "$(t "no release binary for this machine; building from source")"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
+    FreeBSD) script=scripts/build-linux.sh; BUILD_DIR=${BUILD_DIR:-build-freebsd} ;;
     *)
       if [ "$TERMUX" = 1 ]; then script=scripts/build-termux.sh
       else script=scripts/build-linux.sh; fi
@@ -53,19 +55,35 @@ else
     say "$(t "llama.cpp sources are missing from this download")"
     exit 1
   fi
-  [ -f llama.cpp/CMakeLists.txt ] || git submodule update --init llama.cpp
+  if [ ! -f llama.cpp/CMakeLists.txt ]; then
+    if ! git submodule update --init --recursive llama.cpp; then
+      say "$(t "could not fetch the pinned llama.cpp sources; check git access and run git submodule update --init --recursive")"
+      exit 1
+    fi
+  fi
   gpu_build=off
   case "$(cat .cache/llama-variant 2>/dev/null || true)" in
     vulkan) gpu_build=vulkan ;;
     cuda-*) gpu_build=cuda ;;
   esac
+  [ "$(uname -s)" != FreeBSD ] || gpu_build=off
   if [ "$script" = scripts/build-linux.sh ] && [ "$gpu_build" != off ]; then
     say "$(t "Linux will use a GPU build so the GPU is not left idle.")"
     GPU=$gpu_build "$script"
+  elif [ "$(uname -s)" = FreeBSD ]; then
+    BUILD_DIR="$BUILD_DIR" GPU=off "$script"
   else
     "$script"
   fi
-  LLAMA_SERVER=$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+  if [ "$(uname -s)" = FreeBSD ]; then
+    case "$BUILD_DIR" in
+      /*) built_dir=$BUILD_DIR ;;
+      *) built_dir=$ROOT/$BUILD_DIR ;;
+    esac
+    LLAMA_SERVER=$built_dir/bin/llama-server
+  else
+    LLAMA_SERVER=$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+  fi
   [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
 export LLAMA_SERVER
@@ -162,8 +180,8 @@ fi
 case "${DETACH_MODE:-foreground}" in
   tmux)
     if command -v tmux >/dev/null 2>&1; then
-      say "launching detached inside tmux session feeld-server"
-      exec tmux new-session -d -s feeld-server "sh scripts/serve.sh $*"
+      say "launching detached inside tmux session familia-server"
+      exec tmux new-session -d -s familia-server "sh scripts/serve.sh $*"
     else
       say "tmux requested but not found; falling back to nohup"
       mkdir -p .cache
@@ -173,13 +191,22 @@ case "${DETACH_MODE:-foreground}" in
     ;;
   screen)
     if command -v screen >/dev/null 2>&1; then
-      say "launching detached inside screen session feeld-server"
-      exec screen -dmS feeld-server sh scripts/serve.sh "$@"
+      say "launching detached inside screen session familia-server (10000 lines of scrollback)"
+      exec screen -h 10000 -dmS familia-server sh scripts/serve.sh "$@"
     else
       say "screen requested but not found; falling back to nohup"
       mkdir -p .cache
       nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
       disown $! 2>/dev/null || true
+    fi
+    ;;
+  screen-attached)
+    if command -v screen >/dev/null 2>&1; then
+      say "launching attached inside screen session familia-server (10000 lines of scrollback; detach with Ctrl-A then D; reattach with screen -r familia-server)"
+      exec screen -h 10000 -S familia-server sh scripts/serve.sh "$@"
+    else
+      say "screen-attached requested but screen is not installed"
+      exit 1
     fi
     ;;
   nohup)
@@ -192,7 +219,7 @@ case "${DETACH_MODE:-foreground}" in
     exec scripts/serve.sh "$@"
     ;;
   *)
-    say "unknown DETACH_MODE=$DETACH_MODE (foreground|nohup|tmux|screen)"
+    say "unknown DETACH_MODE=$DETACH_MODE (foreground|nohup|tmux|screen|screen-attached)"
     exit 1
     ;;
 esac

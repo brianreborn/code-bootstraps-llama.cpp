@@ -1,5 +1,5 @@
 #!/bin/sh
-# Release build of the pinned llama.cpp on Linux or macOS.
+# Release build of the pinned llama.cpp on Linux, FreeBSD (native CPU build), or macOS.
 #   scripts/build-linux.sh
 #   GPU=auto scripts/build-linux.sh
 # GPU: off (Linux default) | auto | vulkan | cuda | metal (macOS default)
@@ -22,15 +22,27 @@ fi
 
 ARCH=$(uname -m)
 OS=$(uname -s)
-if [ "$OS" = Darwin ]; then
-  OSNAME=macos
-  JOBS=${JOBS:-$(sysctl -n hw.logicalcpu)}
-  GPU=${GPU:-metal}
-else
-  OSNAME=linux
-  JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
-  GPU=${GPU:-off}
-fi
+case "$OS" in
+  Darwin)
+    OSNAME=macos
+    JOBS=${JOBS:-$(sysctl -n hw.logicalcpu)}
+    GPU=${GPU:-metal}
+    ;;
+  FreeBSD)
+    OSNAME=freebsd
+    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
+    GPU=${GPU:-off}
+    ;;
+  Linux)
+    OSNAME=linux
+    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
+    GPU=${GPU:-off}
+    ;;
+  *)
+    echo "build-linux.sh: unsupported operating system: $OS" >&2
+    exit 1
+    ;;
+esac
 BUILD_DIR=${BUILD_DIR:-build-$OSNAME-$ARCH}
 NATIVE=${NATIVE:-OFF}
 

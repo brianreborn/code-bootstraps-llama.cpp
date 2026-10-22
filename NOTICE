@@ -6,7 +6,7 @@ This project includes, as a git submodule (llama.cpp/), unmodified source code o
   llama.cpp - https://github.com/ggml-org/llama.cpp
   Copyright (c) 2023-2026 The ggml authors
   Licensed under the MIT License, see llama.cpp/LICENSE.
-  Pinned at tag b11374, commit b92761a515ea31e852e7fbc1fad5f874b46f3718.
+  Pinned at tag b11669 (llama.cpp 0.7.0), commit 620d2225cc436ab0b001e3200e590e3b286ef9ab.
   llama.cpp bundles third-party code under its own licenses, see llama.cpp/licenses/
   and llama.cpp/vendor/.
 
