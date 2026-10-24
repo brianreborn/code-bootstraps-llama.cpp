@@ -400,6 +400,34 @@
             "runtime": "llama-server__nace-ai__edlm (nace-ai/llama.cpp edlm; arch edlm is not in b11374)",
             "note": "DReX-DLM decision model (System 1, diffusion): served on the embeddings endpoint with --embedding --pooling none --parallel 1, -b/-ub = ctx (nace-ai/drex-decision-models models/drex-dlm/README.md L22). Not fetched by --fallback; needs its own runtime.",
             "blockers": ["needs the nace-ai edlm llama.cpp fork; the pinned b11374 has no edlm architecture"]
+        },
+        {
+            "role": "general",
+            "pick": "local",
+            "repo": "TokenTinkerer/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-TTQ-GGUF",
+            "revision": "ecddbd888f35d017429154bea68dfcdce5b4ee90",
+            "file": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-TTQ-3.93bpw-Q3_K_M.gguf",
+            "quant": "Q3_K_M",
+            "bytes": 17021759616,
+            "sha256": "77e45d6c1d0a56be5d5e6a1bdfb2b91cd85a81ffdb638932a5726b593b21cc1b",
+            "license": "apache-2.0",
+            "ctx": 262144,
+            "tested": false,
+            "arch": "qwen35moe",
+            "base_model": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+            "card_defaults": {"temp": 0.7, "top-p": 0.8},
+            "card_default_set": "thinking mode on general tasks (hotter, more variety), and",
+            "card_sampling_modes": {"precise coding tasks": {"temp": 0.6, "top-p": 0.95, "top-k": 20, "min-p": 0.0, "presence-penalty": 0.0, "repeat-penalty": 1.0}, "For comparison, their card suggests two other presets": {"temp": 1.0, "presence-penalty": 1.5}, "thinking mode on general tasks (hotter, more variety), and": {"temp": 0.7, "top-p": 0.8}},
+            "card_defaults_source": {"temp": "README.md:L157", "top-p": "README.md:L157"},
+            "card_commands": [{"tool": "llama-server", "command": "llama-server -m TTQ-3.93bpw-Q3_K_M.gguf -c 32768 -ngl 99 -fa on --jinja -ctk q8_0 -ctv q8_0", "source": "README.md:L122"}, {"tool": "llama-server", "command": "llama-server -m TTQ-3.93bpw-Q3_K_M.gguf -c 32768 -ngl 99 -fa on --jinja -md Qwen3.6-35B-A3B-MTP-ONLY-Q4_K_M-shared.gguf -ngld 999 -ctkd q8_0 -ctvd q8_0 --spec-type draft-mtp --spec-draft-n-max 2", "source": "README.md:L183"}],
+            "card_notes": [{"text": "`--jinja` makes llama.cpp apply the chat template **embedded in the file** (Qwen's official one) \u2014", "source": "README.md:L127"}, {"text": "That is **Qwen's own recommended sampling, verbatim.** Their card lists, for *thinking mode on", "source": "README.md:L151"}, {"text": "precise coding tasks*: `temperature=0.6, top_p=0.95, top_k=20, min_p=0.0, presence_penalty=0.0,", "source": "README.md:L152"}, {"text": "For comparison, their card suggests two other presets: `temperature=1.0, presence_penalty=1.5` for", "source": "README.md:L156"}, {"text": "thinking mode on general tasks (hotter, more variety), and `temperature=0.7, top_p=0.80` for", "source": "README.md:L157"}, {"text": "non-thinking mode. Swap to either if it suits your use; these quants are not tuned to a sampler.", "source": "README.md:L158"}, {"text": "- **Chat template:** every file embeds **Qwen's official template** at `tokenizer.chat_template`", "source": "README.md:L279"}, {"text": "with `--chat-template-file`.", "source": "README.md:L284"}],
+            "chat_template": {"gguf_sha256": "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259"},
+            "stop": {"eos_token_id": 248046, "eos_token_id_source": "GGUF tokenizer.ggml.eos_token_id"},
+            "rope": {"rope.freq_base": 10000000.0, "source": "GGUF metadata"},
+            "files": {"README.md": "5eb86c331672be6540906b38656ba163f9c4d6f16983c498ce63d4c3cf05dd76"},
+            "aux": [{"kind": "draft", "file": null, "ref": "Qwen3.6-35B-A3B-MTP-ONLY-Q4_K_M-shared.gguf", "source": "README.md:L183", "linked_to": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-TTQ-3.93bpw-Q3_K_M.gguf"}],
+            "inferred": {"role": [{"role": "general", "weight": 1, "source": "card front matter"}, {"role": "general", "weight": 1, "source": "GGUF metadata"}], "quant": "filename", "license": "card front matter", "ctx": "GGUF qwen35moe.context_length", "by": "scripts/add_model.py"},
+            "unknown": ["aux draft Qwen3.6-35B-A3B-MTP-ONLY-Q4_K_M-shared.gguf: not on disk", "config.json"]
         }
     ]
 }

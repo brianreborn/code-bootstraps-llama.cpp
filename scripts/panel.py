@@ -103,7 +103,7 @@ CHOICES = {
     "BUILD": ("0", "1"),
     "COPY_KEY": ("0", "1"),
     "RAISE": ("0", "1"),
-    "DETACH_MODE": ("foreground", "nohup", "tmux", "screen"),
+    "DETACH_MODE": ("foreground", "nohup", "tmux", "screen-attached", "screen"),
     "FEELD_SNAP_FS": ("auto", "zfs", "btrfs", "bcachefs", "apfs", "hardlink", "virtual"),
 }
 HINTS = {
