@@ -1,6 +1,11 @@
 #!/bin/sh
 # Start llama-server in router mode. Extra arguments go to every role.
 # /bin/sh. Settings are environment variables; see the assignments below.
+# Usage hints:
+#   PORT=9932 sh scripts/serve.sh --args --etc          # set env, pass args
+#   PROFILE=lowram 2 coder --ctx 65536                  # menu item ref: "2" = second model slot
+#   HERMES_PY=/usr/local/bin/python3.12 HERMES_SP=/usr/local/lib/python3.12/site-packages sh scripts/serve.sh
+#     # FreeBSD: override Python path and site-packages
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
@@ -97,6 +102,14 @@ OS=$(uname -s)
 IS_ANDROID=0
 case "${PREFIX:-}" in *com.termux*) IS_ANDROID=1 ;; esac
 [ -n "${ANDROID_ROOT:-}" ] && IS_ANDROID=1
+
+# FreeBSD: detect Python and hermes paths the way mk scripts do (ports use /usr/local).
+# HERMES_PY, HERMES_SP, HERMES_BIN can be overridden; otherwise we probe.
+if [ "$OS" = FreeBSD ]; then
+  : "${HERMES_PY:=$(command -v python3 2>/dev/null || echo /usr/local/bin/python3.12)}"
+  : "${HERMES_SP:=$(python3 -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || echo /usr/local/lib/python3.12/site-packages)}"
+  : "${HERMES_BIN:=$(command -v hermes 2>/dev/null || true)}"
+fi
 
 mem_total_mb() {
   if [ "$OS" = Darwin ]; then echo $(( $(sysctl -n hw.memsize) / 1048576 ))

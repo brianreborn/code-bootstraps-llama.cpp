@@ -4,6 +4,10 @@
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
+# Usage hints:
+#   PORT=9932 sh start.sh --args --etc                  # set env, pass args
+#   VARIANT=vulkan 2 coder --ctx 65536                  # menu item ref: "2" = second model slot
+#   HERMES_PY=/usr/local/bin/python3.12 sh start.sh     # FreeBSD: override Python path
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
