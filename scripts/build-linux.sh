@@ -4,9 +4,18 @@
 #   GPU=auto scripts/build-linux.sh
 # GPU: off (Linux default) | auto | vulkan | cuda | metal (macOS default)
 # JOBS, BUILD_DIR, NATIVE=ON, EXTRA_CMAKE_ARGS, ALLOW_UNPINNED=1
+# Android/Termux: uname is Linux, but this desktop build leaves BUILD_DIR without the
+# $ORIGIN rpath / subprocess flags Termux needs; hand off to build-termux.sh so
+# $BUILD_DIR/bin/llama-server (the post-build check) actually runs.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
+case "${PREFIX:-}" in
+  *com.termux*)
+    echo "build-linux.sh: Termux detected; handing off to scripts/build-termux.sh (BUILD_DIR + $ORIGIN rpath)" >&2
+    exec "$ROOT/scripts/build-termux.sh"
+    ;;
+esac
 . config/llama-pin.env
 
 [ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive
@@ -30,12 +39,12 @@ case "$OS" in
     ;;
   FreeBSD)
     OSNAME=freebsd
-    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
+    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '%s\n' 2)}
     GPU=${GPU:-off}
     ;;
   Linux)
     OSNAME=linux
-    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
+    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf '%s\n' 2)}
     GPU=${GPU:-off}
     ;;
   *)
@@ -91,4 +100,9 @@ if [ -n "${EXTRA_CMAKE_ARGS:-}" ]; then
 fi
 cmake "$@"
 cmake --build "$BUILD_DIR" --config Release -j "$JOBS"
-"$BUILD_DIR/bin/llama-server" --version
+case "$BUILD_DIR" in
+  /*) BUILD_ABS=$BUILD_DIR ;;
+  *) BUILD_ABS=$ROOT/$BUILD_DIR ;;
+esac
+# Sibling libggml-* (GGML_BACKEND_DL) must resolve; LD_LIBRARY_PATH covers hosts where RUNPATH is missing.
+LD_LIBRARY_PATH="$BUILD_ABS/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"   "$BUILD_ABS/bin/llama-server" --version
