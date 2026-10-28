@@ -28,8 +28,22 @@ done
 command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v cksum >/dev/null 2>&1 || missing="$missing sha256sum"
 if [ -n "$missing" ]; then
   say "$(t "Some required programs are missing.")$missing"
-  if [ "$TERMUX" = 1 ]; then say "$(t "Install the missing programs with pkg install.")$missing"; fi
-  exit 1
+  pkgs=$(printf '%s' "$missing" | sed 's/sha256sum/coreutils/; s/ awk/ gawk/')
+  if [ "$TERMUX" = 1 ]; then cmd="pkg install -y$pkgs"
+  elif command -v pacman >/dev/null 2>&1; then cmd="sudo pacman -Sy --needed --noconfirm$pkgs"
+  elif command -v apt-get >/dev/null 2>&1; then cmd="sudo apt-get update && sudo apt-get install -y$pkgs"
+  elif command -v dnf >/dev/null 2>&1; then cmd="sudo dnf install -y$pkgs"
+  elif command -v pkg >/dev/null 2>&1; then cmd="sudo pkg install -y$pkgs"
+  else cmd=""; fi
+  [ -z "$cmd" ] || say "install them with: $cmd"
+  if [ -n "$cmd" ] && [ "${AUTO_DEPS:-0}" = 1 ] && [ -r /dev/tty ]; then
+    printf 'start: run it now? [y/N] ' >&2
+    read -r ans < /dev/tty || ans=n
+    case "$ans" in y|Y|yes) sh -c "$cmd" || exit 1 ;; *) exit 1 ;; esac
+  else
+    [ -z "$cmd" ] || say "or re-run with AUTO_DEPS=1 to install them after one confirmation"
+    exit 1
+  fi
 fi
 
 maybe_raise
