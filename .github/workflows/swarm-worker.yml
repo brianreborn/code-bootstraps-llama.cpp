@@ -82,7 +82,7 @@ jobs:
             *) script=tests/e2e_user_journey.sh ;;
           esac
           if [ -f "$script" ]; then
-            { echo "$stamp"; sh "$script"; } > "$log" 2>&1; rc=$?
+            rc=0; { echo "$stamp"; sh "$script"; } > "$log" 2>&1 || rc=$?
           else
             printf '%s\n%s\n' "$stamp" "$script not present on this ref" > "$log"; rc=78
           fi
