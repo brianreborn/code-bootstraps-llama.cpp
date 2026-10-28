@@ -139,7 +139,7 @@ foreach ($e in $entries) {
     }
     $stamp = Join-Path $verified $sha
     if (-not $fresh) {
-        if (-not $FullVerify -and (Test-Path -LiteralPath $stamp) -and ((Get-Content -LiteralPath $stamp -TotalCount 1) -eq (Get-Fingerprint $path))) {
+        if (-not $FullVerify -and (Test-Stamp $stamp $path)) {
             Write-Host "fetch-models: $($e.file) unchanged since its last sha256 check (-FullVerify re-hashes)"
         } else {
             $got = Get-Sha256 $path
@@ -166,8 +166,21 @@ foreach ($e in $entries) {
             Write-Host "fetch-models: parking $($_.FullName) -> $inactiveDir\"
             Move-Item -LiteralPath $_.FullName -Destination $inactiveDir
         }
+        # A role served from another role's folder (coder on the general file): park a model
+        # in the role's own folder too, or it would win at serve time (old -Fallback coder).
+        $ownDir = Get-GgufDest ("models/" + $e.role)
+        if ((Split-Path -Parent $path) -ne $ownDir) {
+            $ownInactive = Get-GgufDest ("models-inactive/" + $e.role)
+            Get-ChildItem -LiteralPath $ownDir -Filter *.gguf -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notmatch 'mmproj' -and -not ($keepDefaults -and ($_.Name -eq $defGeneral -or $_.Name -eq $defCoder)) } |
+                ForEach-Object {
+                New-Item -ItemType Directory -Force -Path $ownInactive | Out-Null
+                Write-Host "fetch-models: parking $($_.FullName) -> $ownInactive\"
+                Move-Item -LiteralPath $_.FullName -Destination $ownInactive
+            }
+        }
     }
-    Write-TextFile $stamp (Get-Fingerprint $path)
+    Add-Stamp $stamp $path
     Write-Host "fetch-models: OK $($e.role) = $($e.file)"
 }
 Write-Host "fetch-models: done. Restart scripts\serve.ps1 (or start.bat) to serve a newly installed model."

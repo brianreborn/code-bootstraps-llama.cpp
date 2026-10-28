@@ -103,7 +103,7 @@ if ($mode -notin @("native", "swap", "interpret", "off")) { throw "unknown LANGU
 foreach ($a in $Extra) {
     $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant()
     if ($n -match '^(--tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy|--api-key|--api-key-file)$') {
-        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig (the API key is in .secrets\api-keys)"
+        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig (the API key is in %APPDATA%\familia\instances\<port>\api-keys)"
     }
     if ($n -match '^(-m|--model|-mu|--model-url|-dr|--docker-repo|-hf|-hfr|--hf-repo|-hff|--hf-file|-hfd|-hfrd|--hf-repo-draft|-hfv|-hfrv|--hf-repo-v|-hffv|--hf-file-v|-mv|--model-vocoder|-md|--model-draft|--spec-draft-model|--spec-draft-hf|--models-dir|--models-preset|--lora|--lora-scaled|--control-vector|--control-vector-scaled|-mm|--mmproj|-mmu|--mmproj-url|-a|--alias|--path|--media-path|--embd-.*-default|--fim-.*-default|--fim-.*-spec|--gpt-oss-.*-default|--vision-.*-default)$') {
         throw "argument '$a' is not allowed here: the models come from config\models-manifest.json and the preset (a [<role>] section may set 'model = <file>'; see README Models)"
@@ -168,20 +168,34 @@ if ($RamProfile -eq "auto") {
 }
 # same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
 # model is loaded at startup and kept (one --models-max slot more than ModelsMax), except lowram.
-$small = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
-              "general.parallel" = "1"; "general.ctx-size" = "8192"; "decision.parallel" = "1"; "decision.ctx-size" = "4096";
-              "language.parallel" = "1"; "language.ctx-size" = "4096" }
+# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic = long
+# context (131072 pools, up to 8 loaded); distributed = small slots (16k pools, 2-4 parallel, 2 loaded).
+$sizing = if ($env:SIZING) { $env:SIZING } else { "monolithic" }
+if ($sizing -notin @("monolithic", "distributed")) { throw "unknown SIZING=$sizing (monolithic|distributed)" }
 $overlay = [ordered]@{}
 $resident = 1
-if ($RamProfile -eq "lowram") {
+$ctxMinCoder = 32768; $ctxMinGeneral = 16384
+function Add-Pairs($pairs) { foreach ($p in ($pairs -split ' ')) { if ($p) { $kv = $p -split '=', 2; if ($overlay.Contains($kv[0])) { $overlay.Remove($kv[0]) }; $overlay[$kv[0]] = $kv[1] } } }
+if ($sizing -eq "distributed") {
+    $ctxMinCoder = 2048; $ctxMinGeneral = 2048
+    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
+    $small = "coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay = $small; $resident = 0
-} elseif ($RamProfile -eq "moderate") {
-    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay = $small; $overlay["coder.ctx-size"] = "24576"; $overlay["decision.load-on-startup"] = "true"
+    if ($RamProfile -eq "lowram") { Add-Pairs $small; $resident = 0 }
+    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=24576 decision.load-on-startup=true" }
+    else { Add-Pairs "decision.load-on-startup=true" }
 } else {
-    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay["decision.load-on-startup"] = "true"
+    if ($RamProfile -eq "lowram") {
+        if ($ModelsMax -eq 0) { $ModelsMax = 2 }
+        $resident = 0
+        Add-Pairs "coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    } elseif ($RamProfile -eq "moderate") {
+        if ($ModelsMax -eq 0) { $ModelsMax = 4 }
+        Add-Pairs "coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    } else {
+        if ($ModelsMax -eq 0) { $ModelsMax = 8 }
+        Add-Pairs "decision.load-on-startup=true"
+    }
 }
 if ($ModelsMax -lt 1 -or $ModelsMax -gt 8) { throw "MODELS_MAX / -ModelsMax $ModelsMax`: want a whole number from 1 to 8" }
 $routerMax = $ModelsMax + $resident
@@ -194,8 +208,8 @@ function Get-Knob([string]$name, [int]$lo, [int]$hi, [string]$fallback = "") {
     return "$n"
 }
 $tuned = ""
-$coderCtx = Get-Knob "CODER_CTX" 2048 262144 $env:CTX
-$generalCtx = Get-Knob "GENERAL_CTX" 2048 262144 $env:CTX
+$coderCtx = Get-Knob "CODER_CTX" $ctxMinCoder 262144 $env:CTX
+$generalCtx = Get-Knob "GENERAL_CTX" $ctxMinGeneral 262144 $env:CTX
 $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
@@ -215,14 +229,15 @@ if (-not $uaCacheRam) {
     }
     Set-Overlay "*.cache-ram" "$cacheRam"
 }
-# Empty and off leave the preset. on and auto overlay general and coder only.
 $reasoning = [Environment]::GetEnvironmentVariable("REASONING")
 if (-not $reasoning) { $reasoning = "" }
-if ($reasoning -eq "on" -or $reasoning -eq "auto") {
-    Set-Overlay "general.reasoning" $reasoning
-    Set-Overlay "coder.reasoning" $reasoning
-} elseif ($reasoning -ne "" -and $reasoning -ne "off") {
-    throw "unknown REASONING=$reasoning (on|off|auto)"
+# Reasoning toggle per role: REASONING_GENERAL / REASONING_CODER, else REASONING, else the preset.
+foreach ($rsRole in @("general", "coder")) {
+    $rsV = [Environment]::GetEnvironmentVariable("REASONING_" + $rsRole.ToUpper())
+    if (-not $rsV) { $rsV = $reasoning }
+    if ($rsV -eq "") { continue }
+    if (@("on", "off", "auto") -notcontains $rsV) { throw "unknown REASONING=$rsV for $rsRole (on|off|auto)" }
+    Set-Overlay "$rsRole.reasoning" $rsV
 }
 
 # --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------
@@ -239,12 +254,12 @@ function Get-Field($o, [string]$name) { if ($o.PSObject.Properties.Name -contain
 function Get-ManifestSha([string]$file) { foreach ($c in $manifest) { if ($c.file -eq $file) { return $c.sha256 } }; return $null }
 function Assert-Model([string]$path, [string]$sha) {
     $stamp = Join-Path $Root ".cache\verified\$sha"
-    if ($env:FULL_VERIFY -ne "1" -and (Test-Path -LiteralPath $stamp) -and ((Get-Content -LiteralPath $stamp -TotalCount 1) -eq (Get-Fingerprint $path))) { return }
+    if ($env:FULL_VERIFY -ne "1" -and (Test-Stamp $stamp $path)) { return }
     Write-Host "serve.ps1: checking the sha256 of $path"
     $got = Get-Sha256 $path
     if ($got -ne $sha) { throw "sha256 mismatch for $path (got $got, want $sha from $manifestPath): run scripts\fetch-models.ps1" }
     New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache\verified") | Out-Null
-    Write-TextFile $stamp (Get-Fingerprint $path)
+    Add-Stamp $stamp $path
 }
 function Test-Model([string]$path, [string]$what) {   # manifest file: sha256-checked; other files: warning
     $sha = Get-ManifestSha (Split-Path -Leaf $path)
@@ -272,6 +287,14 @@ function Get-RoleModel([string]$role) {
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
         $p = Resolve-GgufPath ("models/" + $role + "/" + $c.file)
+        if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+    }
+    # dir "models/<other role>": one download serves two roles (chat + coder on one file).
+    # Checked after the role's own folder, so an installed fallback/step-up is not shadowed.
+    foreach ($c in $manifest) {
+        $d = Get-Field $c "dir"
+        if ($c.role -ne $role -or -not $d -or -not $d.StartsWith("models/")) { continue }
+        $p = Resolve-GgufPath ($d + "/" + $c.file)
         if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
     }
     if (-not [string]::IsNullOrEmpty($env:MODELS_DIR)) {
@@ -376,9 +399,13 @@ Write-TextFile $effective $out
 # for scripts/agent.py: what the server was started with (same format as serve.sh)
 Write-TextFile (Join-Path $Root ".cache\language.json") ('{{"locale": "{0}", "mode": "{1}", "swapped": "{2}"}}' -f $langCode, $mode, ($swapRoles -join " "))
 
-# API key file, generated once (.secrets\ is git-ignored), readable by this user only. The
-# directory and the empty file get their ACL BEFORE the key is written into it.
-$keyDir = Join-Path $Root ".secrets"; $keyFile = Join-Path $keyDir "api-keys"
+# One stable API key per instance (docs/api-key-design.md): %APPDATA%\familia\instances\<port>\api-keys
+# (XDG_CONFIG_HOME or ~/.config off Windows), readable by this user only, created atomically ONLY when
+# missing (adopting a legacy .secrets\api-keys), never rotated on startup. $env:API_KEY_FILE overrides.
+$cfgBase = if (Test-Windows) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
+$keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path (Join-Path (Join-Path (Join-Path $cfgBase "familia") "instances") "$Port") "api-keys" }
+$keyDir = Split-Path -Parent $keyFile
+$legacyKeyFile = Join-Path (Join-Path $Root ".secrets") "api-keys"
 New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
 function Set-Private([string]$path, [bool]$dir) {
     if (Test-Windows) {
@@ -389,11 +416,20 @@ function Set-Private([string]$path, [bool]$dir) {
 }
 Set-Private $keyDir $true
 if (-not (Test-Path -LiteralPath $keyFile) -or (Get-Item -LiteralPath $keyFile).Length -eq 0) {
-    New-Item -ItemType File -Force -Path $keyFile | Out-Null
-    Set-Private $keyFile $false
-    $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    Write-TextFile $keyFile @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
-    Write-Host "serve.ps1: generated API key in $keyFile"
+    # private temp file in the same dir, then an atomic no-overwrite Move: if another starter won
+    # the bootstrap race the Move throws and everyone reads the winner's key
+    $tmp = Join-Path $keyDir (".api-keys.{0}.tmp" -f $PID)
+    New-Item -ItemType File -Force -Path $tmp | Out-Null
+    Set-Private $tmp $false
+    $legacy = if (Test-Path -LiteralPath $legacyKeyFile) { @(Get-Content -LiteralPath $legacyKeyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") }) } else { @() }
+    if ($legacy.Count -gt 0) {
+        Write-TextFile $tmp (@("# llama-server API key(s), one per line (adopted from $legacyKeyFile)") + $legacy)
+    } else {
+        $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        Write-TextFile $tmp @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
+    }
+    try { [System.IO.File]::Move($tmp, $keyFile); Write-Host "serve.ps1: created instance API key in $keyFile" }
+    catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
 }
 Set-Private $keyFile $false
 $keys = (Get-Content $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
@@ -443,6 +479,8 @@ $clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_
            "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT")
 Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
+# patches/0002: tag every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off
+if (-not $env:LLAMA_LOG_PID) { $env:LLAMA_LOG_PID = "1" }
 # The router also lists every GGUF in the Hugging Face cache (%USERPROFILE%\.cache\huggingface\hub,
 # HF_HUB_CACHE, HF_HOME) and serves it on request; LLAMA_CACHE wins over those. So every start
 # gets a NEW empty directory (removed on exit; leftovers of a closed window go at the next
@@ -464,6 +502,20 @@ $env:LLAMA_CACHE = $llamaCache
 # the API key, e.g. from the web UI's model picker). Offline mode makes that download fail.
 $env:LLAMA_ARG_OFFLINE = "1"
 $env:MODEL_ENDPOINT = "https://offline.invalid/"   # the router checks a download request online even when offline (.invalid never resolves)
+# Router children listen on loopback without the API key and must get NO tools and no MCP
+# (same rule as serve.sh): only a llama-server with patches/0003 ("router-child-no-tools")
+# keeps them on the router; an unpatched one would pass them to every child.
+if ($Tools -or $McpConfig -or $runtime) {
+    $binDir = Split-Path -Parent $LlamaServer
+    $patched = $false
+    foreach ($f in @(Get-ChildItem -LiteralPath $binDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(llama-server(\.exe)?|.*server.*\.dll|libllama-server.*)$' })) {
+        if ([System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($f.FullName)).Contains('router-child-no-tools')) { $patched = $true; break }
+    }
+    if (-not $patched) {
+        Write-Warning "serve.ps1: $LlamaServer lacks patches/0003 (router-child-no-tools): its child instances would inherit the tools and MCP servers, so Tools and MCP are off; build with scripts\build-windows.ps1 to use them"
+        $Tools = ""; $McpConfig = ""; $runtime = ""
+    }
+}
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
 if ($McpConfig) {
@@ -503,7 +555,9 @@ $profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder mo
               "  Change:  set PROFILE=lowram|moderate|default (or start.bat -RamProfile moderate), or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README `"Light tuning`")`n"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
-Write-Host "serve.ps1: profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
+New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
+Write-TextFile (Join-Path $Root ".cache\sizing") $sizing   # shown by the cockpit
+Write-Host "serve.ps1: sizing=$sizing profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
 # Ready = OUR llama-server listens on the port and answers /health: it wrote "listening on
@@ -513,6 +567,13 @@ Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRol
 # .cache\serve.ready gets "<port> <pid>"; scripts\lib\open-ui.ps1 waits for that file. Checked
 # in a background runspace of this process, which ends with the server.
 $readyFile = Join-Path $Root ".cache\serve.ready"
+# Readiness ceiling (same as serve.sh): 1800 s, 3600 s for lowram or <= 2 logical CPUs;
+# READY_TIMEOUT=SECONDS overrides, 0 = wait as long as the server lives.
+$readyTimeout = if ($env:READY_TIMEOUT) { $env:READY_TIMEOUT } else { "auto" }
+if ($readyTimeout -eq "auto") {
+    $readyTimeout = if ($RamProfile -eq "lowram" -or [Environment]::ProcessorCount -le 2) { 3600 } else { 1800 }
+} elseif ($readyTimeout -notmatch '^\d+$') { throw "READY_TIMEOUT must be seconds (0 = no limit)" }
+$env:FAMILIA_READY_TIMEOUT_EFFECTIVE = "$readyTimeout"
 Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
 Remove-Item -Force -LiteralPath $logFile -ErrorAction SilentlyContinue   # an old "listening on" line must not count
 $exeId = ""
@@ -565,8 +626,22 @@ $watch = [powershell]::Create()
         if ($exeId) { try { return [CodeBootstraps.FileId]::Identity($path) -eq $exeId } catch { } }
         return ([IO.Path]::GetFullPath($path) -ieq [IO.Path]::GetFullPath($exe))
     }
-    for ($i = 0; $i -lt 2400 -and -not $sync.Stop; $i++) {
+    # ceiling from READY_TIMEOUT (seconds, 0 = none), resolved by serve.ps1 before the start
+    $limit = [int]$env:FAMILIA_READY_TIMEOUT_EFFECTIVE
+    $every = if ($env:READY_EVERY) { [int]$env:READY_EVERY } else { 30 }
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $next = $every
+    while (-not $sync.Stop) {
         Start-Sleep -Milliseconds 500
+        $el = [int]$sw.Elapsed.TotalSeconds
+        if ($limit -gt 0 -and $el -ge $limit) {
+            [Console]::Out.WriteLine("serve.ps1: not ready after ${el}s (READY_TIMEOUT=$limit): llama-server has not answered /health on port $port. See $logFile; set READY_TIMEOUT=0 (no limit) or a larger value and restart")
+            return
+        }
+        if ($el -ge $next) {
+            $lim = if ($limit -gt 0) { "limit ${limit}s" } else { "no limit" }
+            [Console]::Out.WriteLine("serve.ps1: still starting (${el}s, $lim)")
+            $next += $every
+        }
         if (-not (Test-ServerSaidListening -LogFile $logFile -Port $port)) { continue }
         $owner = 0
         if ($onWindows) {

@@ -12,7 +12,7 @@ set -eu
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname "$here")
 PWSH=${PWSH:-$(command -v pwsh || true)}
-[ -n "$PWSH" ] || { echo "check-ps1: pwsh not found (set PWSH)" >&2; exit 1; }
+[ -n "$PWSH" ] || { echo "check-ps1: SKIP (pwsh not found; set PWSH)"; exit 0; }
 "$PWSH" -NoProfile -File "$here/check-ps1.ps1"
 h=$("$PWSH" -NoProfile -File "$here/test-ps1-helpers.ps1" -Scripts "$root/scripts" 2>&1) || { echo "$h"; echo "check-ps1: test-ps1-helpers.ps1 failed" >&2; exit 1; }
 echo "check-ps1: OK helpers run under strict mode (test-ps1-helpers.ps1)"

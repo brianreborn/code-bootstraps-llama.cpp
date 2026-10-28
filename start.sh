@@ -1,6 +1,6 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=0 (upstream prebuilt binary, without patches/; default: build the pinned source with patches/),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
@@ -28,8 +28,22 @@ done
 command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || command -v cksum >/dev/null 2>&1 || missing="$missing sha256sum"
 if [ -n "$missing" ]; then
   say "$(t "Some required programs are missing.")$missing"
-  if [ "$TERMUX" = 1 ]; then say "$(t "Install the missing programs with pkg install.")$missing"; fi
-  exit 1
+  pkgs=$(printf '%s' "$missing" | sed 's/sha256sum/coreutils/; s/ awk/ gawk/')
+  if [ "$TERMUX" = 1 ]; then cmd="pkg install -y$pkgs"
+  elif command -v pacman >/dev/null 2>&1; then cmd="sudo pacman -Sy --needed --noconfirm$pkgs"
+  elif command -v apt-get >/dev/null 2>&1; then cmd="sudo apt-get update && sudo apt-get install -y$pkgs"
+  elif command -v dnf >/dev/null 2>&1; then cmd="sudo dnf install -y$pkgs"
+  elif command -v pkg >/dev/null 2>&1; then cmd="sudo pkg install -y$pkgs"
+  else cmd=""; fi
+  [ -z "$cmd" ] || say "install them with: $cmd"
+  if [ -n "$cmd" ] && [ "${AUTO_DEPS:-0}" = 1 ] && [ -r /dev/tty ]; then
+    printf 'start: run it now? [y/N] ' >&2
+    read -r ans < /dev/tty || ans=n
+    case "$ans" in y|Y|yes) sh -c "$cmd" || exit 1 ;; *) exit 1 ;; esac
+  else
+    [ -z "$cmd" ] || say "or re-run with AUTO_DEPS=1 to install them after one confirmation"
+    exit 1
+  fi
 fi
 
 maybe_raise
@@ -37,15 +51,15 @@ maybe_raise
 VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then
   say "$(t "using the binary you named")"
-elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
+elif [ "${BUILD:-1}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
   :
 else
   rc=$?
-  if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then
+  if [ "${BUILD:-1}" != 1 ] && [ "$rc" != 3 ]; then
     say "$(t "downloading llama.cpp failed; check the network and run start.sh again")"
     exit 1
   fi
-  say "$(t "no release binary for this machine; building from source")"
+  [ "${BUILD:-1}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
     FreeBSD) script=scripts/build-linux.sh; BUILD_DIR=${BUILD_DIR:-build-freebsd} ;;
@@ -65,17 +79,9 @@ else
       exit 1
     fi
   fi
-  gpu_build=off
-  case "$(cat .cache/llama-variant 2>/dev/null || true)" in
-    vulkan) gpu_build=vulkan ;;
-    cuda-*) gpu_build=cuda ;;
-  esac
-  [ "$(uname -s)" != FreeBSD ] || gpu_build=off
-  if [ "$script" = scripts/build-linux.sh ] && [ "$gpu_build" != off ]; then
-    say "$(t "Linux will use a GPU build so the GPU is not left idle.")"
-    GPU=$gpu_build "$script"
-  elif [ "$(uname -s)" = FreeBSD ]; then
-    BUILD_DIR="$BUILD_DIR" GPU=off "$script"
+  # build-linux.sh picks ONE backend itself (scripts/lib/backend.sh; FAMILIA_BACKEND overrides)
+  if [ "$(uname -s)" = FreeBSD ]; then
+    BUILD_DIR="$BUILD_DIR" FAMILIA_BACKEND=cpu "$script"
   else
     "$script"
   fi
@@ -86,14 +92,33 @@ else
     esac
     LLAMA_SERVER=$built_dir/bin/llama-server
   else
-    LLAMA_SERVER=$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+    LLAMA_SERVER=$(ls -td "$ROOT"/build-"$(uname -s | tr A-Z a-z)"-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+    [ -n "$LLAMA_SERVER" ] || LLAMA_SERVER=$(ls -td "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
   fi
   [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
 export LLAMA_SERVER
 
 rc=0
-scripts/fetch-models.sh || rc=$?
+# MODELS_BG=1 (default): download the general model first (chat starts with it), then the other
+# roles in the background (.cache/fetch-models.log, streamed live by serve.sh and the cockpit);
+# serve.sh hot-adds each role when its file lands. MODELS_BG=0 = download everything first.
+if [ "${MODELS_BG:-1}" = 1 ]; then
+  scripts/fetch-models.sh --role general || rc=$?
+  if [ "$rc" = 0 ]; then
+    mkdir -p .cache
+    if ! scripts/fetch-models.sh --dry-run 2>/dev/null | grep -q "would download"; then
+      : # everything is already here
+    else
+      export MODELS_PENDING_OK=1
+      ( scripts/fetch-models.sh > .cache/fetch-models.log 2>&1; echo "fetch-models: done (exit $?)" >> .cache/fetch-models.log ) </dev/null &
+      echo $! > .cache/fetch-models.pid
+      say "downloading the other models in the background (.cache/fetch-models.log); chat starts now"
+    fi
+  fi
+else
+  scripts/fetch-models.sh || rc=$?
+fi
 if [ "$rc" = 6 ] || [ "$rc" = 7 ]; then
   say "$(t "cannot reach the model host; connect and run start.sh again")"
   exit 1
@@ -128,19 +153,26 @@ open_ui() {
   port=""
   pid=""
   ready=0
-  i=1
-  while [ "$i" -le 600 ]; do
+  # No fixed limit here: serve.sh owns the readiness ceiling (READY_TIMEOUT) and prints the
+  # progress; this waits for its ready file as long as the launcher lives (OPEN_UI_TIMEOUT
+  # seconds caps it, 0 = no cap), then says so instead of returning silently.
+  t0=$(date +%s)
+  while :; do
     kill -0 "$parent" 2>/dev/null || return 0
     if [ -s .cache/serve.ready ]; then
       read -r port pid < .cache/serve.ready || true
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then ready=1; break; fi
     fi
+    if [ "${OPEN_UI_TIMEOUT:-0}" -gt 0 ] && [ $(( $(date +%s) - t0 )) -ge "$OPEN_UI_TIMEOUT" ]; then break; fi
     sleep 1
-    i=$((i + 1))
   done
-  [ "$ready" = 1 ] || return 0
+  if [ "$ready" != 1 ]; then
+    echo "start.sh: the server was not ready after $(( $(date +%s) - t0 ))s (OPEN_UI_TIMEOUT=$OPEN_UI_TIMEOUT); the web UI was not opened. It may still be loading: watch the serve.sh lines above" >&2
+    return 0
+  fi
   url="http://127.0.0.1:$port/?model=chat"
-  key=$(grep -v -e '^#' -e '^[[:space:]]*$' .secrets/api-keys 2>/dev/null | head -n 1 || true)
+  . "$ROOT/scripts/lib/instance-key.sh"
+  key=$(instance_key_first "$(instance_key_file "$port")" || true)
   if [ "${COPY_KEY:-0}" = 1 ]; then
     if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy || true
     elif command -v termux-clipboard-set >/dev/null 2>&1; then printf %s "$key" | termux-clipboard-set || true
@@ -176,7 +208,25 @@ open_ui() {
   elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
   else say "$url"; fi
 }
+# Cockpit (live logs, startup recovery): started here so nobody has to run it by hand. It reads
+# the instance key itself; the browser never asks for it. COCKPIT=0 skips it; COCKPIT_PORT moves it.
+start_cockpit() {
+  [ "${COCKPIT:-1}" = 1 ] && command -v python3 >/dev/null 2>&1 || return 0
+  cp_port=${COCKPIT_PORT:-9933}
+  i=0
+  while [ "$i" -le 20 ]; do
+    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/session" 2>/dev/null | grep -q '"auth"'; then
+      say "cockpit (live logs): http://127.0.0.1:$cp_port/ (already running)"; return 0
+    fi
+    port_busy "$cp_port" || break
+    cp_port=$((cp_port + 1)); i=$((i + 1))
+  done
+  mkdir -p .cache
+  COCKPIT_PORT=$cp_port nohup python3 scripts/cockpit.py >> .cache/cockpit.log 2>&1 </dev/null &
+  say "cockpit (live logs, startup recovery): http://127.0.0.1:$cp_port/"
+}
 rm -f .cache/serve.ready
+start_cockpit
 open_ui "$$" &
 if [ "$TERMUX" = 1 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true

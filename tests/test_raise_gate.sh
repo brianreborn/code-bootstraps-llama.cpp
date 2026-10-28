@@ -2,6 +2,7 @@
 # The launcher asks for memlock once, as part of start.sh, and does not ask again
 # after that succeeds.   sh tests/test_raise_gate.sh
 set -eu
+export COCKPIT=0   # no cockpit process per test sandbox
 ROOT_REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

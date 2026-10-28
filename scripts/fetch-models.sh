@@ -154,7 +154,7 @@ fetch_template() {
   ft_dest="${1%.gguf}.chat-template.jinja"
   if [ -f "$ft_dest" ] && [ "$(sha256_of "$ft_dest")" = "$5" ]; then
     echo "fetch-models.sh: chat template $ft_dest OK"
-    mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"; return 0
+    mkdir -p .cache/verified; stamp_add ".cache/verified/$5" "$ft_dest"; return 0
   fi
   case "$4" in
     *:*) ft_file=${4%%:*}; ft_key=${4#*:} ;;
@@ -177,7 +177,7 @@ fetch_template() {
     exit 1
   fi
   mv -f "$ft_dest.part" "$ft_dest"
-  mkdir -p .cache/verified; fingerprint "$ft_dest" > ".cache/verified/$5"
+  mkdir -p .cache/verified; stamp_add ".cache/verified/$5" "$ft_dest"
 }
 
 damp_skipped=0
@@ -256,7 +256,7 @@ while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_p
   stamp=".cache/verified/$sha"
   if [ "$fresh" = 1 ]; then
     got=$sha
-  elif [ "${FULL_VERIFY:-0}" != 1 ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$(fingerprint "$path")" ]; then
+  elif [ "${FULL_VERIFY:-0}" != 1 ] && stamp_ok "$stamp" "$path"; then
     got=$sha
     echo "fetch-models.sh: $file unchanged since its last sha256 check"
   else
@@ -285,9 +285,25 @@ while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_p
       echo "fetch-models.sh: parking $other -> $park_to/"
       mv "$other" "$park_to/"
     done
+    # A role served from another role's folder (coder on the general file): a model in the
+    # role's own folder would win at serve time, so park it too (e.g. an old --fallback coder).
+    if [ "$dir" != "models/$r" ]; then
+      own=$(gguf_dest "models/$r")
+      for other in "$own"/*.gguf; do
+        [ -f "$other" ] || continue
+        base=$(basename "$other")
+        case "$base" in *mmproj*) continue ;; esac
+        if [ "$keep_defaults" = 1 ] && { [ "$base" = "$def_general" ] || [ "$base" = "$def_coder" ]; }; then
+          continue
+        fi
+        mkdir -p "$(gguf_dest "models-inactive/$r")"
+        echo "fetch-models.sh: parking $other -> models-inactive/$r/"
+        mv "$other" "$(gguf_dest "models-inactive/$r")/"
+      done
+    fi
   fi
   mkdir -p .cache/verified
-  fingerprint "$path" > "$stamp"
+  stamp_add "$stamp" "$path"
   if [ "$ct_sha" != "-" ] && [ -n "$ct_sha" ]; then
     fetch_template "$path" "$ct_repo" "$ct_rev" "$ct_path" "$ct_sha"
   fi

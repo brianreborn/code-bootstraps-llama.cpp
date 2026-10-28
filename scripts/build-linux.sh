@@ -2,7 +2,7 @@
 # Release build of the pinned llama.cpp on Linux, FreeBSD (native CPU build), or macOS.
 #   scripts/build-linux.sh
 #   GPU=auto scripts/build-linux.sh
-# GPU: off (Linux default) | auto | vulkan | cuda | metal (macOS default)
+# FAMILIA_BACKEND (or GPU): auto (default: detect, see scripts/lib/backend.sh) | cpu | cuda | vulkan | metal
 # JOBS, BUILD_DIR, NATIVE=ON, EXTRA_CMAKE_ARGS, ALLOW_UNPINNED=1
 # Android/Termux: uname is Linux, but this desktop build leaves BUILD_DIR without the
 # $ORIGIN rpath / subprocess flags Termux needs; hand off to build-termux.sh so
@@ -17,9 +17,12 @@ case "${PREFIX:-}" in
     ;;
 esac
 . config/llama-pin.env
+. scripts/lib/prereqs.sh
+prereqs_check build || exit 1
 
-[ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive
-actual=$(git -C llama.cpp rev-parse HEAD)
+[ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive || scripts/predownload.sh
+if [ -f llama.cpp/.cbl-source-tag ]; then actual=$(cut -d' ' -f2 llama.cpp/.cbl-source-tag)   # unpacked tarball (predownload.sh)
+else actual=$(git -C llama.cpp rev-parse HEAD); fi
 if [ "$actual" != "$LLAMA_COMMIT" ]; then
   if [ "${ALLOW_UNPINNED:-0}" = 1 ]; then
     echo "build-linux.sh: WARNING: llama.cpp is at $actual, pin is $LLAMA_TAG ($LLAMA_COMMIT); ALLOW_UNPINNED=1" >&2
@@ -29,43 +32,38 @@ if [ "$actual" != "$LLAMA_COMMIT" ]; then
   fi
 fi
 
+# our patches (patches/*.patch) on top of the pinned source, every build
+scripts/apply-patches.sh "$ROOT/llama.cpp"
+
 ARCH=$(uname -m)
 OS=$(uname -s)
 case "$OS" in
   Darwin)
     OSNAME=macos
     JOBS=${JOBS:-$(sysctl -n hw.logicalcpu)}
-    GPU=${GPU:-metal}
     ;;
   FreeBSD)
     OSNAME=freebsd
     JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '%s\n' 2)}
-    GPU=${GPU:-off}
     ;;
   Linux)
     OSNAME=linux
     JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf '%s\n' 2)}
-    GPU=${GPU:-off}
     ;;
   *)
     echo "build-linux.sh: unsupported operating system: $OS" >&2
     exit 1
     ;;
 esac
-BUILD_DIR=${BUILD_DIR:-build-$OSNAME-$ARCH}
+BUILD_DIR_OVERRIDE=${BUILD_DIR:-}
 NATIVE=${NATIVE:-OFF}
 
-NVCC=$(command -v nvcc 2>/dev/null || true)
-for c in "${CUDA_HOME:-}/bin/nvcc" /usr/local/cuda/bin/nvcc; do
-  [ -z "$NVCC" ] && [ -x "$c" ] && NVCC=$c
-done
-if [ "$GPU" = auto ]; then
-  if [ "$OS" = Darwin ]; then GPU=metal
-  elif [ -n "$NVCC" ]; then GPU=cuda
-  elif command -v glslc >/dev/null 2>&1 && pkg-config --exists vulkan 2>/dev/null; then GPU=vulkan
-  else GPU=off; echo "build-linux.sh: GPU=auto found no CUDA (nvcc) or Vulkan (glslc + vulkan headers); CPU only" >&2
-  fi
-fi
+. scripts/lib/backend.sh
+backend_detect || exit 1
+GPU=$BACKEND
+[ "$GPU" = cpu ] && GPU=off
+# one build dir per backend + tag, so switching backend or pin never mixes objects
+BUILD_DIR=${BUILD_DIR_OVERRIDE:-build-$OSNAME-$ARCH-$BACKEND-$LLAMA_TAG}
 echo "build-linux.sh: os=$OSNAME arch=$ARCH gpu=$GPU native=$NATIVE jobs=$JOBS dir=$BUILD_DIR" >&2
 export HF_UI_VERSION="$LLAMA_TAG"
 
@@ -88,6 +86,7 @@ case "$GPU" in
   cuda)
     [ -n "$NVCC" ] || { echo "build-linux.sh: GPU=cuda but nvcc not found" >&2; exit 1; }
     set -- "$@" -DGGML_CUDA=ON -DCMAKE_CUDA_COMPILER="$NVCC"
+    [ -z "$CUDA_ARCH" ] || set -- "$@" -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH"
     ;;
   *) echo "build-linux.sh: unknown GPU=$GPU (off|auto|vulkan|cuda|metal)" >&2; exit 1 ;;
 esac

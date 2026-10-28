@@ -1,13 +1,148 @@
 {
     "_comment": "Bootstrap model set. pick=default: approved and fetched by scripts/fetch-models.sh with no flags. pick=fallback / step-up: optional, only fetched with --fallback / --step-up. pick=language / language-small: interpreter for LANGUAGE_MODE=interpret (opt-in), only fetched with --language / --language-small; never by default. pick=locale-<lang>: language-native general model for LANGUAGE_MODE=swap, only fetched with --locale <lang>. The default LANGUAGE_MODE=native needs no extra model. role = models/<role>/ directory; scripts/serve.sh pins each role to the first installed entry of that role (manifest order) in the effective preset, so other files there are never served; dir = other directory (models-optional/...). revision = Hugging Face commit the file is downloaded from (resolve/<revision>/<file>); sha256 = Hugging Face LFS oid, checked before the file is moved into place. tested = verified end to end through scripts/serve.sh on llama.cpp b11374 (x86_64 CPU). notice = license notice printed by fetch-models.sh when the file is downloaded or restored.",
     "llama_cpp": {
-        "tag": "b11374",
-        "commit": "b92761a515ea31e852e7fbc1fad5f874b46f3718"
+        "tag": "b11944",
+        "commit": "1b4554eff124a8f0033bc09b3f708a5e51cbda15"
     },
     "candidates": [
         {
             "role": "general",
             "pick": "default",
+            "repo": "AtomicChat/LFM3-1.7B-Uncensored-GGUF",
+            "revision": "8851ef23eecf16f8d1bae46408cccd4249284bad",
+            "file": "LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1132208000,
+            "sha256": "b22df65673b54ed326f18f74826d76f3b65dadc237ffd6306cd52be04544827d",
+            "license": "lfm1.0 (LiquidAI custom; uncensored finetune by AtomicChat)",
+            "ctx": 262144,
+            "tested": true,
+            "uncensored": true,
+            "notice": "LFM3-1.7B-Uncensored (default chat + coder model) is an uncensored finetune of LiquidAI LFM3-1.7B under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. It has no safety tuning: you are responsible for what you do with its output. Read https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE",
+            "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
+            "base_model": "LiquidAI/LFM3-1.7B",
+            "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
+            "card_defaults": {
+                "temp": 0.1,
+                "top-k": 50,
+                "repeat-penalty": 1.1
+            },
+            "card_default_set": "General",
+            "card_defaults_source": {
+                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
+                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
+                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
+            },
+            "card_ctx": 262144,
+            "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
+            "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
+            "required": [
+                "--jinja",
+                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
+            ],
+            "smoke": "2026-10-27 b11944 x86_64 CPU, API key on: loads, tool call get_weather({\"city\":\"Paris\"}) OK"
+        },
+        {
+            "role": "coder",
+            "pick": "default",
+            "repo": "AtomicChat/LFM3-1.7B-Uncensored-GGUF",
+            "revision": "8851ef23eecf16f8d1bae46408cccd4249284bad",
+            "file": "LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1132208000,
+            "sha256": "b22df65673b54ed326f18f74826d76f3b65dadc237ffd6306cd52be04544827d",
+            "license": "lfm1.0 (LiquidAI custom; uncensored finetune by AtomicChat)",
+            "ctx": 262144,
+            "tested": true,
+            "uncensored": true,
+            "dir": "models/general",
+            "note": "same file as the general default (dir models/general: downloaded once); the [coder] preset section gives it a coder profile (low temperature, tools)",
+            "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
+            "base_model": "LiquidAI/LFM3-1.7B",
+            "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
+            "card_defaults": {
+                "temp": 0.1,
+                "top-k": 50,
+                "repeat-penalty": 1.1
+            },
+            "card_default_set": "General",
+            "card_defaults_source": {
+                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
+                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
+                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
+            },
+            "card_ctx": 262144,
+            "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
+            "required": [
+                "--jinja",
+                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
+            ]
+        },
+        {
+            "role": "general",
+            "pick": "lfm3",
+            "repo": "LiquidAI/LFM3-1.7B-GGUF",
+            "revision": "b3f2ae5d73cd3c91bf40e8ba752c648aa05dffdf",
+            "file": "LFM3-1.7B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1099627808,
+            "sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+            "license": "lfm1.0 (LiquidAI custom)",
+            "ctx": 262144,
+            "tested": true,
+            "notice": "LFM3-1.7B (opt-in: --pick lfm3) is under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE",
+            "db_id": "LiquidAI--LFM3-1.7B-GGUF--LFM3-1.7B-Q4_K_M",
+            "base_model": "LiquidAI/LFM3-1.7B",
+            "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
+            "card_defaults": {
+                "temp": 0.1,
+                "top-k": 50,
+                "repeat-penalty": 1.1
+            },
+            "card_default_set": "General",
+            "card_defaults_source": {
+                "temp": "LiquidAI/LFM3-1.7B README.md:L152",
+                "top-k": "LiquidAI/LFM3-1.7B README.md:L152",
+                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152"
+            },
+            "card_sampling_modes": {
+                "General": {
+                    "temp": 0.1,
+                    "top-k": 50,
+                    "repeat-penalty": 1.1
+                },
+                "Math & STEM": {
+                    "temp": 1.0,
+                    "top-p": 0.95,
+                    "top-k": 20
+                }
+            },
+            "card_ctx": 262144,
+            "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
+            "native_ctx": 262144,
+            "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
+            "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
+            "required": [
+                "--jinja",
+                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
+            ],
+            "alternatives": [
+                {
+                    "file": "LFM3-1.7B-QAD-Q4_0.gguf",
+                    "quant": "QAD-Q4_0",
+                    "bytes": 1049615680,
+                    "sha256": "43a7d09a0e9cba91b63eb7052488b9564569bddfd65754d2e426465e572a7452",
+                    "note": "quantization-aware distilled Q4_0; evaluated 2026-10-27 on b11944 (x86_64 CPU): loads, tool call OK, prompt eval ~20% faster than Q4_K_M; quality not benchmarked yet"
+                }
+            ]
+        },
+        {
+            "role": "general",
+            "pick": "fallback",
             "repo": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
             "revision": "8ed288026e23958ad9dfa92d53ed773a8eee7125",
             "file": "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
@@ -37,7 +172,7 @@
         },
         {
             "role": "coder",
-            "pick": "default",
+            "pick": "coder-qwen",
             "repo": "unsloth/Qwen3.5-2B-GGUF",
             "revision": "f6d5376be1edb4d416d56da11e5397a961aca8ae",
             "file": "Qwen3.5-2B-Q4_K_M.gguf",
@@ -428,6 +563,49 @@
             "aux": [{"kind": "draft", "file": null, "ref": "Qwen3.6-35B-A3B-MTP-ONLY-Q4_K_M-shared.gguf", "source": "README.md:L183", "linked_to": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-TTQ-3.93bpw-Q3_K_M.gguf"}],
             "inferred": {"role": [{"role": "general", "weight": 1, "source": "card front matter"}, {"role": "general", "weight": 1, "source": "GGUF metadata"}], "quant": "filename", "license": "card front matter", "ctx": "GGUF qwen35moe.context_length", "by": "scripts/add_model.py"},
             "unknown": ["aux draft Qwen3.6-35B-A3B-MTP-ONLY-Q4_K_M-shared.gguf: not on disk", "config.json"]
+        },
+        {
+            "role": "general",
+            "pick": "lfm3-qad",
+            "repo": "LiquidAI/LFM3-1.7B-GGUF",
+            "revision": "b3f2ae5d73cd3c91bf40e8ba752c648aa05dffdf",
+            "file": "LFM3-1.7B-QAD-Q4_0.gguf",
+            "quant": "QAD-Q4_0",
+            "bytes": 1049615680,
+            "sha256": "43a7d09a0e9cba91b63eb7052488b9564569bddfd65754d2e426465e572a7452",
+            "license": "lfm1.0 (LiquidAI custom)",
+            "ctx": 262144,
+            "tested": true,
+            "dir": "models-optional/lfm3-qad",
+            "note": "opt-in (--pick lfm3-qad): official quantization-aware distilled Q4_0; tool call OK on b11944, prompt eval ~20% faster than Q4_K_M on x86_64 CPU"
+        },
+        {
+            "role": "general",
+            "pick": "nemotron",
+            "repo": "unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF",
+            "revision": "b738967d6da3441a7d1c71fcec15e49e32e16ecd",
+            "file": "NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf",
+            "quant": "UD-Q4_K_XL",
+            "bytes": 5060482240,
+            "sha256": "84ff34f5834b929043f5ae74799e8d562d4056998f6a5923ceb44831e8ad84d6",
+            "license": "other (NVIDIA open model license, see repo)",
+            "tested": false,
+            "dir": "models-optional/nemotron",
+            "note": "optional chat model (opt-in: --pick nemotron). Repo + file verified on Hugging Face 2026-10-27; not loaded yet on b11944"
+        },
+        {
+            "role": "general",
+            "pick": "saluki",
+            "repo": "Kujira/Underdog-Saluki-27B-1.0-MTP-GGUF",
+            "revision": "5d92db9b7aa466a7c8f55e26dac2e366c36e8e5b",
+            "file": "Underdog-Saluki-27B-1.0-IQ2-mix-MTP.gguf",
+            "quant": "IQ2-mix",
+            "bytes": 8349689920,
+            "sha256": "98f6ebb527917a2541df8e667d51c3ec8a8bb135b44c606d40cc6ed924e89e52",
+            "license": "apache-2.0",
+            "tested": false,
+            "dir": "models-optional/saluki",
+            "note": "big opt-in model (--pick saluki, ~8.3 GB, 27B). Repo + file verified on Hugging Face 2026-10-27; not loaded yet on b11944"
         }
     ]
 }

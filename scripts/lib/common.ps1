@@ -122,6 +122,15 @@ function Initialize-FileId {
 # not re-hashed ($env:FULL_VERIFY=1 re-hashes). Windows: size, last-write, creation and
 # change times and the file identity; elsewhere (PowerShell 7) the same as fingerprint() in
 # scripts/lib/common.sh: "<size> <mtime> <ctime> <inode>".
+# A stamp holds one fingerprint per verified copy (one sha256 can back several role files).
+function Test-Stamp([string]$Stamp, [string]$Path) {
+    (Test-Path -LiteralPath $Stamp) -and (@(Get-Content -LiteralPath $Stamp) -contains (Get-Fingerprint $Path))
+}
+function Add-Stamp([string]$Stamp, [string]$Path) {
+    if (Test-Stamp $Stamp $Path) { return }
+    $old = if (Test-Path -LiteralPath $Stamp) { @(Get-Content -LiteralPath $Stamp) } else { @() }
+    Write-TextFile $Stamp (@($old) + (Get-Fingerprint $Path))
+}
 function Get-Fingerprint([string]$Path) {
     $full = (Resolve-Path -LiteralPath $Path).ProviderPath
     if (Test-Windows) {

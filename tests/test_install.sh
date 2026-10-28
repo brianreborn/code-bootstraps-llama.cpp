@@ -2,6 +2,7 @@
 # install.sh unpacks with no published digest, and still refuses a wrong one.
 #   sh tests/test_install.sh
 set -eu
+export COCKPIT=0   # no cockpit process per test sandbox
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

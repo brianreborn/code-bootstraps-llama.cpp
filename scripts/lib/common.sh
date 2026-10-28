@@ -8,6 +8,11 @@ fingerprint() {
   stat -c '%s %Y %Z %i' -L "$1" 2>/dev/null || stat -L -f '%z %m %c %i' "$1"
 }
 
+# A stamp holds one fingerprint line per verified copy: one sha256 can back
+# several role files (general and coder share LFM3), so writes append, not replace.
+stamp_ok() { [ -f "$1" ] && grep -qxF "$(fingerprint "$2")" "$1"; }
+stamp_add() { sa_fp=$(fingerprint "$2"); stamp_ok "$1" "$2" || echo "$sa_fp" >> "$1"; }
+
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
   elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1

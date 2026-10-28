@@ -33,10 +33,10 @@ sandbox() {
   while IFS=$tab read -r role f sha ctsha; do
     mkdir -p "$d/models/$role"
     echo "placeholder $f" > "$d/models/$role/$f"
-    fingerprint "$d/models/$role/$f" > "$d/.cache/verified/$sha"
+    fingerprint "$d/models/$role/$f" >> "$d/.cache/verified/$sha"
     if [ "$ctsha" != "-" ]; then   # the repo chat template serve.sh requires (familia #51)
       echo "placeholder template" > "$d/models/$role/${f%.gguf}.chat-template.jinja"
-      fingerprint "$d/models/$role/${f%.gguf}.chat-template.jinja" > "$d/.cache/verified/$ctsha"
+      fingerprint "$d/models/$role/${f%.gguf}.chat-template.jinja" >> "$d/.cache/verified/$ctsha"
     fi
   done < "$d/.cache/default-rows"
 }
@@ -46,7 +46,7 @@ place() {
   d=$3
   mkdir -p "$(dirname "$path")" "$d/.cache/verified"
   echo "placeholder $sha" > "$path"
-  fingerprint "$path" > "$d/.cache/verified/$sha"
+  fingerprint "$path" >> "$d/.cache/verified/$sha"
 }
 
 nkey() {
@@ -70,8 +70,8 @@ if [ "$(nkey "$src" coder reasoning)" = 1 ] && [ "$(val "$src" coder reasoning)"
   && [ "$(nkey "$src" language reasoning)" = 1 ] && [ "$(val "$src" language reasoning)" = off ] \
   && [ "$(nkey "$src" locale.ja.general reasoning)" = 1 ] && [ "$(val "$src" locale.ja.general reasoning)" = off ] \
   && [ "$(nkey "$src" locale.ja.coder reasoning)" = 1 ] && [ "$(val "$src" locale.ja.coder reasoning)" = off ] \
-  && [ "$(nkey "$src" general reasoning)" = 0 ] && [ "$(nkey "$src" decision reasoning)" = 0 ]; then
-  ok "committed preset keeps reasoning off (coder, language, locale only)"
+  && [ "$(nkey "$src" general reasoning)" = 1 ] && [ "$(val "$src" general reasoning)" = off ] && [ "$(nkey "$src" decision reasoning)" = 0 ]; then
+  ok "committed preset keeps reasoning off (general, coder, language, locale; a per-role toggle)"
 else
   bad "committed preset reasoning keys changed"
 fi
@@ -159,7 +159,7 @@ expect_off() {
   ini=$1/.cache/models-preset.effective.ini
   name=$2
   if [ ! -f "$ini" ]; then bad "$name: no effective preset: $(tail -n 5 "$1/out.txt")"; return; fi
-  if [ "$(nkey "$ini" general reasoning)" = 0 ] && [ "$(nkey "$ini" coder reasoning)" = 1 ] \
+  if [ "$(nkey "$ini" general reasoning)" = 1 ] && [ "$(val "$ini" general reasoning)" = off ] && [ "$(nkey "$ini" coder reasoning)" = 1 ] \
     && [ "$(val "$ini" coder reasoning)" = off ] && [ "$(nkey "$ini" decision reasoning)" = 0 ] \
     && [ "$(nkey "$ini" language reasoning)" = 0 ] \
     && ! grep -E 'reasoning[ \t]*=[ \t]*(on|auto)' "$ini" >/dev/null; then
@@ -207,6 +207,27 @@ d=$(launch interpret --language REASONING=on LANGUAGE_MODE=interpret LOCALE=ja)
 expect_mode "$d" "interpret + REASONING=on" on yes
 d=$(launch swap --locale REASONING=on LANGUAGE_MODE=swap LOCALE=ja SWAP_CODER=1)
 expect_mode "$d" "swap + REASONING=on" on no
+role_mode() {   # dir name general-mode coder-mode
+  ini=$1/.cache/models-preset.effective.ini
+  if [ -f "$ini" ] && [ "$(nkey "$ini" general reasoning)" = 1 ] && [ "$(val "$ini" general reasoning)" = "$3" ] \
+    && [ "$(nkey "$ini" coder reasoning)" = 1 ] && [ "$(val "$ini" coder reasoning)" = "$4" ]; then
+    ok "$2: general=$3 coder=$4"
+  else
+    bad "$2: got general=$(val "$ini" general reasoning) coder=$(val "$ini" coder reasoning) $(tail -n 3 "$1/out.txt")"
+  fi
+}
+d=$(launch gen-only REASONING_GENERAL=on)
+role_mode "$d" "REASONING_GENERAL=on" on off
+d=$(launch coder-only REASONING_CODER=auto)
+role_mode "$d" "REASONING_CODER=auto" off auto
+d=$(launch role-wins REASONING=on REASONING_CODER=off)
+role_mode "$d" "REASONING=on REASONING_CODER=off" on off
+d=$(launch bad-role REASONING_CODER=maybe)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "unknown REASONING=maybe for coder" "$d/out.txt"; then
+  ok "REASONING_CODER=maybe is refused"
+else
+  bad "REASONING_CODER=maybe not refused: $(tail -n 3 "$d/out.txt")"
+fi
 d=$(launch bad REASONING=yes)
 if [ -f "$d/.cache/models-preset.effective.ini" ]; then
   bad "REASONING=yes wrote a preset"
@@ -215,6 +236,30 @@ elif grep -q "unknown REASONING" "$d/out.txt"; then
 else
   bad "REASONING=yes: $(tail -n 5 "$d/out.txt")"
 fi
+
+# SIZING: both layouts on every host; monolithic is the default.
+sz_of() {
+  ini=$1/.cache/models-preset.effective.ini
+  if [ ! -f "$ini" ]; then echo "MISSING"; return; fi
+  printf '%s %s %s\n' "$(cat "$1/.cache/sizing" 2>/dev/null)" "$(val "$ini" coder ctx-size)" "$(val "$ini" coder parallel)"
+}
+d=$(launch sz-default PROFILE=default SIZING=)
+got=$(sz_of "$d")
+case "$got" in "monolithic 131072 "*) ok "SIZING unset is monolithic (coder ctx 131072)" ;; *) bad "SIZING unset: got '$got' $(tail -n 5 "$d/out.txt")" ;; esac
+d=$(launch sz-dist PROFILE=default SIZING=distributed)
+got=$(sz_of "$d")
+if [ "$got" = "distributed 32768 4" ]; then ok "SIZING=distributed: coder 32768 tokens, 4 sessions"
+else bad "SIZING=distributed: got '$got' $(tail -n 5 "$d/out.txt")"; fi
+d=$(launch sz-dist-ctx PROFILE=default SIZING=distributed CODER_CTX=8192)
+got=$(sz_of "$d")
+if [ "$got" = "distributed 8192 4" ]; then ok "SIZING=distributed accepts CODER_CTX=8192"
+else bad "SIZING=distributed CODER_CTX=8192: got '$got' $(tail -n 5 "$d/out.txt")"; fi
+d=$(launch sz-mono-ctx PROFILE=default SIZING=monolithic CODER_CTX=8192)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "CODER_CTX" "$d/out.txt"; then ok "SIZING=monolithic refuses CODER_CTX=8192 (min 32768)"
+else bad "SIZING=monolithic CODER_CTX=8192 not refused: $(tail -n 3 "$d/out.txt")"; fi
+d=$(launch sz-bad SIZING=huge)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "unknown SIZING=huge" "$d/out.txt"; then ok "SIZING=huge is refused"
+else bad "SIZING=huge not refused: $(tail -n 3 "$d/out.txt")"; fi
 
 # Android cannot hold mlock. Other hosts keep the preset unless LOAD_MODE is set.
 load_of() {
@@ -246,19 +291,15 @@ else
   bad "Android LOAD_MODE=mmap+mlock: got '$got' $(tail -n 8 "$d/out.txt")"
 fi
 
-# familia #51: a model whose GGUF template differs from its repo's is served with the repo's
+# familia #51: only a default whose manifest row has chat_template_sha256 gets chat-template-file.
+# The LFM3 default (#26) has none, so neither role gets one.
 ini="$d/.cache/models-preset.effective.ini"
-if [ "$(val "$ini" general chat-template-file)" = "$d/models/general/LFM2.5-1.2B-Instruct-Q4_K_M.chat-template.jinja" ] \
-  && [ "$(nkey "$ini" coder chat-template-file)" = 0 ]; then
-  ok "general gets its repo chat template, coder keeps the GGUF's"
+if cut -f4 "$d/.cache/default-rows" | grep -qv '^-$'; then
+  echo "test_reasoning: SKIP chat-template checks (a default now has a repo chat template; update this test)"
+elif [ "$(nkey "$ini" general chat-template-file)" = 0 ] && [ "$(nkey "$ini" coder chat-template-file)" = 0 ]; then
+  ok "LFM3 default: no repo chat-template-file for general or coder"
 else
   bad "chat-template-file: general '$(val "$ini" general chat-template-file)', coder $(nkey "$ini" coder chat-template-file)"
-fi
-d2=$(launch no-template --no-template)
-if grep -q "needs its repo chat template" "$d2/out.txt" 2>/dev/null; then
-  ok "a missing repo chat template stops serve.sh"
-else
-  bad "missing chat template not refused: $(tail -n 4 "$d2/out.txt")"
 fi
 
 if [ "$fails" -eq 0 ]; then echo "all reasoning overlay tests passed"

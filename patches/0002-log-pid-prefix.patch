@@ -1,0 +1,61 @@
+diff --git a/common/log.cpp b/common/log.cpp
+index 25f1268..b893bd9 100644
+--- a/common/log.cpp
++++ b/common/log.cpp
+@@ -13,6 +13,33 @@
+ #include <thread>
+ #include <vector>
+ #include <algorithm>
++#include <string>
++
++#if defined(_WIN32)
++#include <process.h>
++#define LLAMA_LOG_GETPID _getpid
++#else
++#include <unistd.h>
++#define LLAMA_LOG_GETPID getpid
++#endif
++
++// LLAMA_LOG_PID=1: start every log line with "[pid]" or "[pid tag]" (tag = LLAMA_LOG_TAG,
++// set by the router for its children to "<model>:<port>"), so interleaved logs show who wrote them
++static const std::string & log_pid_prefix() {
++    static const std::string p = [] {
++        const char * on = getenv("LLAMA_LOG_PID");
++        if (!on || !*on || strcmp(on, "0") == 0) {
++            return std::string();
++        }
++        const char * tag = getenv("LLAMA_LOG_TAG");
++        std::string r = "[" + std::to_string((long) LLAMA_LOG_GETPID());
++        if (tag && *tag) {
++            r += std::string(" ") + tag;
++        }
++        return r + "] ";
++    }();
++    return p;
++}
+ 
+ int common_log_verbosity_thold = LOG_DEFAULT_LLAMA;
+ 
+@@ -122,6 +149,10 @@ struct common_log_entry {
+             return;
+         }
+ 
++        if (level != GGML_LOG_LEVEL_CONT && !log_pid_prefix().empty()) {
++            fputs(log_pid_prefix().c_str(), fcur);
++        }
++
+         if (level != GGML_LOG_LEVEL_NONE && level != GGML_LOG_LEVEL_CONT && prefix) {
+             if (timestamp) {
+                 // [M.s.ms.us]
+diff --git a/tools/server/server-models.cpp b/tools/server/server-models.cpp
+index 415a124..71e51a2 100644
+--- a/tools/server/server-models.cpp
++++ b/tools/server/server-models.cpp
+@@ -1247,6 +1247,7 @@ void server_models::load(const std::string & name, const load_options & opts) {
+         std::vector<std::string> child_args = inst.meta.args; // copy
+         std::vector<std::string> child_env  = base_env; // copy
+         child_env.push_back(std::string(SERVER_ENV_ROUTER_PORT) + "=" + std::to_string(base_params.port));
++        set_child_env(child_env, "LLAMA_LOG_TAG", inst.meta.name + ":" + std::to_string(inst.meta.port)); // read only with LLAMA_LOG_PID=1
+ 
+         if (opts.role == SERVER_ROLE_DOWNLOAD) {
+             inst.meta.status = SERVER_MODEL_STATUS_DOWNLOADING;

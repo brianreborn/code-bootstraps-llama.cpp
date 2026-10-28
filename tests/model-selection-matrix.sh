@@ -18,9 +18,21 @@ if [ $# -gt 0 ]; then
   esac
 fi
 [ -n "$work" ] || work=$(mktemp -d "${TMPDIR:-/tmp}/model-selection-matrix.XXXXXX")
-python3 "$here/model_selection_matrix.py" "$work" "$@"
+# Every local host offers both model sizings (serve.sh SIZING); audit each one.
+# SIZING=monolithic or SIZING=distributed in the environment runs just that one.
+rc=0
+for sz in ${SIZING:-monolithic distributed}; do
+  echo "== SIZING=$sz"
+  SIZING=$sz python3 "$here/model_selection_matrix.py" "$work/$sz" "$@" || rc=1
+done
 if [ "${NO_HF:-0}" != 1 ]; then
   python3 "$here/check-hf-manifest.py" > "$work/hf-check.txt" || echo "check-hf-manifest: MISMATCH or API error, see $work/hf-check.txt" >&2
 fi
 python3 "$here/agent_routing_check.py" > "$work/agent_routing.jsonl"
-python3 "$here/model_selection_report.py" "$work" "${REPORT:-$work/model-selection-audit.md}"
+for sz in ${SIZING:-monolithic distributed}; do
+  cp "$work/agent_routing.jsonl" "$work/$sz/" 2>/dev/null || :
+  [ -f "$work/hf-check.txt" ] && cp "$work/hf-check.txt" "$work/$sz/"
+  out=${REPORT:-$work/model-selection-audit.md}
+  python3 "$here/model_selection_report.py" "$work/$sz" "${out%.md}-$sz.md"
+done
+exit $rc

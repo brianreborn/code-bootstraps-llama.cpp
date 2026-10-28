@@ -328,7 +328,7 @@ w("- agent.py: tool loop always uses `--model` (default `coder`, env `AGENT_MODE
 w("- Web UI: start.sh and lib/open-ui.ps1 open `/?model=coder`; the user can pick any model the router lists (general, coder, decision, "
   "language in interpret mode, plus any extra entries from (f)).")
 w("- MCP: config/mcp-servers*.json and scripts/mcp-example-server.py contain no model names; MCP tools run inside the request of "
-  "whatever model the client picked. The router's child instances get `tools = get_info` and an empty MCP config from the preset `[*]`.")
+  "whatever model the client picked. The router's child instances get no tools and no MCP servers at all (patches/0003, router-child-no-tools).")
 w("- No `/v1/systemone`-style endpoint or alias exists; model names = directory names in models/ (+ `language` section).")
 w("")
 FIND = os.environ.get("FINDINGS", os.path.join(WORK, "findings.md"))   # hand-written risks / summary, optional

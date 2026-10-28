@@ -17,6 +17,8 @@ if [ -z "$REAL" ] || [ ! -x "$REAL" ]; then
   exit 0
 fi
 T=$(mktemp -d)
+# instance keys live under XDG_CONFIG_HOME (docs/api-key-design.md); keep them in the sandbox
+export XDG_CONFIG_HOME="$T/xdg"
 : > "$T/pids"
 fails=0
 cleanup() {
@@ -40,12 +42,14 @@ sandbox() {
   d=$1
   mkdir -p "$d/.cache/verified"
   cp -R "$ROOT/scripts" "$ROOT/config" "$d/"
-  awk -v match_kv="pick=default" -v fields="role file sha256" -f "$ROOT/scripts/lib/manifest.awk" \
+  awk -v match_kv="pick=default" -v fields="role file sha256 dir" -f "$ROOT/scripts/lib/manifest.awk" \
     "$ROOT/config/models-manifest.json" > "$d/.cache/default-rows"
-  while IFS=$tab read -r role f sha; do
-    mkdir -p "$d/models/$role"
-    echo "placeholder $f" > "$d/models/$role/$f"
-    fingerprint "$d/models/$role/$f" > "$d/.cache/verified/$sha"
+  while IFS=$tab read -r role f sha dir; do
+    [ "$dir" = "-" ] && dir="models/$role"
+    mkdir -p "$d/$dir"
+    [ -f "$d/$dir/$f" ] && continue  # shared by two roles (dir models/<other role>)
+    echo "placeholder $f" > "$d/$dir/$f"
+    fingerprint "$d/$dir/$f" >> "$d/.cache/verified/$sha"
   done < "$d/.cache/default-rows"
 }
 hf_model() {
@@ -84,9 +88,9 @@ stop_serve() {
     i=$((i + 1))
   done
 }
-key_of() { grep -v '^#' "$1/.secrets/api-keys" | head -n 1; }
+key_of() { cat "$XDG_CONFIG_HOME/familia/instances/$2/api-keys" 2>/dev/null | grep -v '^#' | head -n 1; }
 models_of() {
-  printf 'header = "Authorization: Bearer %s"\n' "$(key_of "$1")" |
+  printf 'header = "Authorization: Bearer %s"\n' "$(key_of "$1" "$2")" |
     curl -s --max-time 5 --config - "http://127.0.0.1:$2/models" |
     python3 -c 'import json,sys; print(" ".join(sorted(m["id"] for m in json.load(sys.stdin)["data"])))'
 }
@@ -169,7 +173,7 @@ hf_model "$T/outside" evil linked
 start_serve "$d" "$port" "$REAL" PROFILE=lowram
 if wait_for "$d/out.txt" "^serve.sh: listening on" 30; then
   got=$(models_of "$d" "$port")
-  if [ "$got" = "coder decision general" ]; then ok "populated caches: /models = $got"
+  if [ "$got" = "coder decision embed general" ]; then ok "populated caches: /models = $got"
   else bad "populated caches: /models = $got"; fi
   run_cache=$(ls -d "$d"/.cache/llama-cache.* 2>/dev/null || true)
   n=$(printf '%s\n' "$run_cache" | wc -l | tr -d ' ')
@@ -178,7 +182,7 @@ if wait_for "$d/out.txt" "^serve.sh: listening on" 30; then
   else
     bad "populated caches: dirs: $(ls -a "$d/.cache")"
   fi
-  printf 'header = "Authorization: Bearer %s"\n' "$(key_of "$d")" |
+  printf 'header = "Authorization: Bearer %s"\n' "$(key_of "$d" "$port")" |
     curl -s --max-time 60 --config - -H 'Content-Type: application/json' \
       -d '{"model":"bartowski/SmolLM2-135M-Instruct-GGUF:Q2_K"}' "http://127.0.0.1:$port/models" > "$T/post.json" || true
   sleep 20
@@ -200,7 +204,7 @@ ln -s "$T/outside" "$d/.cache/llama-cache"
 start_serve "$d" "$port" "$REAL" PROFILE=lowram
 if wait_for "$d/out.txt" "^serve.sh: listening on" 30; then
   got=$(models_of "$d" "$port")
-  if [ "$got" = "coder decision general" ] && [ ! -L "$d/.cache/llama-cache" ] && [ -n "$(find "$T/outside" -name '*.gguf')" ]; then
+  if [ "$got" = "coder decision embed general" ] && [ ! -L "$d/.cache/llama-cache" ] && [ -n "$(find "$T/outside" -name '*.gguf')" ]; then
     ok "symlinked cache: /models = $got, link removed, target untouched"
   else
     bad "symlinked cache: /models = $got"

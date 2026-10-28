@@ -52,7 +52,7 @@ TOKEN = secrets.token_urlsafe(24)
 
 # Names start.sh / serve.sh already read. GGUF_HOME is not one of them.
 FIELDS = (
-    "PROFILE", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT", "EMBED_PORT",
+    "PROFILE", "SIZING", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT", "EMBED_PORT",
     "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
     "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
     "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
@@ -62,6 +62,7 @@ FIELDS = (
 # that default, so typing them stores nothing.
 DEFAULTS = {
     "PROFILE": "auto",
+    "SIZING": "monolithic",
     "MODELS_MAX": "2",
     "VARIANT": "auto",
     "TOOLS": "auto",
@@ -93,6 +94,7 @@ DEFAULTS = {
 }
 CHOICES = {
     "PROFILE": ("auto", "lowram", "moderate", "default"),
+    "SIZING": ("monolithic", "distributed"),
     "VARIANT": ("auto", "cpu", "vulkan", "cuda-12", "cuda-13"),
     "REASONING": ("off", "on", "auto"),
     "LOAD_MODE": ("auto", "none", "mmap", "mlock", "mmap+mlock", "dio"),
@@ -108,6 +110,7 @@ CHOICES = {
 }
 HINTS = {
     "PROFILE": "auto|lowram|moderate|default",
+    "SIZING": "monolithic|distributed",
     "MODELS_MAX": "1-8",
     "VARIANT": "auto|cpu|vulkan|cuda-12|cuda-13",
     "TOOLS": "auto|full|lean|comma list",
@@ -141,6 +144,7 @@ HINTS = {
 # panel teaches the names that start.sh, the docs and configure.sh use.
 LABELS = {
     "PROFILE": "Memory profile",
+    "SIZING": "Model sizing (monolithic: long context, distributed: small parallel slots)",
     "MODELS_MAX": "Most models loaded at once",
     "VARIANT": "llama.cpp build to use",
     "TOOLS": "Agent tools",
@@ -174,7 +178,7 @@ ON_OFF = {"0": "Off", "1": "On"}
 # Short pages: fewer stops for switch scanning and less scrolling at 200% zoom.
 SECTIONS = (
     ("basics", "Basics", "Memory profile, thinking mode and language.",
-     ("PROFILE", "MODELS_MAX", "REASONING", "LOCALE", "LANGUAGE_MODE")),
+     ("PROFILE", "SIZING", "MODELS_MAX", "REASONING", "LOCALE", "LANGUAGE_MODE")),
     ("speed", "Speed and memory", "Threads, context length, graphics card and loading.",
      ("VARIANT", "GPU_LAYERS", "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX",
       "PARALLEL", "LOAD_MODE", "REPACK", "SWAP_CODER")),
@@ -565,7 +569,7 @@ code { font-size: 0.95em; }
 
 def layout(title, body, crumbs=True):
     app = os.environ.get("PANEL_TITLE") or "Settings"
-    nav = ('<nav aria-label="Where you are"><p><a href="/">%s: start page</a></p></nav>' % esc(app)) if crumbs else ""
+    nav = ('<nav aria-label="Where you are"><p><a href="/">%s: start page</a> | <a href="http://127.0.0.1:%d/">live logs (cockpit)</a></p></nav>' % (esc(app), int(os.environ.get("COCKPIT_PORT", 9933)))) if crumbs else ""
     return ("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             "<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n"
