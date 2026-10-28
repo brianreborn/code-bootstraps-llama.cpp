@@ -113,7 +113,7 @@ if [ "${MODELS_BG:-1}" = 1 ]; then
       export MODELS_PENDING_OK=1
       ( scripts/fetch-models.sh > .cache/fetch-models.log 2>&1; echo "fetch-models: done (exit $?)" >> .cache/fetch-models.log ) </dev/null &
       echo $! > .cache/fetch-models.pid
-      say "downloading the other models in the background (.cache/fetch-models.log); chat starts now"
+      say "downloading the other models in the background (logs: $ROOT/.cache/fetch-models.log); chat starts now"
     fi
   fi
 else
@@ -223,7 +223,7 @@ start_cockpit() {
   done
   mkdir -p .cache
   COCKPIT_PORT=$cp_port nohup python3 scripts/cockpit.py >> .cache/cockpit.log 2>&1 </dev/null &
-  say "cockpit (live logs, startup recovery): http://127.0.0.1:$cp_port/"
+  say "cockpit (live logs, startup recovery): http://127.0.0.1:$cp_port/ (logs: $ROOT/.cache/cockpit.log)"
 }
 rm -f .cache/serve.ready
 start_cockpit
@@ -239,6 +239,7 @@ case "${DETACH_MODE:-foreground}" in
     else
       say "tmux requested but not found; falling back to nohup"
       mkdir -p .cache
+      say "logs: $ROOT/.cache/server.log"
       nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
       disown $! 2>/dev/null || true
     fi
@@ -250,6 +251,7 @@ case "${DETACH_MODE:-foreground}" in
     else
       say "screen requested but not found; falling back to nohup"
       mkdir -p .cache
+      say "logs: $ROOT/.cache/server.log"
       nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
       disown $! 2>/dev/null || true
     fi
@@ -264,7 +266,7 @@ case "${DETACH_MODE:-foreground}" in
     fi
     ;;
   nohup)
-    say "launching detached with nohup (logging to .cache/server.log)"
+    say "launching detached with nohup (logs: $ROOT/.cache/server.log)"
     mkdir -p .cache
     nohup sh scripts/serve.sh "$@" >> .cache/server.log 2>&1 &
     disown $! 2>/dev/null || true

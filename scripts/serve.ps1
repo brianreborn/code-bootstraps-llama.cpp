@@ -549,6 +549,7 @@ if ($Repack -eq "off") { $srvArgs += "--no-repack" }
 # router does not pass --log-file on to the model instances
 $logFile = Join-Path $Root ".cache\server.log"
 $srvArgs += @("--log-file", $logFile)
+Write-Host "serve.ps1: logs: $logFile"
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 $profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder model(s) loaded$(if ($resident) { ' + decision kept loaded' })$(if ($tuned) { "; set:$tuned" })`n" +

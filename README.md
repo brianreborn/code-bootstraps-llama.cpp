@@ -13,13 +13,13 @@ Two steps. Run the command, then tap through the donation notice. You do not hav
 Linux, macOS, and Termux:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
+curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
+Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
 ```
 
 The page opens on chat: [http://127.0.0.1:9931/?model=chat](http://127.0.0.1:9931/?model=chat). The first visit asks for the key printed in the terminal. Paste it once.
@@ -165,11 +165,11 @@ No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-1
 One-line install:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
+curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh
 ```
 
 ```powershell
-irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
+Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
 ```
 
 The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on Termux, `PREFIX` is the Termux usr tree, so the installer uses `INSTALL_PREFIX` or the home default and does not unpack over it). A second run downloads the archive again and unpacks only when its digest changes. `INSTALL_SHA256` or `EXPECTED_SHA256`, when set, refuses a different archive. `INSTALL_NO_START=1` stops before `start.sh`.

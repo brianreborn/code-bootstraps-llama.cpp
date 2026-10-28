@@ -12,7 +12,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 case "${PREFIX:-}" in
   *com.termux*)
-    echo "build-linux.sh: Termux detected; handing off to scripts/build-termux.sh (BUILD_DIR + $ORIGIN rpath)" >&2
+    echo "build-linux.sh: Termux detected; handing off to scripts/build-termux.sh (BUILD_DIR + \$ORIGIN rpath)" >&2
     exec "$ROOT/scripts/build-termux.sh"
     ;;
 esac
