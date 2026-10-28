@@ -27,7 +27,7 @@ if (-not (Test-Path "llama.cpp\CMakeLists.txt")) {
 }
 if (Test-Path "llama.cpp\.cbl-source-tag") { $actual = ((Get-Content "llama.cpp\.cbl-source-tag" -TotalCount 1) -split ' ')[1] }   # unpacked tarball
 else {
-    $actual = (git -C llama.cpp rev-parse HEAD).Trim()
+    $actual = ((git -C llama.cpp log --first-parent --format="%H %s" HEAD) | Where-Object { $_ -notmatch "^\S+ familia: .*\.patch$" } | Select-Object -First 1).Split(" ")[0]
     if ($LASTEXITCODE -ne 0) { throw "git rev-parse failed" }
 }
 if ($actual -ne $pin.LLAMA_COMMIT) {

@@ -2,3 +2,5 @@
 	path = llama.cpp
 	url = https://github.com/ggml-org/llama.cpp
 	shallow = true
+	# our patches are local commits on familia-patched; never report them as changes (familia #181 U10)
+	ignore = all
