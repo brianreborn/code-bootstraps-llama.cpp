@@ -42,3 +42,9 @@ __pycache__/
 *.pyc
 bin/
 dist/
+
+# Logs and session transcripts never go in this repo (they live in brianreborn/familia-private logs/)
+logs/
+*.log
+*.log.*
+development-session*.txt

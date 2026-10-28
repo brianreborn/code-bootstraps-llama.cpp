@@ -3,7 +3,6 @@
 # to the clipboard), then opens the browser. The server is not probed with the key.
 param([int]$Port = 9931, [switch]$NoBrowser, [switch]$CopyKey, [int]$ParentPid = 0)
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$keyFile = Join-Path $Root ".secrets\api-keys"
 $readyFile = Join-Path $Root ".cache\serve.ready"
 $ready = $false
 for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow disk)
@@ -18,6 +17,9 @@ for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow d
     Start-Sleep -Milliseconds 500
 }
 if (-not $ready) { exit 0 }
+# the instance key of the port that went ready (same resolution as serve.ps1)
+$cfgBase = if ($env:APPDATA) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
+$keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path $cfgBase "familia\instances\$Port\api-keys" }
 $url = "http://127.0.0.1:$Port/?model=chat"
 . (Join-Path $PSScriptRoot "bindhost.ps1")
 $lanHost = if ($env:HOST) { $env:HOST } else { "127.0.0.1" }

@@ -2,6 +2,8 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
+**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b11944`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
 ## Install
@@ -50,18 +52,67 @@ Everything after this is the detail: the pinned llama.cpp, the models, what was 
 
 ## Pinned llama.cpp
 
-The current pin is llama.cpp **0.7.0** (`b11669`); release binaries are sha256-pinned in
-`config/llama-release.json`, and source builds use the same commit from `config/llama-pin.env`.
+The current pin is llama.cpp release **`b11944`**, built **from source** with our patches
+(`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). It was picked on
+2026-10-27 as the newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent
+upstream tags are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
+ggml-org/llama.cpp#31252) needs.
 
 | | |
 |---|---|
-| Version | `0.7.0` |
-| Tag | `b11669` |
-| Commit | `620d2225cc436ab0b001e3200e590e3b286ef9ab` |
-| Commit date | 2026-10-15 13:48 UTC |
-| Build number | `11669` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11669`) |
+| Tag | `b11944` |
+| Commit | `1b4554eff124a8f0033bc09b3f708a5e51cbda15` |
+| Build number | `11944` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11944`) |
+| Source tarball sha256 | `e404ef4b7dcb9c791d130543d4dc0cdcb79b1fc18b4fd68faa7e2fff97002dad` |
+| Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`) |
 
-The pin is also recorded in `config/llama-pin.env`, which the build scripts read.
+The pin is recorded in `config/llama-pin.env`, which the build scripts read. `BUILD=0 start.sh`
+(`start.bat -Prebuilt`) still uses the upstream prebuilt binary from `config/llama-release.json`,
+which is older and has **none** of the patches; it is no longer the default.
+
+### Build prerequisites
+
+Every build script checks these first (`scripts/lib/prereqs.sh`, `scripts/prereqs.ps1`) and prints
+the install command when something is missing.
+
+| Platform | Script | Needs |
+|---|---|---|
+| Linux (Debian/Ubuntu) | `scripts/build-linux.sh` | `sudo apt-get install -y build-essential cmake ninja-build git curl ca-certificates tar` |
+| Linux (Fedora) | `scripts/build-linux.sh` | `sudo dnf install -y gcc gcc-c++ make cmake ninja-build git curl tar` |
+| Linux (Arch) | `scripts/build-linux.sh` | `sudo pacman -S --needed base-devel cmake ninja git curl tar` |
+| macOS | `scripts/build-macos.sh` (Metal) | `xcode-select --install`, then `brew install cmake ninja git` |
+| Windows | `scripts\build-windows.ps1` | Visual Studio 2022 or Build Tools with "Desktop development with C++" (MSVC), CMake, Git (`winget install Kitware.CMake Git.Git Ninja-build.Ninja` + VS Build Tools). MinGW is not supported by the script. |
+| Android (Termux) | `scripts/build-termux.sh` | `pkg install -y clang cmake ninja git curl tar binutils` |
+| FreeBSD | `scripts/build-linux.sh` | `pkg install -y cmake ninja git curl` |
+
+GPU builds additionally need CUDA (`nvcc`) or the Vulkan SDK (`glslc` + headers), see Settings.
+
+### Pre-download (before going offline)
+
+`scripts/predownload.sh` (`scripts\predownload.ps1` on Windows) fetches everything up front: the
+toolchain packages above (download only, not installed), the pinned source tarball and web UI
+(sha256-checked), the `llama.cpp` submodule (or unpacks the tarball when this is not a git
+checkout), checks that `patches/` apply, and downloads the default models (LFM3-1.7B-Uncensored first; one file serves both chat and coder).
+After that, build and start work offline. `SKIP_PACKAGES=1` / `SKIP_MODELS=1` skip a step.
+
+### GPU backend (auto-detected, one only)
+
+`scripts/build-linux.sh` (and `build-windows.ps1`) build exactly ONE backend and print the choice and why
+(`scripts/lib/backend.sh`): CUDA only with an NVIDIA GPU (`nvidia-smi`) AND the toolkit (`nvcc` on PATH,
+`CUDA_PATH`/`CUDA_HOME`), with `CMAKE_CUDA_ARCHITECTURES` set to the detected compute capability only;
+otherwise Vulkan only with a GPU, the Vulkan loader + headers, `glslc` and a working `vulkaninfo`; Metal on
+macOS; CPU otherwise. Override with `FAMILIA_BACKEND=cpu|cuda|vulkan|metal` (`GPU=` still works).
+Build trees are cached per backend and pin: `build-<os>-<arch>-<backend>-<tag>`. `predownload.sh` fetches
+only the selected backend's packages. Tested: CPU path on x86_64 Debian.
+
+### Logs and the cockpit
+
+Nothing logs to `/dev/null`. serve.sh writes `.cache/logs.manifest` (name, path) for every process it
+starts (router incl. each child's `[pid name:port]` lines, embed, recover, watchdog). `python3
+scripts/cockpit.py` serves a live view of every log at http://127.0.0.1:9933/ (all panels on, switch off
+what you do not want; optional synthetic heat map), protected by the instance API key. familia adds its
+own logs through `FAMILIA_LOG_MANIFEST`. Logs are never committed (see `.gitignore`).
+The page is a self-contained mecha HUD (bezeled screens, scanlines, live status strip with line/error/warn counts, error-flash on panels); no network fonts or images.
 
 ## Getting started
 
@@ -80,9 +131,9 @@ That is enough for the launchers below, which use release binaries. Without git,
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher downloads the official llama.cpp release binary pinned in `config/llama-release.json` and the 3 default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
+The launcher builds the pinned llama.cpp from source with `patches/` (see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
 
-**API key.** The server only answers with the API key, which `serve.sh` generates on the first start and keeps in **`.secrets/api-keys`** (one key per line; the directory is mode 700 and git-ignored). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
+**API key.** The server only answers with the API key. There is **one stable key per instance (port)**, kept in **`${XDG_CONFIG_HOME:-~/.config}/familia/instances/<port>/api-keys`** (`%APPDATA%\familia\instances\<port>\api-keys` on Windows; one key per line, directory 700, file 600). `serve.sh` / `serve.ps1` create it atomically on the very first start (adopting an older `.secrets/api-keys`) and never rotate it; every client (familia, `snap.py`, `agent.py`, the launchers) reads the same file. See [docs/api-key-design.md](docs/api-key-design.md). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
 The UI's agent uses the server's tools. In the test here it asked before `write_file` and `exec_shell_command` ("Allow once" / "Deny"); whether it asks for every tool, and its "always allow" choices, were not checked.
 
@@ -130,7 +181,7 @@ Limits of the web UI path:
 - It has no interpreter mode (`LANGUAGE_MODE=interpret` is for `scripts/agent.py`). The coder answers in the user's language as far as it can.
 - Its agent runs up to 10 tool turns, then asks whether to continue. Unlike `scripts/agent.py` it has no repeat guard (see "Run"). In router mode the UI ignores `--ui-config` defaults (it returns before applying them when `/props` has no generation settings, b11374), so this repo cannot preset a system message for it. You can set one yourself under Settings, for example: "When the task is done, stop calling tools and reply with a one-line summary."
 - Closing the browser tab does not stop the server.
-- After a page reload the UI cannot resume an answer that is still streaming. An upstream limit (b11374, `tools/server/server-models.cpp` lines 2274-2280): the router forwards the UI's stream lookup (`/v1/streams/lookup`) to the model's child process without the API key, so the child refuses it and logs `unauthorized: Invalid API Key`. That log line is harmless: nothing is sent anywhere else and nothing leaks.
+- Fixed by `patches/0001-router-child-auth.patch`: upstream router mode sent its own `/v1/streams/lookup` and `DELETE /v1/stream` calls to the model children without the API key, so every child answered `unauthorized: Invalid API Key` and stream resume/stop silently failed. That error is **not** harmless: a rejected keyless call was read elsewhere as "no server" and triggered re-bootstraps (docs/api-key-design.md). An `Invalid API Key` line in the log now always means a misconfigured caller and should be reported.
 
 ### Android (Termux)
 
@@ -227,9 +278,23 @@ models/decision/  decision model for POST /v1/systemone
 
 | Role | Model | File (Hugging Face repo) | Size | sha256 | License | Context |
 |---|---|---|---|---|---|---|
-| general | LFM2.5-1.2B-Instruct Q4_K_M | `LFM2.5-1.2B-Instruct-Q4_K_M.gguf` ([LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF)) | 731 MB | `b1b3de11…b19b4f5` | `lfm1.0` (LiquidAI custom, see note) | 128k (preset: 8k per slot) |
-| coder | Qwen3.5-2B Q4_K_M | `Qwen3.5-2B-Q4_K_M.gguf` ([unsloth/Qwen3.5-2B-GGUF](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF)) | 1.28 GB | `aaf42c8b…e914699223` | Apache-2.0 | 256k (preset: 16k per slot) |
+| general + coder | **LFM3-1.7B-Uncensored Q4_K_M** (default, one file, two profiles) | `LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf` ([AtomicChat/LFM3-1.7B-Uncensored-GGUF](https://huggingface.co/AtomicChat/LFM3-1.7B-Uncensored-GGUF)) | 1.13 GB | `b22df656…04544827d` | `lfm1.0` (base LiquidAI license, see note) | 256k |
+| general | **LFM3-1.7B Q4_K_M** (opt-in `--pick lfm3`) | `LFM3-1.7B-Q4_K_M.gguf` ([LiquidAI/LFM3-1.7B-GGUF](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF)) | 1.10 GB | `3793e1e6…3b05c93c4` | `lfm1.0` (LiquidAI custom, see note) | 256k (preset: 8k per slot) |
+| general (fallback) | LFM2.5-1.2B-Instruct Q4_K_M | `LFM2.5-1.2B-Instruct-Q4_K_M.gguf` ([LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF)) | 731 MB | `b1b3de11…b19b4f5` | `lfm1.0` (LiquidAI custom, see note) | 128k (preset: 8k per slot) |
+| coder (opt-in `--pick coder-qwen`) | Qwen3.5-2B Q4_K_M | `Qwen3.5-2B-Q4_K_M.gguf` ([unsloth/Qwen3.5-2B-GGUF](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF)) | 1.28 GB | `aaf42c8b…e914699223` | Apache-2.0 | 256k (preset: 16k per slot) |
 | decision | Laya Q8_0 | `Laya-Q8_0.gguf` ([ggml-org/Laya-GGUF](https://huggingface.co/ggml-org/Laya-GGUF)) | 449 MB | `c06528c5…ed0bb066d2` | Apache-2.0 | 8k (preset: 4k per prompt) |
+
+**Model catalog.** The default is deliberately not a "safe"-tuned model: LFM3-1.7B-Uncensored (AtomicChat finetune of LiquidAI LFM3-1.7B) on every platform, downloaded once and served as `general` (temp 0.4) and `coder` (temp 0.1); tested on `b11944` (loads, tool call with the API key on returns `get_weather({"city":"Paris"})`). It has no safety tuning; you are responsible for its output. Opt-in picks (`scripts/fetch-models.sh --pick NAME`, every repo/revision/sha256 verified on Hugging Face):
+
+| pick | model | size | tested on b11944 |
+|---|---|---|---|
+| `lfm3` | LiquidAI LFM3-1.7B Q4_K_M (official) | 1.10 GB | yes (tool call) |
+| `lfm3-qad` | LiquidAI LFM3-1.7B QAD Q4_0 | 1.05 GB | yes (tool call, ~20% faster prompt eval on CPU) |
+| `nemotron` | unsloth NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL | 5.06 GB | not yet |
+| `saluki` | Kujira Underdog-Saluki-27B-1.0 IQ2-mix MTP | 8.35 GB | not yet |
+| `coder-qwen` | unsloth Qwen3.5-2B Q4_K_M (previous coder default) | 1.28 GB | yes (earlier pins) |
+
+LFM2.5-1.2B stays as `--fallback`. Any role can share another role's file with `"dir": "models/<role>"` in the manifest (no second download).
 
 The full hashes are in the manifest. **License note:** the LFM2.5 models use LiquidAI's LFM Open License v1.0 (`lfm1.0`), not an OSI license: commercial use is licensed only for organisations below US$10 million annual revenue ([license](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct/blob/main/LICENSE)). `fetch-models` prints this notice when it downloads or restores an LFM file. Read the license before you use or redistribute them. The Qwen3.5 models and the decision models are Apache-2.0.
 

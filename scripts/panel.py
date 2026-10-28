@@ -565,7 +565,7 @@ code { font-size: 0.95em; }
 
 def layout(title, body, crumbs=True):
     app = os.environ.get("PANEL_TITLE") or "Settings"
-    nav = ('<nav aria-label="Where you are"><p><a href="/">%s: start page</a></p></nav>' % esc(app)) if crumbs else ""
+    nav = ('<nav aria-label="Where you are"><p><a href="/">%s: start page</a> | <a href="http://127.0.0.1:%d/">live logs (cockpit)</a></p></nav>' % (esc(app), int(os.environ.get("COCKPIT_PORT", 9933)))) if crumbs else ""
     return ("<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
             "<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n"

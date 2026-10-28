@@ -1,11 +1,11 @@
 # Click-and-go launcher for Windows (start.bat runs this). Windows PowerShell 5.1 and PowerShell 7.
-# 1. llama.cpp: the official release pinned in config\llama-release.json (sha256-checked),
-#    else a build with scripts\build-windows.ps1 when cmake is installed.
+# 1. llama.cpp: built from the pinned source with patches\ (scripts\build-windows.ps1; prerequisites:
+#    scripts\prereqs.ps1). -Prebuilt uses the upstream release in config\llama-release.json instead.
 # 2. models: the default set from config\models-manifest.json (sha256-checked).
 # 3. scripts\serve.ps1: router with tools and an API key.
 # 4. opens the built-in web UI once serve.ps1 reports it ready (-CopyKey: key to the clipboard).
 # Close the window (or Ctrl-C) to stop. Settings: -Port, -Variant cpu|vulkan|cuda-12|cuda-13,
-# -NoBrowser, -Build, -CopyKey; serve.ps1 parameters can follow (-RamProfile lowram,
+# -NoBrowser, -Prebuilt, -CopyKey; serve.ps1 parameters can follow (-RamProfile lowram,
 # -ModelsMax, -Tools, ...), and anything else goes to llama-server (e.g. --ctx-size 8192).
 # Environment variables (PORT, VARIANT, PROFILE, TOOLS, LOCALE, RAISE, REASONING, ...) work as in start.sh.
 # REASONING=on or auto turns thinking on for general and coder only; empty or off leaves the preset.
@@ -15,7 +15,8 @@ param(
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$Variant = $(if ($env:VARIANT) { $env:VARIANT } else { "cpu" }),
     [switch]$NoBrowser,
-    [switch]$Build,
+    [switch]$Build,                   # kept for compatibility: building from source is now the default
+    [switch]$Prebuilt,                # use the upstream prebuilt binary instead (no patches/: router child auth and PID logs missing)
     [switch]$CopyKey,                 # also copy the API key to the clipboard (opt-in: clipboard history)
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ServeArgs = @()
 )
@@ -79,7 +80,7 @@ Invoke-RaiseOnce
 
 # --- 1. llama-server ---------------------------------------------------------
 $server = $null
-if (-not $Build) {
+if ($Prebuilt) {
     $global:LASTEXITCODE = 0; $err = ""
     try { $out = & (Join-Path $PSScriptRoot "fetch-llama.ps1") -Variant $Variant } catch { $err = $_.ToString(); $out = $null; $global:LASTEXITCODE = 1 }
     if ($LASTEXITCODE -eq 0 -and $out) { $server = @($out)[-1] }
@@ -92,10 +93,10 @@ if (-not $Build) {
     }
 }
 if (-not $server) {
-    Write-Host "start: no usable release binary; building from source (needs git, cmake and Visual Studio C++)"
+    Write-Host "start: building the pinned llama.cpp with patches/ from source (needs git, cmake and Visual Studio C++; scripts\prereqs.ps1)"
     if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw "cmake not found: install it with Visual Studio C++, or use a platform listed in config\llama-release.json" }
     & (Join-Path $PSScriptRoot "build-windows.ps1")
-    $server = Join-Path $Root "build-windows-x64\bin\Release\llama-server.exe"
+    $server = Get-ChildItem -Path $Root -Directory -Filter "build-windows-x64*" | ForEach-Object { Join-Path $_.FullName "bin\Release\llama-server.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 
 # --- 2. models ---------------------------------------------------------------

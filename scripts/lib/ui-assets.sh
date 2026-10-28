@@ -20,6 +20,14 @@ provide_ui_assets() {
   rm -rf "$ua_dist"
   mkdir -p "$ua_dist"
   tar -xzf "$ua_f" -C "$ua_dist"
+  # newer release tarballs (b11944+) wrap the files in llama-<tag>/
+  if [ ! -f "$ua_dist/index.html" ]; then
+    for ua_sub in "$ua_dist"/*/; do
+      [ -f "$ua_sub/index.html" ] || continue
+      (cd "$ua_sub" && tar -cf - .) | (cd "$ua_dist" && tar -xf -) && rm -rf "$ua_sub"
+      break
+    done
+  fi
   [ -f "$ua_dist/index.html" ] || { echo "ui-assets: $ua_f has no index.html" >&2; return 1; }
   echo "ui-assets: web UI $LLAMA_TAG (sha256 $LLAMA_UI_SHA256) -> llama.cpp/tools/ui/dist" >&2
 }

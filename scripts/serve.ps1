@@ -103,7 +103,7 @@ if ($mode -notin @("native", "swap", "interpret", "off")) { throw "unknown LANGU
 foreach ($a in $Extra) {
     $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant()
     if ($n -match '^(--tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-.*|--(no-)?(web)?ui-mcp-proxy|--api-key|--api-key-file)$') {
-        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig (the API key is in .secrets\api-keys)"
+        throw "argument '$a' is not allowed here; use -Tools / -ToolsRuntime / -McpConfig (the API key is in %APPDATA%\familia\instances\<port>\api-keys)"
     }
     if ($n -match '^(-m|--model|-mu|--model-url|-dr|--docker-repo|-hf|-hfr|--hf-repo|-hff|--hf-file|-hfd|-hfrd|--hf-repo-draft|-hfv|-hfrv|--hf-repo-v|-hffv|--hf-file-v|-mv|--model-vocoder|-md|--model-draft|--spec-draft-model|--spec-draft-hf|--models-dir|--models-preset|--lora|--lora-scaled|--control-vector|--control-vector-scaled|-mm|--mmproj|-mmu|--mmproj-url|-a|--alias|--path|--media-path|--embd-.*-default|--fim-.*-default|--fim-.*-spec|--gpt-oss-.*-default|--vision-.*-default)$') {
         throw "argument '$a' is not allowed here: the models come from config\models-manifest.json and the preset (a [<role>] section may set 'model = <file>'; see README Models)"
@@ -376,9 +376,13 @@ Write-TextFile $effective $out
 # for scripts/agent.py: what the server was started with (same format as serve.sh)
 Write-TextFile (Join-Path $Root ".cache\language.json") ('{{"locale": "{0}", "mode": "{1}", "swapped": "{2}"}}' -f $langCode, $mode, ($swapRoles -join " "))
 
-# API key file, generated once (.secrets\ is git-ignored), readable by this user only. The
-# directory and the empty file get their ACL BEFORE the key is written into it.
-$keyDir = Join-Path $Root ".secrets"; $keyFile = Join-Path $keyDir "api-keys"
+# One stable API key per instance (docs/api-key-design.md): %APPDATA%\familia\instances\<port>\api-keys
+# (XDG_CONFIG_HOME or ~/.config off Windows), readable by this user only, created atomically ONLY when
+# missing (adopting a legacy .secrets\api-keys), never rotated on startup. $env:API_KEY_FILE overrides.
+$cfgBase = if (Test-Windows) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
+$keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path (Join-Path (Join-Path (Join-Path $cfgBase "familia") "instances") "$Port") "api-keys" }
+$keyDir = Split-Path -Parent $keyFile
+$legacyKeyFile = Join-Path (Join-Path $Root ".secrets") "api-keys"
 New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
 function Set-Private([string]$path, [bool]$dir) {
     if (Test-Windows) {
@@ -389,11 +393,20 @@ function Set-Private([string]$path, [bool]$dir) {
 }
 Set-Private $keyDir $true
 if (-not (Test-Path -LiteralPath $keyFile) -or (Get-Item -LiteralPath $keyFile).Length -eq 0) {
-    New-Item -ItemType File -Force -Path $keyFile | Out-Null
-    Set-Private $keyFile $false
-    $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-    Write-TextFile $keyFile @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
-    Write-Host "serve.ps1: generated API key in $keyFile"
+    # private temp file in the same dir, then an atomic no-overwrite Move: if another starter won
+    # the bootstrap race the Move throws and everyone reads the winner's key
+    $tmp = Join-Path $keyDir (".api-keys.{0}.tmp" -f $PID)
+    New-Item -ItemType File -Force -Path $tmp | Out-Null
+    Set-Private $tmp $false
+    $legacy = if (Test-Path -LiteralPath $legacyKeyFile) { @(Get-Content -LiteralPath $legacyKeyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") }) } else { @() }
+    if ($legacy.Count -gt 0) {
+        Write-TextFile $tmp (@("# llama-server API key(s), one per line (adopted from $legacyKeyFile)") + $legacy)
+    } else {
+        $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        Write-TextFile $tmp @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
+    }
+    try { [System.IO.File]::Move($tmp, $keyFile); Write-Host "serve.ps1: created instance API key in $keyFile" }
+    catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
 }
 Set-Private $keyFile $false
 $keys = (Get-Content $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
@@ -443,6 +456,8 @@ $clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_
            "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT")
 Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
+# patches/0002: tag every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off
+if (-not $env:LLAMA_LOG_PID) { $env:LLAMA_LOG_PID = "1" }
 # The router also lists every GGUF in the Hugging Face cache (%USERPROFILE%\.cache\huggingface\hub,
 # HF_HUB_CACHE, HF_HOME) and serves it on request; LLAMA_CACHE wins over those. So every start
 # gets a NEW empty directory (removed on exit; leftovers of a closed window go at the next
