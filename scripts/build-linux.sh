@@ -9,6 +9,7 @@
 # $BUILD_DIR/bin/llama-server (the post-build check) actually runs.
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$ROOT/lib/os.mk"   # mk_nproc
 cd "$ROOT"
 case "${PREFIX:-}" in
   *com.termux*)
@@ -44,11 +45,11 @@ case "$OS" in
     ;;
   FreeBSD)
     OSNAME=freebsd
-    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '%s\n' 2)}
+    JOBS=${JOBS:-$(mk_nproc 2)}
     ;;
   Linux)
     OSNAME=linux
-    JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf '%s\n' 2)}
+    JOBS=${JOBS:-$(mk_nproc 2)}
     ;;
   *)
     echo "build-linux.sh: unsupported operating system: $OS" >&2

@@ -17,9 +17,10 @@ if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/scripts/lib/bindhost.sh"
 LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"
-say() { printf '%s\n' "start: $*" >&2; }
+MK_TAG=start; . "$ROOT/lib/msg.mk"   # say
+. "$ROOT/lib/os.mk"                    # mk_is_termux
 TERMUX=0
-case "${PREFIX:-}" in *com.termux*) TERMUX=1 ;; esac
+if mk_is_termux; then TERMUX=1; fi
 
 missing=""
 for tool in curl tar awk; do
