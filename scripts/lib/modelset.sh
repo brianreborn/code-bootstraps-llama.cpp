@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # MODEL_SET: which of the two default sets the launchers use (config/model-sets.json).
 #   unimpeded (default) = least-restricted variants that pass our checks (LFM3-1.7B-Uncensored)
 #   official            = each vendor's own GGUF (or ggml-org's conversion)

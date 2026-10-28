@@ -4,7 +4,7 @@
 # --set does not loosen the model / host flag refusals.
 #   sh tests/test_model_sets.sh
 set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 fails=0
 note() { if [ "$1" = ok ]; then echo "ok   $2"; else echo "FAIL $2"; fails=$((fails + 1)); fi; }
