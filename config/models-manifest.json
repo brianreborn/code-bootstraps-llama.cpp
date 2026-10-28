@@ -634,7 +634,7 @@
             "base_model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16",
             "tested": true,
             "dir": "models-optional/nemotron",
-            "note": "optional automation model (opt-in: --pick nemotron). Kept the unsloth UD-Q4_K_XL: NVIDIA's own GGUF (nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB Q4_K_M) is 6.18 GB and ggml-org only has Q8_0/BF16. Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~6.9 GB RSS at -c 4096, so not for 7-8 GB devices."
+            "note": "optional automation model (opt-in: --pick nemotron). Kept the unsloth UD-Q4_K_XL: NVIDIA's own GGUF (nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB Q4_K_M) is 6.18 GB and ggml-org only has Q8_0/BF16. Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~6.9 GB RSS at -c 4096, so not for 7-8 GB devices. Re-tested 2026-10-28 on b11969 (--jinja -c 4096 -np 1): text, tool call get_weather({\"city\":\"Paris\"}) and response_format json_object all OK; tested for text + tool calls (no image/audio)."
         },
         {
             "role": "general",
@@ -751,12 +751,16 @@
             "mmproj_bytes": 540892768,
             "mmproj_sha256": "720ff4fc09df0e026c4ec641d0c698bf27b5bcd50561944c88eda5e3dffe1839",
             "media": "image+audio",
+            "output": "text",
+            "ctx": 8192,
+            "reasoning": "off",
+            "system_prompt": "Answer questions about the provided audio clip. Base every answer only on what can be heard.",
             "license": "lfm1.0 (LiquidAI custom)",
             "tested": false,
             "dir": "models-optional/lfm3-omni",
             "notice": "LFM3 Omni (LFM3-Omni-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/blob/5e850dad8e109c728e99d24660fed65bb3c2c362/LICENSE",
-            "note": "opt-in (--pick lfm3-omni): LFM3 family image+audio model, never fetched by default; served as model alias lfm3-omni with --mmproj when installed",
-            "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: loads; image answer correct (A red circle); audio input (440 Hz tone) loads but replies only text_end tokens: PARTIAL TESTED"
+            "note": "opt-in (--pick lfm3-omni): LFM3 family image+audio model, never fetched by default; served as model alias lfm3-omni with --mmproj when installed. Text output only (no speech out via /v1/chat/completions). Clients send system_prompt as the system message for audio QA; served with --reasoning off and -c 8192.",
+            "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: loads; image answer correct (A red circle); audio input (440 Hz tone) loads but replies only text_end tokens: PARTIAL TESTED. Re-checked 2026-10-28 on b11944/b11969: with the system_prompt above and --reasoning off audio QA answers correctly; the text_end loop was from a missing system prompt."
         },
         {
             "role": "media",
@@ -771,12 +775,17 @@
             "mmproj_bytes": 337862080,
             "mmproj_sha256": "26601e904245a85bd8f3cf320a629e897cfc01c1d09369e8b4fd951f13024d3e",
             "media": "audio",
+            "output": "text",
+            "ctx": 8192,
+            "reasoning": "off",
+            "n_predict": 512,
+            "system_prompt": "Perform ASR in English.",
             "license": "lfm1.0 (LiquidAI custom)",
             "tested": false,
             "dir": "models-optional/lfm3-audio",
             "notice": "LFM3 Audio (LFM3-Audio-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF/blob/642697a5597a675cb819ed236ac415c1e60a4f6f/LICENSE",
-            "note": "opt-in (--pick lfm3-audio): LFM3 family audio model, never fetched by default; served as model alias lfm3-audio with --mmproj when installed",
-            "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: model+mmproj load; 440 Hz tone replies only text_end tokens (needs a real speech clip and chat-template check): PARTIAL TESTED"
+            "note": "opt-in (--pick lfm3-audio): LFM3 family audio model, never fetched by default; served as model alias lfm3-audio with --mmproj when installed. Text output only (ASR / audio QA; no speech out via /v1/chat/completions). Clients send system_prompt ('Perform ASR in English.', temperature 0) as the system message; served with --reasoning off, -c 8192 and -n 512 so reasoning cannot eat a short max_tokens. An empty <think></think> assistant prefill was tested on b11969 and made output worse (duplicated text), so it is not used.",
+            "smoke": "2026-10-28 b11969 prebuilt x86_64 CPU llama-server --jinja --reasoning off -c 8192, system 'Perform ASR in English.', temp 0, real speech clip: 'The quick brown fox jumps over the lazy dog.' (14 tokens, fits max_tokens 40). Earlier text_end-only replies were from a missing system prompt (mtmd-cli interleaved mode), not upstream."
         },
         {
             "role": "guard",
