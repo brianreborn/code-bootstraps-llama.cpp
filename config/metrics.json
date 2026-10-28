@@ -1,0 +1,26 @@
+{
+  "_comment": "Orchestration metrics/telemetry. DEFAULT ENABLED: feeds the orchestration displays and distributed scale-down negotiation (rolling + initial performance figures). One-switch 'turbo button' disables all collection for max performance. Local-only; nothing leaves the swarm. See docs/metrics-and-turbo.md.",
+  "enabled": true,
+  "turbo_button": {
+    "_desc": "Set turbo:true (or env FAMILIA_TURBO=1 / serve.sh --turbo) to disable ALL metrics collection for maximum performance. Overrides enabled.",
+    "turbo": false
+  },
+  "collect": {
+    "tokens_per_second": true,
+    "latency_ms": true,
+    "ram_vram_usage": true,
+    "node_health": true,
+    "model_engine_microcode_version": true,
+    "rolling_window_samples": 64
+  },
+  "scale_down_negotiation": {
+    "_desc": "Nodes negotiate the work split from rolling + initial performance figures; updated as models/engines/microcode change.",
+    "use_metrics": true,
+    "requires_metrics_enabled": true
+  },
+  "privacy": {
+    "local_only": true,
+    "no_external_upload": true,
+    "state_file": "state/metrics.json"
+  }
+}

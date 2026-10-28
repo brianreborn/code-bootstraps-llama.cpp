@@ -1,0 +1,163 @@
+{
+  "_comment": "Starter MCP pack for familia/code-bootstraps (Hermes HOSTS these). All OFF by default. This file is a reference/template; serve.sh/serve.ps1 load config/mcp-servers.json, NOT this file (see docs/starter-mcp-pack.md + TODO below). Every entry is version/sha-pinned, live-disableable, and routed through familia's approval gate (security-gating.json, #66). Enable a pick by copying it into config/mcp-servers.json and flipping enabled:true. Installs are download-to-named-file, never curl|sh.",
+  "_approval_gate": "config/security-gating.json (#66): admin is ultimate authority; kill switch via state/disabled-models.json; fail-the-pick-not-the-swarm.",
+  "mcpServers": {
+    "filesystem": {
+      "enabled": false,
+      "_desc": "Read/write files, scoped to the project folder only.",
+      "_source": "https://github.com/modelcontextprotocol/servers (server-filesystem)",
+      "_license": "MIT",
+      "_tier": "utility",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2.0.1",
+        "@ROOT@"
+      ],
+      "timeout_ms": 15000
+    },
+    "git": {
+      "enabled": false,
+      "_desc": "Local git operations (status, diff, log, commit). No network.",
+      "_source": "https://github.com/modelcontextprotocol/servers (mcp-server-git)",
+      "_license": "MIT",
+      "_tier": "utility",
+      "command": "uvx",
+      "args": [
+        "mcp-server-git==2026.10.19",
+        "--repository",
+        "@ROOT@"
+      ],
+      "timeout_ms": 20000
+    },
+    "fetch": {
+      "enabled": false,
+      "_desc": "Fetch a URL and return readable text. Web reading only.",
+      "_source": "https://github.com/modelcontextprotocol/servers (mcp-server-fetch)",
+      "_license": "MIT",
+      "_tier": "utility",
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch==2026.10.24"
+      ],
+      "timeout_ms": 30000,
+      "_later_option": "Playwright MCP (browser automation) is a heavier future add; not in the starter set."
+    },
+    "time": {
+      "enabled": false,
+      "_desc": "Current time and timezone conversions. Lightweight; phone-safe.",
+      "_source": "https://github.com/modelcontextprotocol/servers (mcp-server-time)",
+      "_license": "MIT",
+      "_tier": "utility",
+      "command": "uvx",
+      "args": [
+        "mcp-server-time==2026.10.19"
+      ],
+      "timeout_ms": 10000
+    },
+    "memory": {
+      "enabled": false,
+      "_desc": "Persistent knowledge-graph memory across sessions. Lightweight.",
+      "_source": "https://github.com/modelcontextprotocol/servers (server-memory)",
+      "_license": "MIT",
+      "_tier": "utility",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory@2.0.0"
+      ],
+      "timeout_ms": 15000
+    },
+    "agent-reach": {
+      "enabled": false,
+      "_desc": "familia's own Agent-Reach MCP (already shipped); promoted into the starter pack.",
+      "_source": "familia: config/mcp-servers.agent-reach.example.json",
+      "_license": "see familia",
+      "_tier": "utility",
+      "command": "python3",
+      "args": [
+        "-m",
+        "agent_reach.integrations.mcp_server"
+      ],
+      "cwd": "@FAMILIA_ROOT@/agent-reach",
+      "timeout_ms": 30000
+    },
+    "laya-guard": {
+      "enabled": false,
+      "_desc": "Laya: 421M non-autoregressive jailbreak/tool-call decision guard. Screens input/output when wired as a guard.",
+      "_source": "https://github.com/NandhaKishorM/laya",
+      "_license": "Apache-2.0",
+      "_tier": "guard",
+      "_gating": "security-gating.json guards.picks; read-only; optional; live-disableable.",
+      "_install": "docs/starter-mcp-pack.md (download-to-named-file; no model download this PR).",
+      "_status": "doc-TODO: no pinned MCP transport yet; integrate under #66 kill-switch model.",
+      "command": "TODO",
+      "args": []
+    },
+    "shannon-pentest": {
+      "enabled": false,
+      "_desc": "Shannon: autonomous AI pentester (source analysis + exploit PoC), CI + SARIF 2.1.0. RISKY tier.",
+      "_source": "https://github.com/KeygraphHQ/shannon (action: https://github.com/KeygraphHQ/shannon-action)",
+      "_license": "AGPL-3.0",
+      "_tier": "risky",
+      "_gating": "security-gating.json tiers.risky: guard_gated, fail_closed_self_only, admin_override logged, banner. Start read-only/audit; exploitation is admin-gated and never default.",
+      "_install": "CLI `npx @keygraph/shannon@latest` or GitHub Action KeygraphHQ/shannon-action@v1. Point at staging only, never production.",
+      "_status": "doc-TODO: CI/Action wiring, not an always-on MCP server.",
+      "command": "TODO",
+      "args": []
+    },
+    "ligolo-ng": {
+      "enabled": false,
+      "_desc": "Ligolo-ng: tunneling/pivoting tool (TUN interface). RISKY offensive-network tool.",
+      "_source": "https://github.com/nicocha30/ligolo-ng",
+      "_license": "GPL-3.0",
+      "_tier": "risky",
+      "_gating": "security-gating.json tiers.risky + scope.forbidden(network_scan_external, act). Admin-only, logged, banner. NOT an MCP server; included for lockdown/pivot tooling awareness.",
+      "_status": "doc-TODO: standalone CLI, not MCP; admin-gated, never default, preservative use only.",
+      "command": "TODO",
+      "args": []
+    }
+  },
+  "addons": {
+    "_comment": "Add-ons: separate from core swarm roles. Extra MCPs, specialist/experimental models, opt-in tools, alternate interfaces. ALL off by default and live-disableable. Reference/template only.",
+    "interfaces": {
+      "hermes-desktop-webapp": {
+        "enabled": false,
+        "_desc": "Browser-hosted Hermes Desktop (the real Desktop renderer served to a browser).",
+        "_source": "https://github.com/NousResearch/hermes-agent (feature: `hermes webapp`, served at 127.0.0.1:9120)",
+        "_license": "MIT",
+        "_on_demand": true,
+        "_enable": "hermes config set webapp.enabled true; hermes gateway restart; hermes webapp",
+        "_note": "Not the Web Dashboard. Loopback, one-use sign-in. No dedicated repo (hermes-desktop/hermes-agent-desktop are 404).",
+        "_alternatives": [
+          "https://github.com/przbadu/hermes-ui (MIT)",
+          "https://github.com/icyzh/hermes-web (MIT)"
+        ]
+      }
+    },
+    "extra_mcps": {
+      "oh-my-hermes": {
+        "enabled": false,
+        "_desc": "Value-add Hermes coding-harness bundle.",
+        "_source": "https://github.com/rlaope/oh-my-hermes",
+        "_license": "MIT",
+        "_install": "curl -fsSLo install-oh-my-hermes.sh <url>; sh ./install-oh-my-hermes.sh"
+      },
+      "hermes-community-registry": {
+        "enabled": false,
+        "_desc": "'Add more' browser: community registry of MCPs/skills/agents.",
+        "_source": "https://github.com/hermesonehq/hermes-registry (site registry.hermesone.org)",
+        "_license": "not stated upstream",
+        "_status": "doc-TODO: browse/install surface"
+      }
+    },
+    "specialist_models": {
+      "_comment": "Specialist/experimental/security picks live in config/models-manifest.json (opt-in, pinned, never_default) and are gated by config/security-gating.json. Risky picks require a named-admin-signed sandbox spec (see docs/security-models.md).",
+      "see": [
+        "config/models-manifest.json",
+        "config/security-gating.json",
+        "docs/security-models.md"
+      ]
+    }
+  }
+}

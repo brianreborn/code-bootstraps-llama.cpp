@@ -33,3 +33,19 @@ All of them are opt-in (`scripts/fetch-models.sh --pick <name>`), sha256- and re
 - [ ] Guard pre/post screening for audit and risky routes; banner in the cockpit.
 - [ ] Load-test qwen3guard, foundation-sec, antares and whiterabbitneo on the pinned llama.cpp, then flip `tested`.
 - [ ] PowerShell `--pick` parity check for these picks.
+
+## Risky-model execution gate: named-admin-signed sandbox spec (added for Add-ons / starter pack)
+Risky models (pentest/audit, e.g. `whiterabbitneo`, `shannon-pentest`) **MAY** now be tested or run,
+but **only** after both conditions hold:
+1. a **well-defined sandbox** is specified, and
+2. an **actual human administrator** (named) has **explicitly signed off** on that sandbox.
+
+Encoded in `config/security-gating.json`:
+- `tiers.risky.execution_requires`: `sandbox_spec`, `sandbox_well_defined`, `named_admin_signoff`.
+- `sandbox_spec`: required for the `risky` tier (recommended for `audit`). A risky pick **fails closed**
+  (refuses to start or route) until a matching, unexpired `config/sandbox-spec.<name>.json` signed by a
+  named admin is present. Required fields: `name`, `admin_name`, `admin_signature`, `signed_at`,
+  `isolation`, `network_policy`, `targets`, `data_policy`, `expires_at`.
+
+No risky-model execution without a named-admin-signed sandbox spec. Point pentest tools (Shannon,
+ligolo-ng) at staging/disposable targets only, never production.
