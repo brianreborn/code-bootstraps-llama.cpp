@@ -591,11 +591,11 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"
 # LFM3 family multimodal picks (cbl #49): each installed role=media row (model + mmproj, from
 # fetch-models.sh --pick lfm3-vl|lfm3-omni|lfm3-audio) is served as model alias <pick> with
-# --mmproj. MEDIA_MODELS=0 turns this off. Nothing is served when none is installed.
+# --mmproj, plus the row's ctx/reasoning/n_predict. MEDIA_MODELS=0 turns this off. Nothing is served when none is installed.
 if [ "${MEDIA_MODELS:-1}" != 0 ]; then
   md_rows=$(mktemp)
-  awk -v match_kv="role=media" -v fields="pick file sha256 dir mmproj mmproj_sha256" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$md_rows"
-  while IFS=$tab read -r md_pick md_file md_sha md_dir md_mp md_mpsha; do
+  awk -v match_kv="role=media" -v fields="pick file sha256 dir mmproj mmproj_sha256 ctx reasoning n_predict" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$md_rows"
+  while IFS=$tab read -r md_pick md_file md_sha md_dir md_mp md_mpsha md_ctx md_rea md_np; do
     case "$md_mp" in ""|-) continue ;; esac
     [ "$md_dir" = "-" ] && md_dir="models-optional/$md_pick"
     md_path=$(gguf_resolve "$md_dir/$md_file")
@@ -605,6 +605,10 @@ if [ "${MEDIA_MODELS:-1}" != 0 ]; then
     verify_model "$md_path" "$md_sha"
     verify_model "$md_mpath" "$md_mpsha"
     printf '\n[%s]\nmodel = %s\nmmproj = %s\nalias = %s\n' "$md_pick" "$md_path" "$md_mpath" "$md_pick" >> "$EFFECTIVE_PRESET"
+    # Per-pick params from the manifest (LFM3 audio: small media ctx, reasoning off, larger n-predict).
+    case "$md_ctx" in ""|-) ;; *) printf 'ctx-size = %s\n' "$md_ctx" >> "$EFFECTIVE_PRESET" ;; esac
+    case "$md_rea" in ""|-) ;; *) printf 'reasoning = %s\n' "$md_rea" >> "$EFFECTIVE_PRESET" ;; esac
+    case "$md_np" in ""|-) ;; *) printf 'n-predict = %s\n' "$md_np" >> "$EFFECTIVE_PRESET" ;; esac
     echo "serve.sh: serving $md_pick ($md_file + --mmproj $md_mp)" >&2
   done < "$md_rows"
   rm -f "$md_rows"
