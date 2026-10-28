@@ -25,6 +25,15 @@ sh        ./install-$p.sh
 p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
 ```
 
+```sh
+# Env options (read by install.sh):
+#   INSTALL_PREFIX=DIR   (default ~/code-bootstraps-llama.cpp)
+#   EXPECTED_SHA256=HEX  archive must match or it is not unpacked
+#   INSTALL_NO_START=1   unpack only, do not run start.sh
+# Already downloaded? Rerun, no new download:
+INSTALL_NO_START=1 sh ./install-code-bootstraps-llama.cpp.sh
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -196,6 +205,15 @@ sh        ./install-$p.sh
 
 ```sh
 p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
+```
+
+```sh
+# Env options (read by install.sh):
+#   INSTALL_PREFIX=DIR   (default ~/code-bootstraps-llama.cpp)
+#   EXPECTED_SHA256=HEX  archive must match or it is not unpacked
+#   INSTALL_NO_START=1   unpack only, do not run start.sh
+# Already downloaded? Rerun, no new download:
+INSTALL_NO_START=1 sh ./install-code-bootstraps-llama.cpp.sh
 ```
 
 ```powershell
