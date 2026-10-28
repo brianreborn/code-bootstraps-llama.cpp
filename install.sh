@@ -1,8 +1,12 @@
 #!/bin/sh
 # Fetch this repository, unpack, then run start.sh.
 # Profile defaults, including MODELS_MAX=2, live in scripts/serve.sh after unpack.
-#   curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh && \
-#     sh ./install-cbl.sh
+#   p=code-bootstraps-llama.cpp        && \
+#   o=brianreborn                      && \
+#   h=raw.githubusercontent.com        && \
+#   u=https://$h/$o/$p/main/install.sh && \
+#   curl -fsSLo install-$p.sh $u       && \
+#   sh        ./install-$p.sh
 # EXPECTED_SHA256 or INSTALL_SHA256, when set, must match the archive or it is
 # not unpacked. An empty digest still installs. Tests set INSTALL_URL,
 # INSTALL_PREFIX, and INSTALL_NO_START=1. A second run unpacks again only when
