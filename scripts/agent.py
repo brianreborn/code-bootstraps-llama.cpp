@@ -162,6 +162,29 @@ def ask(prompt):
         return False
 
 
+def ready_port():
+    try:
+        return int(open(os.path.join(ROOT, ".cache", "serve.ready")).read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def default_key(url):
+    """the instance key for the server at url (per-instance api-keys file, then .secrets/api-keys)"""
+    port = urllib.parse.urlparse(url).port
+    try:
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "lib"))
+        from snap import key_file_candidates
+        files = key_file_candidates(port)
+    except Exception:
+        files = [os.path.join(ROOT, ".secrets", "api-keys")]
+    for f in files:
+        k = read_key(f)
+        if k:
+            return k
+    return os.environ.get("LLAMA_API_KEY", "").split(",")[0] or None
+
+
 def read_key(path):
     if not path or not os.path.exists(path):
         return None
@@ -438,8 +461,10 @@ def main():
     try_lock_process("agent.py")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("prompt")
-    ap.add_argument("--url", default=os.environ.get("LLAMA_URL", "http://127.0.0.1:" + os.environ.get("PORT", "9931")))
-    ap.add_argument("--key-file", default=os.environ.get("API_KEY_FILE", os.path.join(ROOT, ".secrets", "api-keys")))
+    # defaults find the running server (.cache/serve.ready, so a port start.sh moved is followed)
+    # and its per-instance key file: no URL, port or key to copy by hand
+    ap.add_argument("--url", default=os.environ.get("LLAMA_URL", "http://127.0.0.1:%s" % (os.environ.get("PORT") or ready_port() or 9931)))
+    ap.add_argument("--key-file", default=os.environ.get("API_KEY_FILE"))
     ap.add_argument("--model", default=os.environ.get("AGENT_MODEL", "chat"))
     ap.add_argument("--cwd", default=None, help="tool working directory (host path, or /work inside a container runtime)")
     ap.add_argument("--max-steps", type=int, default=12)
@@ -480,7 +505,7 @@ def main():
         return remote_handoff.dispatch(a.prompt, ws)
 
     cwd = resolve_cwd(a.cwd, load_tools_meta())
-    local_key = read_key(a.key_file)
+    local_key = read_key(a.key_file) if a.key_file else default_key(a.url)
     c = Client(a.url, local_key, cwd)
 
     if a.localize:   # localize docs/comments/strings: prose translated, code blocks and `spans` kept

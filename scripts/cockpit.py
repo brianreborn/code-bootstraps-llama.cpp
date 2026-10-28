@@ -12,8 +12,12 @@ off with the switches. The heat map is a synthetic extra (lines/second per log),
 The header shows the per-role reasoning toggle (GET /reasoning, display only: set it with
 REASONING / REASONING_GENERAL / REASONING_CODER and restart serve).
 
-Same API key as the server: the page asks once and sends it as ?key= on the SSE stream (EventSource
-cannot set headers) and as "Authorization: Bearer" elsewhere. Binds 127.0.0.1 only.
+No key entry in the browser. The cockpit reads the instance API key itself (the same files as
+serve.sh: API_KEY_FILE, the per-instance api-keys file, .secrets/api-keys) and attaches it server-side
+when it proxies to llama-server (/api/...). The key never reaches the page and is never printed.
+Binds 127.0.0.1 by default (no browser auth: only this machine can connect). With --host on a
+non-loopback address it generates a cockpit session token (not the API key), prints the URL with
+?token= once, and requires it on every request.
 The accessible no-JavaScript settings panel stays scripts/panel.py; it links here.
 """
 import argparse, hmac, json, os, re, sys, time, urllib.parse
@@ -22,24 +26,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "lib"))
 HTML = os.path.join(ROOT, "scripts", "cockpit", "index.html")
-
-
-def api_keys():
-    try:
-        from snap import key_file_candidates  # same resolution as serve.sh
-        files = key_file_candidates()
-    except Exception:
-        files = []
-    keys = set()
-    for f in files:
-        try:
-            with open(f) as fh:
-                keys.update(l.strip() for l in fh if l.strip())
-        except OSError:
-            pass
-    if os.environ.get("LLAMA_API_KEY"):
-        keys.add(os.environ["LLAMA_API_KEY"])
-    return keys
 
 
 def logs(manifests):
@@ -120,18 +106,75 @@ def startup():
             "download": dl[-1] if dl else "", "sizing": rd("sizing")}
 
 
+def ready_port():
+    try:
+        return int(open(os.path.join(ROOT, ".cache", "serve.ready")).read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def instance_key(port=None):
+    """first key of the instance key file (never printed or logged)"""
+    try:
+        from snap import key_file_candidates
+        files = key_file_candidates(port)
+    except Exception:
+        files = [os.path.join(ROOT, ".secrets", "api-keys")]
+    for f in files:
+        try:
+            for l in open(f):
+                if l.strip():
+                    return l.strip()
+        except OSError:
+            pass
+    return os.environ.get("LLAMA_API_KEY") or None
+
+
+def is_loopback(host):
+    return host in ("127.0.0.1", "::1", "localhost") or host.startswith("127.")
+
+
 class H(BaseHTTPRequestHandler):
     manifests = []
+    token = None          # cockpit session token; None = loopback, no browser auth
 
     def log_message(self, *a):
         sys.stderr.write("cockpit: %s\n" % (a[0] % a[1:]))
 
     def authed(self, q):
-        got = q.get("key", [""])[0]
+        if self.token is None:
+            return True
+        got = q.get("token", [""])[0]
         h = self.headers.get("Authorization", "")
         if h.startswith("Bearer "):
             got = h[7:]
-        return bool(got) and any(hmac.compare_digest(got, k) for k in api_keys())
+        return bool(got) and hmac.compare_digest(got, self.token)
+
+    def proxy(self, path, method="GET", body=None):
+        """forward to the local llama-server with the instance key attached here, server-side"""
+        import urllib.request, urllib.error
+        port = ready_port()
+        if not port:
+            return 503, {"error": "llama-server is not ready yet (.cache/serve.ready missing)"}
+        key = instance_key(port) or self.headers.get("X-Llama-Key") or None
+        if not key:
+            return 503, {"error": "no instance key file found (API_KEY_FILE, the per-instance api-keys file, "
+                                  ".secrets/api-keys): start the server once with start.sh, or enter the key below",
+                         "need_key": True}
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path), data=body, method=method,
+                                     headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            return e.code, {"error": "llama-server answered HTTP %d" % e.code}
+        except (OSError, ValueError) as e:
+            return 502, {"error": "llama-server unreachable: %s" % type(e).__name__}
+
+    def json_out(self, code, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(code); self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
@@ -142,6 +185,15 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if not self.authed(q):
             self.send_response(401); self.end_headers(); self.wfile.write(b"API key required\n"); return
+        if u.path == "/session":
+            port = ready_port()
+            return self.json_out(200, {"auth": "token" if self.token else "loopback", "server_port": port,
+                                       "key_file": bool(instance_key(port))})
+        if u.path.startswith("/api/"):
+            sub = u.path[4:]
+            if sub not in ("/models", "/health", "/v1/models", "/props"):
+                return self.json_out(404, {"error": "not proxied"})
+            return self.json_out(*self.proxy(sub))
         L = logs(self.manifests)
         if u.path == "/logs":
             body = json.dumps(L).encode()
@@ -166,7 +218,7 @@ class H(BaseHTTPRequestHandler):
         # serve.sh re-checks every key and value against its own whitelist before using it.
         u = urllib.parse.urlparse(self.path)
         if not self.authed(urllib.parse.parse_qs(u.query)):
-            self.send_response(401); self.end_headers(); self.wfile.write(b"API key required\n"); return
+            self.send_response(401); self.end_headers(); self.wfile.write(b"cockpit token required\n"); return
         if u.path != "/recover":
             self.send_response(404); self.end_headers(); return
         try:
@@ -217,12 +269,26 @@ class H(BaseHTTPRequestHandler):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=int(os.environ.get("COCKPIT_PORT", 9933)))
+    ap.add_argument("--host", default=os.environ.get("COCKPIT_HOST", "127.0.0.1"))
     ap.add_argument("--manifest", action="append", default=[])
     a = ap.parse_args()
     H.manifests = a.manifest or [os.path.join(ROOT, ".cache", "logs.manifest")] + \
         [m for m in os.environ.get("FAMILIA_LOG_MANIFEST", "").split(":") if m]
-    print("cockpit: http://127.0.0.1:%d/  logs from %s" % (a.port, ", ".join(H.manifests)), file=sys.stderr)
-    ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()
+    url = "http://%s:%d/" % ("[%s]" % a.host if ":" in a.host else a.host, a.port)
+    if not is_loopback(a.host):
+        import secrets
+        H.token = secrets.token_urlsafe(24)
+        url += "?token=" + H.token   # the cockpit's own session token, not the API key
+    srv = ThreadingHTTPServer((a.host, a.port), H)
+    print("cockpit: %s  logs from %s" % (url, ", ".join(H.manifests)), file=sys.stderr, flush=True)
+    url_file = os.path.join(ROOT, ".cache", "cockpit.url")
+    try:
+        os.makedirs(os.path.dirname(url_file), exist_ok=True)
+        with open(url_file, "w") as f:
+            f.write(url.split("?")[0] + "\n")   # never the token
+    except OSError:
+        pass
+    srv.serve_forever()
 
 
 if __name__ == "__main__":

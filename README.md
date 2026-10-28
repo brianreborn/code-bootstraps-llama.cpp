@@ -108,9 +108,15 @@ only the selected backend's packages. Tested: CPU path on x86_64 Debian.
 ### Logs and the cockpit
 
 Nothing logs to `/dev/null`. serve.sh writes `.cache/logs.manifest` (name, path) for every process it
-starts (router incl. each child's `[pid name:port]` lines, embed, recover, watchdog). `python3
-scripts/cockpit.py` serves a live view of every log at http://127.0.0.1:9933/ (all panels on, switch off
-what you do not want; optional synthetic heat map), protected by the instance API key. familia adds its
+starts (router incl. each child's `[pid name:port]` lines, embed, recover, watchdog). `start.sh`
+launches the cockpit (`scripts/cockpit.py`) and prints its URL, by default http://127.0.0.1:9933/ (next
+free port if taken; `COCKPIT=0` turns it off, `COCKPIT_PORT` picks the port): a live view of every log
+(all panels on, switch off what you do not want; optional synthetic heat map), loaded models and the
+startup recovery controls. It never asks for the API key: the cockpit reads the instance key file itself
+and attaches it server-side when it talks to llama-server. It binds 127.0.0.1, so only this machine can
+open it. `COCKPIT_HOST=0.0.0.0` (another device on the LAN) generates a session token and prints the URL
+with `?token=…` once; that token is not the API key and dies with the cockpit. Only if the key file is
+missing does the page offer a key field, and says so. familia adds its
 own logs through `FAMILIA_LOG_MANIFEST`. Logs are never committed (see `.gitignore`).
 The page is a self-contained mecha HUD (bezeled screens, scanlines, live status strip with line/error/warn counts, error-flash on panels); no network fonts or images.
 
@@ -377,7 +383,7 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `CACHE_RAM` | MiB, 0 = off (lowram 768, moderate 1024, default 2048; at most a quarter of free RAM) | prompt cache kept for reuse; one long coder prompt is about 500 MiB, so under 512 nothing long is cached | `CACHE_RAM=1024 ./start.sh` |
 | `READY_TIMEOUT` | seconds, 0 = no limit (1800; 3600 on Android, lowram or 2 CPUs or fewer) | how long `serve.sh` / `serve.ps1` poll the server's own `/health` before saying "not ready after …" (the server keeps running); a "still starting" line every `READY_EVERY` (30) s. The launcher opens the web UI as soon as the server is ready, with no cap of its own (`OPEN_UI_TIMEOUT` sets one) | `READY_TIMEOUT=0 ./start.sh` |
 | `STARTUP_LOG` | `live` (default), `quiet`, `follow` | `live` streams every llama-server log line (and background download progress) to the terminal while it starts, prefixed `  \| `; `quiet` keeps only the "still starting" lines; `follow` keeps streaming after it is ready. The cockpit streams the same logs | `STARTUP_LOG=quiet ./start.sh` |
-| `STARTUP_RECOVER` | `1` (default), `0` | when the start is slow (READY_TIMEOUT) or llama-server exits before it is ready, a terminal gets a menu: keep waiting, model (`MODEL_GENERAL`), `SIZING`, `CTX`, `REASONING`, `PROFILE`, backend (`LLAMA_SERVER` / `GPU_LAYERS=0`), `READY_TIMEOUT`; retry restarts only llama-server (downloads, launcher and cockpit keep running). The cockpit has the same controls (POST `/recover`, API key required, whitelisted keys). Without a terminal it stays automatic | `STARTUP_RECOVER=0 ./start.sh` |
+| `STARTUP_RECOVER` | `1` (default), `0` | when the start is slow (READY_TIMEOUT) or llama-server exits before it is ready, a terminal gets a menu: keep waiting, model (`MODEL_GENERAL`), `SIZING`, `CTX`, `REASONING`, `PROFILE`, backend (`LLAMA_SERVER` / `GPU_LAYERS=0`), `READY_TIMEOUT`; retry restarts only llama-server (downloads, launcher and cockpit keep running). The cockpit has the same controls (POST `/recover`, local or cockpit token only, whitelisted keys). Without a terminal it stays automatic | `STARTUP_RECOVER=0 ./start.sh` |
 | `MODELS_BG` | `1` (default), `0` | `start.sh` downloads the general model first and starts chat with it; the other roles download in the background (`.cache/fetch-models.log`, shown live) and hot-add when their file lands (the router opens a model file only when it loads it). `0` = download everything before starting | `MODELS_BG=0 ./start.sh` |
 | `MODEL_GENERAL`, `MODEL_CODER`, `MODEL_DECISION` | a GGUF path | serve that file for the role instead of the preset / manifest choice (sha256 checked when the manifest knows it) | `MODEL_GENERAL=~/m.gguf ./start.sh` |
 | `THREADS` | number (auto: big/physical cores) | generation threads | `THREADS=4 ./start.sh` |

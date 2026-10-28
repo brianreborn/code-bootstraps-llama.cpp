@@ -194,7 +194,25 @@ open_ui() {
   elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; then xdg-open "$url" >/dev/null 2>&1 &
   else say "$url"; fi
 }
+# Cockpit (live logs, startup recovery): started here so nobody has to run it by hand. It reads
+# the instance key itself; the browser never asks for it. COCKPIT=0 skips it; COCKPIT_PORT moves it.
+start_cockpit() {
+  [ "${COCKPIT:-1}" = 1 ] && command -v python3 >/dev/null 2>&1 || return 0
+  cp_port=${COCKPIT_PORT:-9933}
+  i=0
+  while [ "$i" -le 20 ]; do
+    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/session" 2>/dev/null | grep -q '"auth"'; then
+      say "cockpit (live logs): http://127.0.0.1:$cp_port/ (already running)"; return 0
+    fi
+    port_busy "$cp_port" || break
+    cp_port=$((cp_port + 1)); i=$((i + 1))
+  done
+  mkdir -p .cache
+  COCKPIT_PORT=$cp_port nohup python3 scripts/cockpit.py >> .cache/cockpit.log 2>&1 </dev/null &
+  say "cockpit (live logs, startup recovery): http://127.0.0.1:$cp_port/"
+}
 rm -f .cache/serve.ready
+start_cockpit
 open_ui "$$" &
 if [ "$TERMUX" = 1 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true

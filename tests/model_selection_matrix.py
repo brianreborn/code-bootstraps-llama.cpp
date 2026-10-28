@@ -433,7 +433,7 @@ def prepare(j, n, stubs):
     env.update(base)
     # MODELS_BG=0: the matrix checks what is selected once the downloads are in (deterministic);
     # background downloads + hot-add are tested in tests/test_startup_recover.sh
-    env.update({"PORT": port, "TOOLS_RUNTIME": "host", "LLAMA_SERVER": os.path.join(st, "llama-server-stub"), "MODELS_BG": "0"})
+    env.update({"PORT": port, "TOOLS_RUNTIME": "host", "LLAMA_SERVER": os.path.join(st, "llama-server-stub"), "MODELS_BG": "0", "COCKPIT": "0"})
     if j["profile"] in ("default", "lowram", "moderate", "auto"):
         env["PROFILE"] = j["profile"]
     if j["tools"] != "auto":
