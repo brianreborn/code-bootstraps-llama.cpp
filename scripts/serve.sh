@@ -66,6 +66,8 @@ for a in "$@"; do
   # --set official|unimpeded (= MODEL_SET): the launcher's model set, not a llama-server flag
   if [ "$ms_next" = 1 ]; then MODEL_SET=$a; ms_next=0; continue; fi
   case "$a" in --set) ms_next=1; continue ;; --set=*) MODEL_SET=${a#--set=}; continue ;; esac
+  # --turbo (= FAMILIA_TURBO=1): the metrics turbo button, not a llama-server flag
+  case "$a" in --turbo) FAMILIA_TURBO=1; continue ;; --metrics) die "--metrics is set from config/metrics.json; use --turbo to turn metrics off" ;; esac
   case "$(arg_name "$a")" in --cache-ram|-cram) UA_CACHE_RAM=1 ;; esac
   case "$(arg_name "$a")" in
     --tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-*|--ui-mcp-proxy|--webui-mcp-proxy|\
@@ -700,6 +702,7 @@ start_container() {
 }
 cleanup() {
   if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
+  if [ -n "${METRICS_PID:-}" ]; then kill "$METRICS_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
   # router and embed run in their own process groups (setsid): stop them with serve.sh, whatever
   # ended serve.sh, so no llama-server is left holding the port (a restart would move to another
@@ -815,6 +818,18 @@ if [ -n "$MCP_CONFIG" ] && [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
   export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
 fi
 
+# Metrics / telemetry gate (config/metrics.json, default ON). The turbo button (--turbo,
+# FAMILIA_TURBO=1, or turbo_button.turbo:true) turns ALL collection off: no /metrics endpoint,
+# no sampler. Without python3 the gate cannot be read, so nothing is collected.
+METRICS_ON=0
+if command -v python3 >/dev/null 2>&1; then
+  if METRICS_STATE=$(FAMILIA_TURBO=${FAMILIA_TURBO:-} python3 "$ROOT/scripts/lib/metrics.py" status); then METRICS_ON=1; fi
+else
+  METRICS_STATE="off (python3 missing)"
+fi
+echo "serve.sh: metrics $METRICS_STATE" >&2
+[ "$METRICS_ON" = 1 ] && export LLAMA_ARG_ENDPOINT_METRICS=1
+
 LISTEN_HOST=$(bind_hosts "$HOST")
 PROBE_HOST=$(probe_host_of "$HOST")
 PROBE_URL_HOST=$(url_host "$PROBE_HOST")
@@ -919,6 +934,12 @@ if command -v python3 >/dev/null 2>&1; then
   RECOVER_URL="http://$PROBE_URL_HOST:$PORT" API_KEY_FILE="$API_KEY_FILE" \
     python3 "$ROOT/scripts/recover.py" >>"$ROOT/.cache/recover.log" 2>&1 &
   RECOVER_PID=$!
+fi
+METRICS_PID=""
+if [ "$METRICS_ON" = 1 ]; then
+  python3 "$ROOT/scripts/lib/metrics.py" sample --url "http://$PROBE_URL_HOST:$PORT" \
+    --key-file "$API_KEY_FILE" --engine "$engine_tag" >/dev/null 2>&1 &
+  METRICS_PID=$!
 fi
 
 said_listening() {

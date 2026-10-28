@@ -31,7 +31,8 @@ param(
     # swap (locale model as general), interpret (opt-in HY-MT, license not valid in EU/UK/South Korea), off
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
     [string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
-    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),   # swap mode: also replace the coder with the locale model
+    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),
+    [switch]$Turbo = ($env:FAMILIA_TURBO -and $env:FAMILIA_TURBO -ne "0"),   # metrics turbo button: no telemetry at all (config\metrics.json)   # swap mode: also replace the coder with the locale model
     [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
     [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
@@ -561,6 +562,21 @@ if ($McpConfig) {
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
 
+# Metrics / telemetry gate (config\metrics.json, default ON; scripts\lib\metrics.py, same as
+# serve.sh). -Turbo / FAMILIA_TURBO=1 / turbo_button.turbo:true turn ALL collection off.
+$metricsOn = $false
+$metricsPy = $pyCmd
+if (-not $metricsPy -and (Get-Command python -ErrorAction SilentlyContinue)) { $metricsPy = @("python") }
+if ($metricsPy) {
+    $mPre = @($metricsPy | Select-Object -Skip 1)
+    $mArgs = @((Join-Path $Root "scripts\lib\metrics.py"), "status")
+    if ($Turbo) { $mArgs += "--turbo" }
+    $metricsState = (& $metricsPy[0] @mPre @mArgs) -join ""
+    $metricsOn = ($LASTEXITCODE -eq 0)
+} else { $metricsState = "off (no Python)" }
+Write-Host "serve.ps1: metrics $metricsState"
+if ($metricsOn) { $env:LLAMA_ARG_ENDPOINT_METRICS = "1" }
+
 $requestedHost = $BindHost
 if (-not $requestedHost) { $requestedHost = "127.0.0.1" }
 if ($requestedHost -notin @("127.0.0.1", "localhost", "::1")) {
@@ -705,6 +721,13 @@ if ($pyRecover) {
     $recLog = Join-Path $Root ".cache\recover.log"
     $recover = Start-Process -FilePath $pyRecover[0] -ArgumentList $recArgs -PassThru -WindowStyle Hidden -RedirectStandardError $recLog -WorkingDirectory $Root
 }
+$metricsProc = $null
+if ($metricsOn) {
+    $msArgs = @()
+    if ($metricsPy.Count -gt 1) { $msArgs += $metricsPy[1..($metricsPy.Count - 1)] }
+    $msArgs += @("`"$(Join-Path $Root "scripts\lib\metrics.py")`"", "sample", "--url", "http://${probeHost}:$Port", "--key-file", "`"$keyFile`"")
+    $metricsProc = Start-Process -FilePath $metricsPy[0] -ArgumentList $msArgs -PassThru -WindowStyle Hidden -WorkingDirectory $Root
+}
 $publicHosts = @(Get-PublicHosts $requestedHost)
 foreach ($h in $publicHosts) {
     Write-Host "serve.ps1: also on http://$(Format-UrlHost $h):$Port"
@@ -720,6 +743,7 @@ try {
     & $LlamaServer @srvArgs
 } finally {
     if ($recover -and -not $recover.HasExited) { Stop-Process -Id $recover.Id -Force -ErrorAction SilentlyContinue }
+    if ($metricsProc -and -not $metricsProc.HasExited) { Stop-Process -Id $metricsProc.Id -Force -ErrorAction SilentlyContinue }
     $sync.Stop = $true
     try { $watch.Stop(); $watch.Dispose() } catch { }
     Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
