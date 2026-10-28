@@ -1,0 +1,39 @@
+{
+    "_comment": "Security model gating policy (#65). Design config: serve.sh/serve.ps1 do not read it yet (TODO #65). Every model is optional and can be disabled live; a failing model is dropped alone, never the swarm. See docs/security-models.md.",
+    "admin": {
+        "ultimate_authority": true,
+        "delegable_limits": ["enable_pick", "disable_pick", "guard_override"],
+        "_comment": "The admin owns all security decisions and can delegate these limits to named operators. Every delegated action is logged."
+    },
+    "kill_switch": {
+        "file": "state/disabled-models.json",
+        "cli": "scripts/models-ctl.sh disable|enable <pick> (TODO)",
+        "api": "POST /api/models/<pick>/disable|enable on the loopback panel (TODO)",
+        "live": true,
+        "on_disable": ["remove_from_routing", "stop_process"],
+        "requires_restart": false
+    },
+    "failure_policy": {
+        "on_model_failure": "disable_model_only",
+        "never_stop_swarm": true,
+        "unhealthy_after_failed_health_checks": 3
+    },
+    "guards": {
+        "picks": ["nemotron-guard", "qwen3guard"],
+        "hard_dependency": false,
+        "recommended_path": true,
+        "screen": ["input", "output"],
+        "_comment": "Any healthy enabled guard counts. With no guard, normal roles keep working unchanged."
+    },
+    "tiers": {
+        "guard": {"default": false},
+        "audit": {"default": false, "guard_gated": true, "no_guard": "allow_with_warning"},
+        "risky": {"default": false, "guard_gated": true, "no_guard": "fail_closed_self_only", "admin_override": "logged", "banner": true}
+    },
+    "scope": {
+        "preservative_only": true,
+        "allowed": ["read", "analyze", "report"],
+        "forbidden": ["act", "exploit", "network_scan_external", "write_outside_report"]
+    },
+    "license_flags_block_commercial_builds": ["non-commercial"]
+}
