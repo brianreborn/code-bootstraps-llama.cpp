@@ -32,6 +32,7 @@ param(
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
     [string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
     [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),   # swap mode: also replace the coder with the locale model
+    [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
     [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
 )
@@ -93,6 +94,8 @@ function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p
 
 # parameters that may come from the environment are checked here (ValidateSet skips defaults)
 if ($RamProfile -notin @("auto", "lowram", "moderate", "default")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|lowram|moderate|default)" }
+Assert-ModelSet $ModelSet
+$env:MODEL_SET = $ModelSet
 if ($Repack -notin @("on", "off")) { throw "unknown REPACK / -Repack '$Repack' (on|off)" }
 $mode = $LanguageMode.ToLowerInvariant()
 if ($mode -eq "auto") { $mode = "native" }
@@ -283,6 +286,18 @@ function Get-RoleModel([string]$role) {
     if ($f) {
         if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "[$role] model = $f in ${presetPath}: file not found" }
         Test-Model $f "[$role] model"; return $f
+    }
+    # MODEL_SET pick first (sha256-checked); official never falls back to the uncensored default.
+    $sp = Get-ModelSetPick $Root $ModelSet $role
+    if ($sp) {
+        foreach ($c in $manifest) {
+            if ($c.pick -ne $sp[0] -or $c.role -ne $sp[1]) { continue }
+            $d = Get-Field $c "dir"; if (-not $d) { $d = "models/" + $sp[1] }
+            $p = Resolve-GgufPath ($d + "/" + $c.file)
+            if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+            if ($ModelSet -eq "official") { throw "MODEL_SET=official: the $role role's model $($c.file) is not installed: run scripts\fetch-models.ps1 -ModelSet official" }
+            break
+        }
     }
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
@@ -558,6 +573,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 Write-TextFile (Join-Path $Root ".cache\sizing") $sizing   # shown by the cockpit
+Write-Host "serve.ps1: model set: $ModelSet (MODEL_SET / -ModelSet official|unimpeded; config\model-sets.json)"
 Write-Host "serve.ps1: sizing=$sizing profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
