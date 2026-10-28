@@ -1,6 +1,6 @@
 #!/bin/sh
 # .ci/lint-warnings.sh: fail on NEW warnings (anything not in .ci/warnings-baseline.txt).
-#   shellcheck -x -S warning on every tracked *.sh and *.mk file (.mk checked as POSIX sh)
+#   ShellCheck at -x -S warning on every tracked *.sh and *.mk file (.mk checked as POSIX sh)
 #   Python: compile every tracked *.py with warnings as errors; where pytest.ini exists, also
 #   pytest collection with DeprecationWarning / PendingDeprecationWarning / SyntaxWarning as errors.
 # Usage: sh .ci/lint-warnings.sh            check (CI)
