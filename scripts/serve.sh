@@ -10,7 +10,9 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
-abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$ROOT/$1" ;; esac; }
+. "$ROOT/lib/path.mk"   # abs_path
+. "$ROOT/lib/os.mk"     # mk_is_termux
+abspath() { abs_path "$1" "$ROOT"; }   # relative paths here are relative to $ROOT
 
 HOST=${HOST:-127.0.0.1,::1} # 0.0.0.0 is IPv4 all interfaces; ::1 is IPv6 localhost; etc.
 PORT=${PORT:-9931}
@@ -52,8 +54,7 @@ LOG_FILE=${LOG_FILE:-$ROOT/.cache/server.log}
 . "$ROOT/scripts/lib/gpu.sh"
 . "$ROOT/scripts/lib/bindhost.sh"
 
-die() { echo "serve.sh: $*" >&2; exit 1; }
-warn() { echo "serve.sh: WARNING: $*" >&2; }
+MK_TAG=serve.sh; MK_ERR=""; . "$ROOT/lib/msg.mk"   # die, warn
 
 ua_dir=$(mktemp -d)
 UA_CACHE_RAM=""
@@ -101,7 +102,7 @@ BIN=$(abspath "$BIN")
 
 OS=$(uname -s)
 IS_ANDROID=0
-case "${PREFIX:-}" in *com.termux*) IS_ANDROID=1 ;; esac
+if mk_is_termux; then IS_ANDROID=1; fi
 [ -n "${ANDROID_ROOT:-}" ] && IS_ANDROID=1
 
 # FreeBSD: detect Python and hermes paths the way mk scripts do (ports use /usr/local).
