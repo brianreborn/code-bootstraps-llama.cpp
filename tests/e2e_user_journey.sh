@@ -55,6 +55,19 @@ for f in key_file_candidates(sys.argv[2]):
     except OSError: pass
 PY
 }
+decide() { # ask the decision model (POST /v1/systemone, it cannot chat): prints the chosen route
+  python3 - "http://127.0.0.1:$(port_now)" "$(key_now)" <<'PY'
+import json, sys, urllib.request
+url, key = sys.argv[1:3]
+b = {"model": "decision", "state": "User message: write me a python function that sorts a list",
+     "questions": {"route": {"type": "choice", "instructions": "Which assistant should answer?",
+                             "criteria": {"chat": None, "code": None}}}}
+r = urllib.request.Request(url + "/v1/systemone", json.dumps(b).encode(),
+    {"Content-Type": "application/json", "Authorization": "Bearer " + key})
+d = json.load(urllib.request.urlopen(r, timeout=900))
+print(json.dumps(d.get("answers", d))[:80])
+PY
+}
 chat() { # MODEL PROMPT -> prints reply (key from the instance key file, as any local client does)
   python3 - "http://127.0.0.1:$(port_now)" "$1" "$2" "$(key_now)" <<'PY'
 import json, sys, urllib.request
@@ -122,7 +135,7 @@ fi
 # 6. background download hot-adds
 if grep -q "still downloading" "$LOG"; then
   if wait_log "hot-add: the decision role" "$DL_MAX"; then
-    rep=$(chat decision "Say OK" 2>&1) && step hot-add "a model downloaded in the background becomes usable without a restart" pass "decision: $(printf '%s' "$rep" | head -c 40)" \
+    rep=$(decide 2>&1) && step hot-add "a model downloaded in the background becomes usable without a restart" pass "decision: $(printf '%s' "$rep" | head -c 40)" \
       || step hot-add "background model usable without restart" fail "hot-add said, but chat failed: $(printf '%s' "$rep" | tail -n 1 | head -c 150)"
   else step hot-add "background download finishes and hot-adds" fail "no hot-add in ${DL_MAX}s; download log: $(tail -c 200 "$R/.cache/fetch-models.log" 2>/dev/null | tr '\r\n' '  ')"; fi
 else step hot-add "background download hot-adds" skip "nothing was left to download in the background"; fi

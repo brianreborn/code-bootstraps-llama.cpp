@@ -640,10 +640,16 @@ start_container() {
 cleanup() {
   if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
-  if [ -n "${EMBED_PID:-}" ]; then kill -TERM "-$EMBED_PID" 2>/dev/null || kill "$EMBED_PID" 2>/dev/null || true; fi
-  # the router runs in its own process group (setsid): stop it and its children with serve.sh,
-  # whatever ended serve.sh, so no llama-server is left holding the port and the instance key
-  if [ -n "${SERVER_PID:-}" ]; then kill -TERM "-$SERVER_PID" 2>/dev/null || kill -TERM "$SERVER_PID" 2>/dev/null || true; fi
+  # router and embed run in their own process groups (setsid): stop them with serve.sh, whatever
+  # ended serve.sh, so no llama-server is left holding the port (a restart would move to another
+  # port and so another instance key). TERM, then KILL what is still there after 10 s.
+  for cp in ${SERVER_PID:-} ${EMBED_PID:-}; do
+    kill -TERM "-$cp" 2>/dev/null || kill -TERM "$cp" 2>/dev/null || true
+  done
+  for cp in ${SERVER_PID:-} ${EMBED_PID:-}; do
+    ci=0; while [ "$ci" -lt 20 ] && kill -0 "$cp" 2>/dev/null; do sleep 0.5; ci=$((ci + 1)); done
+    if kill -0 "$cp" 2>/dev/null; then kill -KILL "-$cp" 2>/dev/null || kill -KILL "$cp" 2>/dev/null || true; fi
+  done
   if [ -n "${SERVER_PID:-}" ] && [ -f "$ROOT/.cache/serve.ready" ] && [ "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" = "$SERVER_PID" ]; then
     rm -f "$ROOT/.cache/serve.ready"
   fi
