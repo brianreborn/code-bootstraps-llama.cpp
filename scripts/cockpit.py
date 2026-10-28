@@ -16,7 +16,7 @@ Same API key as the server: the page asks once and sends it as ?key= on the SSE 
 cannot set headers) and as "Authorization: Bearer" elsewhere. Binds 127.0.0.1 only.
 The accessible no-JavaScript settings panel stays scripts/panel.py; it links here.
 """
-import argparse, hmac, json, os, sys, time, urllib.parse
+import argparse, hmac, json, os, re, sys, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +80,46 @@ def reasoning():
     return out
 
 
+RECOVER_KEYS = {
+    "SIZING": re.compile(r"^(monolithic|distributed)$"),
+    "REASONING": re.compile(r"^(on|off|auto)$"),
+    "PROFILE": re.compile(r"^(lowram|moderate|default)$"),
+    "CTX": re.compile(r"^[0-9]{1,7}$"),
+    "READY_TIMEOUT": re.compile(r"^[0-9]{1,6}$"),
+    "GPU_LAYERS": re.compile(r"^[0-9]{1,4}$"),
+    "MODEL_GENERAL": re.compile(r"^[^\n=]+\.gguf$"),
+    "MODEL_CODER": re.compile(r"^[^\n=]+\.gguf$"),
+    "MODEL_DECISION": re.compile(r"^[^\n=]+\.gguf$"),
+    "LLAMA_SERVER": re.compile(r"^[^\n=]+/llama-server$"),
+    "ACTION": re.compile(r"^(retry|wait)$"),
+}
+
+
+def recover_lines(req):
+    if not isinstance(req, dict):
+        raise ValueError("expected a JSON object")
+    out = []
+    for k, v in req.items():
+        v = str(v)
+        if k not in RECOVER_KEYS or not RECOVER_KEYS[k].match(v):
+            raise ValueError("%s: not an allowed setting or value" % k)
+        out.append("%s=%s" % (k, v))
+    return out
+
+
+def startup():
+    c = os.path.join(ROOT, ".cache")
+    def rd(n):
+        try:
+            return open(os.path.join(c, n)).read().strip()
+        except OSError:
+            return ""
+    dl = rd("fetch-models.log").replace("\r", "\n").splitlines()
+    return {"ready": bool(rd("serve.ready")), "stuck": rd("serve.stuck"),
+            "pending": [l.split("\t")[:2] for l in rd("pending-models").splitlines() if l],
+            "download": dl[-1] if dl else "", "sizing": rd("sizing")}
+
+
 class H(BaseHTTPRequestHandler):
     manifests = []
 
@@ -109,6 +149,9 @@ class H(BaseHTTPRequestHandler):
         if u.path == "/reasoning":
             body = json.dumps(reasoning()).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
+        if u.path == "/startup":
+            body = json.dumps(startup()).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
         if u.path == "/stream":
             path = L.get(q.get("log", [""])[0])
             if not path:
@@ -117,6 +160,26 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache"); self.end_headers()
             self.tail(path); return
         self.send_response(404); self.end_headers()
+
+    def do_POST(self):
+        # /recover: startup recovery from the cockpit. Writes .cache/recover.request (KEY=VALUE);
+        # serve.sh re-checks every key and value against its own whitelist before using it.
+        u = urllib.parse.urlparse(self.path)
+        if not self.authed(urllib.parse.parse_qs(u.query)):
+            self.send_response(401); self.end_headers(); self.wfile.write(b"API key required\n"); return
+        if u.path != "/recover":
+            self.send_response(404); self.end_headers(); return
+        try:
+            req = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 65536)) or b"{}")
+            lines = recover_lines(req)
+        except (ValueError, TypeError) as e:
+            self.send_response(400); self.end_headers(); self.wfile.write(("bad request: %s\n" % e).encode()); return
+        path = os.path.join(ROOT, ".cache", "recover.request")
+        with open(path + ".tmp", "w") as f:
+            f.write("".join(l + "\n" for l in lines))
+        os.replace(path + ".tmp", path)
+        body = json.dumps({"queued": lines}).encode()
+        self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body)
 
     def send(self, text):
         self.wfile.write(("data: " + json.dumps(text) + "\n\n").encode()); self.wfile.flush()

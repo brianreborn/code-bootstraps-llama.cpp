@@ -67,7 +67,7 @@ run() {   # run NAME SECONDS ENV... : start serve.sh, wait up to SECONDS for it 
   echo $! >> "$T/pids"
   i=0
   while [ "$i" -lt "$lim" ]; do
-    grep -qE "listening on http://|not ready after" "$d/out.txt" 2>/dev/null && break
+    grep -qE "serve.sh: listening on http://|not ready after" "$d/out.txt" 2>/dev/null && break
     sleep 1; i=$((i + 1))
   done
 }

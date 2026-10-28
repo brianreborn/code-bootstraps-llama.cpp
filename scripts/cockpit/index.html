@@ -46,6 +46,14 @@ footer{text-align:center;color:var(--dim);font-size:10px;letter-spacing:.3em;pad
 <header><span class="logo">FAMILIA <i>//</i> COCKPIT</span>
 <span class="st"><span><i id="dot" class="dot"></i><span id="st">link offline</span></span><span>LINES <b id="tl">0</b></span><span>ERR <b id="te">0</b></span><span>WARN <b id="tw">0</b></span><span>SIZING <b id="sz">?</b></span><span id="rs" title="">THINK <b id="rsg">?</b>/<b id="rsc">?</b></span><span id="clk"></span></span>
 <div id="sw"></div></header>
+<div id="su" style="display:none;padding:.5em 1em;border:1px solid var(--am);margin:.5em"><b id="sus">starting</b> <span id="sud"></span>
+<div id="rec" style="display:none;margin-top:.4em">Recover:
+<select id="r_SIZING"><option value="">sizing</option><option>monolithic</option><option>distributed</option></select>
+<select id="r_REASONING"><option value="">reasoning</option><option>off</option><option>on</option><option>auto</option></select>
+<select id="r_PROFILE"><option value="">profile</option><option>lowram</option><option>moderate</option><option>default</option></select>
+<input id="r_CTX" placeholder="ctx" size=6> <input id="r_READY_TIMEOUT" placeholder="timeout s" size=7> <input id="r_GPU_LAYERS" placeholder="gpu layers" size=6>
+<input id="r_MODEL_GENERAL" placeholder="general .gguf path" size=28> <input id="r_LLAMA_SERVER" placeholder="llama-server path" size=24>
+<button id="r_retry">retry</button> <button id="r_wait">keep waiting</button></div></div>
 <main id="m"></main>
 <footer>ALL LOG DISPLAYS ON BY DEFAULT · TAP A SWITCH TO POWER A SCREEN DOWN · HEAT MAP IS SYNTHETIC (OPT-IN)</footer>
 <script>
@@ -82,5 +90,12 @@ async function start(){
   setInterval(()=>{g.drawImage(cv,-4,0);const bh=cv.height/Math.max(1,names.length);
     names.forEach((n,i)=>{const v=Math.min(1,rate[n]/20);rate[n]=0;g.fillStyle=`hsl(${190+140*v},100%,${8+50*v}%)`;g.fillRect(cv.width-4,i*bh,4,bh)})},1000);
 }
-start();
+async function rec(action){const b={ACTION:action};for(const k of ["SIZING","REASONING","PROFILE","CTX","READY_TIMEOUT","GPU_LAYERS","MODEL_GENERAL","LLAMA_SERVER"]){const v=$("r_"+k).value.trim();if(v)b[k]=v}
+  const r=await fetch("/recover",{method:"POST",headers:{Authorization:"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify(b)});$("sud").textContent=r.ok?"sent: "+action:"refused: "+await r.text()}
+async function su(){if(!key)return;try{const S=await (await fetch("/startup",{headers:{Authorization:"Bearer "+key}})).json();
+  const show=!S.ready||S.pending.length;$("su").style.display=show?"":"none";
+  $("sus").textContent=S.ready?"ready":(S.stuck?"startup "+S.stuck.split(" ")[0]+" — change something and retry":"starting…");
+  $("sud").textContent=(S.pending.length?"downloading: "+S.pending.map(p=>p[0]).join(", ")+" · "+S.download:"");$("rec").style.display=(!S.ready)?"":"none"}catch(e){}}
+setInterval(su,2000);
+start();$("r_retry").onclick=()=>rec("retry");$("r_wait").onclick=()=>rec("wait");
 </script></html>

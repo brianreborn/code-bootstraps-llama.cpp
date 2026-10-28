@@ -362,6 +362,7 @@ chat_template_for() {
            awk -F '\t' -v f="$(basename "$1")" '$1 == f { print $2; exit }')
   case "$ct_sha" in ""|-) return 0 ;; esac
   ct_path="${1%.gguf}.chat-template.jinja"
+  if [ ! -f "$1" ] && is_pending "$1"; then printf '%s' "$ct_path"; return 0; fi
   [ -f "$ct_path" ] || die "$(basename "$1") needs its repo chat template ($ct_path, sha256 $ct_sha): run scripts/fetch-models.sh again"
   verify_model "$ct_path" "$ct_sha"
   printf '%s' "$ct_path"
@@ -376,6 +377,14 @@ section_value() {
   printf '%s' "$ROOT/$sv"
 }
 role_model() {
+  # MODEL_GENERAL / MODEL_CODER / MODEL_DECISION: a GGUF path for that role (startup recovery
+  # menu, cockpit, or by hand). It wins over the preset and manifest.
+  rm_var=MODEL_$(printf '%s' "$1" | tr a-z A-Z)
+  eval "rm_ov=\${$rm_var:-}"
+  if [ -n "$rm_ov" ]; then
+    [ -f "$rm_ov" ] || die "$rm_var=$rm_ov: file not found"
+    check_model "$rm_ov" "$rm_var"; printf '%s' "$rm_ov"; return 0
+  fi
   rm_rows=$(mktemp)
   manifest_rows "role=$1" > "$rm_rows"
   f=$(section_value "$1" model)
@@ -404,15 +413,35 @@ role_model() {
       return 0
     done < "$rm_rows"
   done
+  # Background download (start.sh MODELS_BG=1 sets MODELS_PENDING_OK=1): a role other than
+  # general whose file is still downloading is served from its final path. The router only
+  # opens a model file when it loads it, so the role hot-adds once the download lands
+  # (watched below). The general role must exist: chat starts with it.
+  if [ "${MODELS_PENDING_OK:-0}" = 1 ] && [ "$1" != general ]; then
+    while IFS=$tab read -r f sha dir; do
+      case "$dir" in -) rm_path=$(gguf_resolve "models/$1/$f") ;; models/*) rm_path=$(gguf_resolve "$dir/$f") ;; *) continue ;; esac
+      mkdir -p "$ROOT/.cache"
+      printf '%s\t%s\t%s\n' "$1" "$rm_path" "$sha" >> "$ROOT/.cache/pending-models"
+      echo "serve.sh: the $1 role's model $(basename "$rm_path") is still downloading; it hot-adds when done" >&2
+      printf '%s' "$rm_path"
+      rm -f "$rm_rows"
+      return 0
+    done < "$rm_rows"
+  fi
   rm -f "$rm_rows"
   if [ -n "${MODELS_DIR:-}" ]; then
     die "no model for the $1 role in $MODELS_DIR/$1/"
   fi
   die "no model for the $1 role in $(gguf_home)/models/$1/ or $ROOT/models/$1/"
 }
+rm -f "$ROOT/.cache/pending-models" "$ROOT"/.cache/hotadded.*
+is_pending() { [ -f "$ROOT/.cache/pending-models" ] && cut -f2 "$ROOT/.cache/pending-models" | grep -qxF "$1"; }
 M_GENERAL=$(role_model general)
 M_CODER=$(role_model coder)
 M_DECISION=$(role_model decision)
+if is_pending "$M_DECISION"; then   # loaded on startup only once its download lands (hot-add watcher)
+  OVERLAY=$(printf '%s' "${OVERLAY:-}" | sed 's/decision\.load-on-startup=true//g'); DECISION_LOAD_LATER=$RESIDENT; RESIDENT=0
+fi
 # embed_model: like role_model but returns empty (no die) when no file exists.
 # The embed server is optional — only started when a model is on disk.
 embed_model() {
@@ -837,13 +866,31 @@ case "${READY_TIMEOUT:-auto}" in
   *[!0-9]*|"") die "READY_TIMEOUT must be seconds (0 = no limit)" ;;
 esac
 READY_EVERY=${READY_EVERY:-30}
-if command -v curl >/dev/null 2>&1; then
+STUCK_FILE=$ROOT/.cache/serve.stuck
+rm -f "$STUCK_FILE"
+# STARTUP_LOG=live (default) streams every llama-server line to this terminal while it starts
+# (the cockpit streams the same file); quiet = progress lines only.
+LIVE_TAIL_PID=""
+if [ "${STARTUP_LOG:-live}" = live ] && command -v tail >/dev/null 2>&1; then
+  : >> "$LOG_FILE"
+  # background model downloads (start.sh MODELS_BG) show their progress here too
+  if [ -f "$ROOT/.cache/fetch-models.log" ] && [ -s "$ROOT/.cache/pending-models" ]; then
+    ( tail -n 0 -F "$LOG_FILE" "$ROOT/.cache/fetch-models.log" 2>/dev/null | { if command -v stdbuf >/dev/null 2>&1; then stdbuf -o0 tr '\r' '\n'; else cat; fi; } | sed -u -e '/^==> .* <==$/d' -e '/^$/d' -e 's/^/  | /' >&2 ) &
+  else
+    ( tail -n +1 -F "$LOG_FILE" 2>/dev/null | sed -u 's/^/  | /' >&2 ) &
+  fi
+  LIVE_TAIL_PID=$!
+fi
+stop_live_tail() { if [ -n "$LIVE_TAIL_PID" ]; then pkill -P "$LIVE_TAIL_PID" 2>/dev/null || true; kill "$LIVE_TAIL_PID" 2>/dev/null || true; fi; LIVE_TAIL_PID=""; return 0; }
+ready_probe() {
+  command -v curl >/dev/null 2>&1 || return 0
   ( t0=$(date +%s); next=$READY_EVERY
     while :; do
-      kill -0 "$SERVER_PID" 2>/dev/null || exit 0
+      kill -0 "$SERVER_PID" 2>/dev/null || { echo "exited" > "$STUCK_FILE"; exit 0; }
       el=$(( $(date +%s) - t0 ))
       if [ "$READY_TIMEOUT" -gt 0 ] && [ "$el" -ge "$READY_TIMEOUT" ]; then
         echo "serve.sh: not ready after ${el}s (READY_TIMEOUT=$READY_TIMEOUT): llama-server (pid $SERVER_PID) still runs but has not answered /health on port $PORT. See $LOG_FILE; set READY_TIMEOUT=0 (no limit) or a larger value and restart" >&2
+        echo "timeout ${el}" > "$STUCK_FILE"
         exit 0
       fi
       if [ "$el" -ge "$next" ]; then
@@ -868,6 +915,7 @@ if command -v curl >/dev/null 2>&1; then
           exit 0
         fi
         kill -0 "$SERVER_PID" 2>/dev/null || exit 0
+        rm -f "$STUCK_FILE"
         printf '%s %s\n' "$PORT" "$SERVER_PID" > "$READY_FILE.tmp" && mv -f "$READY_FILE.tmp" "$READY_FILE"
         echo "serve.sh: listening on http://$PROBE_URL_HOST:$PORT (pid $SERVER_PID)" >&2
         pubs=$(public_hosts "$HOST")
@@ -889,7 +937,8 @@ if command -v curl >/dev/null 2>&1; then
       sleep 1
     done
   ) &
-fi
+}
+ready_probe
 # log manifest: every process this script starts writes to a named file listed here
 # (name<TAB>path); scripts/cockpit.py tails them. Router children log through the router
 # with a "[pid name:port]" prefix (patches/0002, LLAMA_LOG_PID=1).
@@ -900,6 +949,7 @@ LOG_MANIFEST=$ROOT/.cache/logs.manifest
   printf 'recover\t%s\n' "$ROOT/.cache/recover.log"
   printf 'watchdog\t%s\n' "$ROOT/.cache/watchdog.log"
   printf 'serve\t%s\n' "$ROOT/.cache/server.log"
+  [ ! -f "$ROOT/.cache/fetch-models.log" ] || printf 'downloads\t%s\n' "$ROOT/.cache/fetch-models.log"
 } > "$LOG_MANIFEST.tmp" && mv -f "$LOG_MANIFEST.tmp" "$LOG_MANIFEST"
 forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; if [ -n "$EMBED_PID" ]; then kill "-$1" "$EMBED_PID" 2>/dev/null || true; fi; }
 trap 'forward INT' INT
@@ -915,9 +965,141 @@ trap 'forward TERM' HUP
   [ -n "$EMBED_PID" ] && kill -0 "$EMBED_PID" 2>/dev/null && kill -TERM "-$EMBED_PID" 2>/dev/null
   exit 0
 ) </dev/null >>"$ROOT/.cache/watchdog.log" 2>&1 &
+# Hot-add: a role served from a model still downloading (MODELS_BG) becomes loadable the
+# moment its file lands; say so, and load the decision model if it should be resident.
+if [ -s "$ROOT/.cache/pending-models" ]; then
+  ( trap '' INT TERM HUP
+    while kill -0 "$SERVER_PID" 2>/dev/null; do
+      left=0
+      while IFS=$tab read -r hr hp hs; do
+        [ -n "$hp" ] || continue
+        if [ -f "$hp" ]; then
+          [ -f "$ROOT/.cache/hotadded.$(basename "$hp")" ] && continue
+          : > "$ROOT/.cache/hotadded.$(basename "$hp")"
+          echo "serve.sh: hot-add: the $hr role's model $(basename "$hp") finished downloading; it is now loadable" >&2
+          if [ "$hr" = decision ] && [ "${DECISION_LOAD_LATER:-0}" = 1 ]; then
+            printf 'header = "Authorization: Bearer %s"\n' "$(instance_key_first "$API_KEY_FILE")" |
+              curl -s -K - -o /dev/null --max-time 10 -H 'Content-Type: application/json' \
+                -d '{"model":"decision"}' "http://$PROBE_URL_HOST:$PORT/models/load" || true
+          fi
+        else left=1; fi
+      done < "$ROOT/.cache/pending-models"
+      [ "$left" = 0 ] && { rm -f "$ROOT/.cache/pending-models"; exit 0; }
+      sleep 3
+    done
+  ) &
+fi
+
+# Startup recovery. When the router is slow (READY_TIMEOUT hit) or exits before it is ready,
+# a terminal user gets a menu (model, SIZING, CTX, REASONING, backend, timeout) and serve.sh
+# restarts only llama-server with the change: downloads, start.sh and the cockpit keep running.
+# The cockpit sends the same choices as .cache/recover.request (KEY=VALUE, whitelisted below).
+# STARTUP_RECOVER=0, or no terminal, keeps the automatic behaviour (message, keep waiting / exit).
+RECOVER_REQ=$ROOT/.cache/recover.request
+rm -f "$RECOVER_REQ"
+interactive() { [ "${STARTUP_RECOVER:-1}" != 0 ] && [ -t 0 ] && [ -t 2 ]; }
+recover_ok() { # KEY VALUE: only these knobs, only plain values
+  case "$1" in
+    SIZING) case "$2" in monolithic|distributed) return 0 ;; esac ;;
+    REASONING) case "$2" in on|off|auto) return 0 ;; esac ;;
+    PROFILE) case "$2" in lowram|moderate|default) return 0 ;; esac ;;
+    CTX|READY_TIMEOUT|GPU_LAYERS) case "$2" in ""|*[!0-9]*) ;; *) return 0 ;; esac ;;
+    MODEL_GENERAL|MODEL_CODER|MODEL_DECISION) case "$2" in *.gguf) [ -f "$2" ] && return 0 ;; esac ;;
+    LLAMA_SERVER) case "$2" in "$ROOT"/build-*/bin/llama-server|"$ROOT"/bin/*/llama-server) [ -x "$2" ] && return 0 ;; esac ;;
+    ACTION) case "$2" in retry|wait) return 0 ;; esac ;;
+  esac
+  return 1
+}
+retry_server() {
+  echo "serve.sh: restarting llama-server with:${RECOVER_SET:- (no change)}" >&2
+  stop_live_tail
+  kill -TERM "-$SERVER_PID" 2>/dev/null || kill -TERM "$SERVER_PID" 2>/dev/null || true
+  [ -n "$EMBED_PID" ] && { kill -TERM "-$EMBED_PID" 2>/dev/null || kill -TERM "$EMBED_PID" 2>/dev/null || true; }
+  wait "$SERVER_PID" 2>/dev/null || true
+  set --; j=1
+  while [ "$j" -le "$ua_n" ]; do set -- "$@" "$(cat "$ua_dir/$j")"; j=$((j + 1)); done
+  trap - EXIT INT TERM HUP; cleanup
+  exec sh "$ROOT/scripts/serve.sh" "$@"
+}
+apply_request() { # read RECOVER_REQ; returns 0 for retry, 1 for wait
+  ar=1; RECOVER_SET=""
+  while IFS= read -r line; do
+    k=${line%%=*}; v=${line#*=}
+    if recover_ok "$k" "$v"; then
+      if [ "$k" = ACTION ]; then [ "$v" = retry ] && ar=0
+      else export "$k=$v"; RECOVER_SET="$RECOVER_SET $k=$v"; ar=0; fi
+    else warn "recover request: ignored '$k' (not an allowed setting or value)"; fi
+  done < "$RECOVER_REQ"
+  rm -f "$RECOVER_REQ"; return $ar
+}
+pick_from() { # prompt LIST(file): prints the chosen line
+  n=0; while IFS= read -r o; do n=$((n + 1)); printf '    %d) %s\n' "$n" "$o" >&2; done < "$2"
+  printf '  %s [1-%d]: ' "$1" "$n" >&2; read -r c || return 1
+  case "$c" in ""|*[!0-9]*) return 1 ;; esac
+  sed -n "${c}p" "$2"
+}
+recover_menu() { # $1 = why
+  stop_live_tail
+  RECOVER_SET=""
+  while :; do
+    {
+      echo; echo "serve.sh: startup $1. The log above shows why. Change something and retry:"
+      echo "    w) keep waiting            t) READY_TIMEOUT (now $READY_TIMEOUT)"
+      echo "    m) model (general role)    s) SIZING (now $SIZING)"
+      echo "    c) CTX (now ${CTX:-auto})  r) REASONING (now ${REASONING:-off})"
+      echo "    b) backend / GPU layers    p) PROFILE (now $PROFILE)"
+      echo "    g) retry now${RECOVER_SET:+ with$RECOVER_SET}   q) quit"
+      printf '  choice: '
+    } >&2
+    read -r ch || return 1
+    lst=$(mktemp)
+    case "$ch" in
+      w|W) rm -f "$lst"; return 2 ;;
+      q|Q) rm -f "$lst"; return 1 ;;
+      g|G) rm -f "$lst"; return 0 ;;
+      t) printf '  seconds (0 = no limit): ' >&2; read -r v; recover_ok READY_TIMEOUT "$v" && { export READY_TIMEOUT=$v; RECOVER_SET="$RECOVER_SET READY_TIMEOUT=$v"; } ;;
+      s) printf 'monolithic\ndistributed\n' > "$lst"; v=$(pick_from SIZING "$lst") && { export SIZING=$v; RECOVER_SET="$RECOVER_SET SIZING=$v"; } ;;
+      c) printf '  context tokens (e.g. 4096): ' >&2; read -r v; recover_ok CTX "$v" && { export CTX=$v; RECOVER_SET="$RECOVER_SET CTX=$v"; } ;;
+      r) printf 'off\non\nauto\n' > "$lst"; v=$(pick_from REASONING "$lst") && { export REASONING=$v; RECOVER_SET="$RECOVER_SET REASONING=$v"; } ;;
+      p) printf 'lowram\nmoderate\ndefault\n' > "$lst"; v=$(pick_from PROFILE "$lst") && { export PROFILE=$v; RECOVER_SET="$RECOVER_SET PROFILE=$v"; } ;;
+      m) ls "$(gguf_home)"/models/*/*.gguf "$(gguf_home)"/models-optional/*.gguf "$ROOT"/models/*/*.gguf 2>/dev/null | sort -u > "$lst"
+         v=$(pick_from "GGUF for the general role" "$lst") && { export MODEL_GENERAL=$v; RECOVER_SET="$RECOVER_SET MODEL_GENERAL=$v"; } ;;
+      b) { ls -d "$ROOT"/build-*/bin/llama-server "$ROOT"/bin/*/llama-server 2>/dev/null; echo "CPU only (GPU_LAYERS=0)"; } > "$lst"
+         v=$(pick_from backend "$lst") && case "$v" in CPU*) export GPU_LAYERS=0; RECOVER_SET="$RECOVER_SET GPU_LAYERS=0" ;;
+           *) export LLAMA_SERVER=$v; RECOVER_SET="$RECOVER_SET LLAMA_SERVER=$v" ;; esac ;;
+      *) echo "  ?" >&2 ;;
+    esac
+    rm -f "$lst"
+  done
+}
+
 status=0
-while :; do
-  wait "$SERVER_PID" && status=0 || status=$?
-  kill -0 "$SERVER_PID" 2>/dev/null || break
+while kill -0 "$SERVER_PID" 2>/dev/null; do
+  [ -n "$LIVE_TAIL_PID" ] && [ -f "$READY_FILE" ] && [ "${STARTUP_LOG:-live}" != follow ] && stop_live_tail
+  if [ -f "$RECOVER_REQ" ]; then
+    if apply_request; then retry_server "$@"; else rm -f "$STUCK_FILE"; ready_probe; fi
+  fi
+  if [ -f "$STUCK_FILE" ] && interactive; then
+    rm -f "$STUCK_FILE"
+    rc=0; recover_menu "is slow (no answer after ${READY_TIMEOUT}s)" || rc=$?
+    case "$rc" in
+      0) retry_server ;;
+      2) echo "serve.sh: waiting again" >&2; ready_probe ;;
+      *) echo "serve.sh: leaving llama-server running (pid $SERVER_PID); Ctrl-C stops it" >&2 ;;
+    esac
+  fi
+  sleep 1
 done
+wait "$SERVER_PID" 2>/dev/null && status=0 || status=$?
+stop_live_tail
+if [ ! -f "$READY_FILE" ] && [ "$status" != 0 ] && [ "$status" -lt 128 ]; then
+  echo "serve.sh: llama-server exited (status $status) before it was ready; the log above shows why" >&2
+  sleep 1
+  if [ -f "$RECOVER_REQ" ] && apply_request; then retry_server; fi
+  if interactive; then
+    rc=0; recover_menu "failed (llama-server exited with status $status)" || rc=$?
+    [ "$rc" = 0 ] && retry_server
+  fi
+fi
 exit "$status"
+

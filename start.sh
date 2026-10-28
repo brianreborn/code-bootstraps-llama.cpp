@@ -86,7 +86,25 @@ fi
 export LLAMA_SERVER
 
 rc=0
-scripts/fetch-models.sh || rc=$?
+# MODELS_BG=1 (default): download the general model first (chat starts with it), then the other
+# roles in the background (.cache/fetch-models.log, streamed live by serve.sh and the cockpit);
+# serve.sh hot-adds each role when its file lands. MODELS_BG=0 = download everything first.
+if [ "${MODELS_BG:-1}" = 1 ]; then
+  scripts/fetch-models.sh --role general || rc=$?
+  if [ "$rc" = 0 ]; then
+    mkdir -p .cache
+    if ! scripts/fetch-models.sh --dry-run 2>/dev/null | grep -q "would download"; then
+      : # everything is already here
+    else
+      export MODELS_PENDING_OK=1
+      ( scripts/fetch-models.sh > .cache/fetch-models.log 2>&1; echo "fetch-models: done (exit $?)" >> .cache/fetch-models.log ) </dev/null &
+      echo $! > .cache/fetch-models.pid
+      say "downloading the other models in the background (.cache/fetch-models.log); chat starts now"
+    fi
+  fi
+else
+  scripts/fetch-models.sh || rc=$?
+fi
 if [ "$rc" = 6 ] || [ "$rc" = 7 ]; then
   say "$(t "cannot reach the model host; connect and run start.sh again")"
   exit 1
