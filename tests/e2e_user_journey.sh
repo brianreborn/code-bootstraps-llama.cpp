@@ -31,7 +31,14 @@ step() { # step ID "what the user expects" pass|fail|skip "detail"
   printf '%s\t%s\t%s\t%s\n' "$1" "$3" "$2" "$4" >> "$RES"; note "[$3] $1 $2${4:+ — $4}"; }
 SPID=""
 start_app() { ( cd "$R" && exec setsid ./start.sh >> "$LOG" 2>&1 ) & SPID=$!; }
-stop_app() { [ -n "$SPID" ] && { kill -TERM -- "-$SPID" 2>/dev/null; sleep 3; kill -KILL -- "-$SPID" 2>/dev/null; }; SPID=""; }
+left_procs() { ps -eo pid=,args= | grep -F "$R/" | grep -v grep | grep -vE "e2e_user_journey|fetch-models" ; }
+stop_app() { # like Ctrl-C in the terminal: INT to the launcher, then everything it started must go
+  [ -n "$SPID" ] || return 0
+  kill -INT -- "-$SPID" 2>/dev/null; i=0
+  while [ "$i" -lt 60 ] && left_procs >/dev/null; do sleep 1; i=$((i + 1)); done
+  STOP_LEFT=$(left_procs | head -n 3)
+  [ -n "$STOP_LEFT" ] && { left_procs | awk '{print $1}' | xargs -r kill -KILL 2>/dev/null; }
+  SPID=""; }
 trap 'stop_app' EXIT INT TERM
 wait_log() { # PATTERN SECONDS [FROM_LINE]: 0 when the start output shows PATTERN
   i=0; while [ "$i" -lt "$2" ]; do
@@ -43,7 +50,7 @@ key_now() { python3 - "$R" "$(port_now)" <<'PY'
 import sys; sys.path.insert(0, sys.argv[1] + "/scripts/lib"); from snap import key_file_candidates
 for f in key_file_candidates(sys.argv[2]):
     try:
-        k = next((l.strip() for l in open(f) if l.strip()), "")
+        k = next((l.strip() for l in open(f) if l.strip() and not l.lstrip().startswith("#")), "")
         if k: print(k); break
     except OSError: pass
 PY
@@ -103,7 +110,7 @@ else
 fi
 
 # 5. router children expose no tools
-cp=$(grep -oE '\[[0-9]+ general:[0-9]+\]' "$R/.cache/server.log" | tail -n 1 | sed 's/.*://; s/\]//')
+cp=$(grep -oE 'name=general on port [0-9]+' "$R/.cache/server.log" | tail -n 1 | sed 's/.* //')
 if [ -z "$cp" ]; then step child-no-tools "chat model instances have no tools" fail "no general child port in the server log"
 else
   tc=$(printf 'header = "Authorization: Bearer %s"\n' "$(key_now)" | curl -s -K - -o "$W/tools.json" -w '%{http_code}' --max-time 5 "http://127.0.0.1:$cp/tools")
@@ -131,10 +138,13 @@ if [ -n "$cu" ]; then
 else step recovery "cockpit change + retry" skip "no cockpit"; fi
 
 # 8. restart keeps the same key
-k1=$(key_now); stop_app; from=$(($(wc -l < "$LOG") + 1)); start_app
+k1=$(key_now); p1=$(port_now); stop_app
+[ -z "$STOP_LEFT" ] && step stop "Ctrl-C stops llama-server, its children and the cockpit" pass "" \
+  || step stop "Ctrl-C stops everything it started" fail "still running after 60s: $(printf '%s' "$STOP_LEFT" | cut -c1-90 | tr '\n' ';')"
+from=$(($(wc -l < "$LOG") + 1)); start_app
 if wait_log "serve.sh: listening on http://" "$READY_MAX" "$from"; then
   c=$(printf 'header = "Authorization: Bearer %s"\n' "$k1" | curl -s -K - -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$(port_now)/v1/models")
-  [ "$c" = 200 ] && step same-key "after a restart, clients keep working with the same key" pass "" || step same-key "same key after restart" fail "old key -> HTTP $c"
+  [ "$c" = 200 ] && step same-key "after a restart, clients keep working with the same key" pass "port $p1 -> $(port_now)" || step same-key "same key after restart" fail "old key -> HTTP $c"
 else step same-key "same key after restart" fail "second start not ready"; fi
 
 # 9. familia proto-chat connects

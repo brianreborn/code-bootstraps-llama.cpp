@@ -26,7 +26,7 @@ try:
     shutil.copytree(os.path.join(ROOT, "scripts"), os.path.join(d, "scripts"))
     lp = free(); srv = http.server.HTTPServer(("127.0.0.1", lp), Fake); threading.Thread(target=srv.serve_forever, daemon=True).start()
     open(os.path.join(d, ".cache", "serve.ready"), "w").write("%d 1\n" % lp)
-    kf = os.path.join(T, "api-keys"); open(kf, "w").write(KEY + "\n")
+    kf = os.path.join(T, "api-keys"); open(kf, "w").write("# familia instance key (one per line), see docs/api-key-design.md\n" + KEY + "\n")  # real files start with a comment
     open(os.path.join(d, ".cache", "logs.manifest"), "w").write("router\t%s\n" % os.path.join(d, ".cache", "server.log"))
     open(os.path.join(d, ".cache", "server.log"), "w").write("main: hello\n")
 

@@ -640,7 +640,10 @@ start_container() {
 cleanup() {
   if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
-  if [ -n "${EMBED_PID:-}" ]; then kill "$EMBED_PID" 2>/dev/null || true; fi
+  if [ -n "${EMBED_PID:-}" ]; then kill -TERM "-$EMBED_PID" 2>/dev/null || kill "$EMBED_PID" 2>/dev/null || true; fi
+  # the router runs in its own process group (setsid): stop it and its children with serve.sh,
+  # whatever ended serve.sh, so no llama-server is left holding the port and the instance key
+  if [ -n "${SERVER_PID:-}" ]; then kill -TERM "-$SERVER_PID" 2>/dev/null || kill -TERM "$SERVER_PID" 2>/dev/null || true; fi
   if [ -n "${SERVER_PID:-}" ] && [ -f "$ROOT/.cache/serve.ready" ] && [ "$(cut -d' ' -f2 "$ROOT/.cache/serve.ready" 2>/dev/null)" = "$SERVER_PID" ]; then
     rm -f "$ROOT/.cache/serve.ready"
   fi

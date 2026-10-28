@@ -123,11 +123,11 @@ def instance_key(port=None):
     for f in files:
         try:
             for l in open(f):
-                if l.strip():
+                if l.strip() and not l.strip().startswith("#"):   # the file starts with a comment header
                     return l.strip()
         except OSError:
             pass
-    return os.environ.get("LLAMA_API_KEY") or None
+    return os.environ.get("LLAMA_API_KEY", "").split(",")[0].strip() or None
 
 
 def is_loopback(host):
