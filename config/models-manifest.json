@@ -748,6 +748,104 @@
             "notice": "LFM3 Audio (LFM3-Audio-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF/blob/642697a5597a675cb819ed236ac415c1e60a4f6f/LICENSE",
             "note": "opt-in (--pick lfm3-audio): LFM3 family audio model, never fetched by default; served as model alias lfm3-audio with --mmproj when installed. Text output only (ASR / audio QA; no speech out via /v1/chat/completions). Clients send system_prompt ('Perform ASR in English.', temperature 0) as the system message; served with --reasoning off, -c 8192 and -n 512 so reasoning cannot eat a short max_tokens. An empty <think></think> assistant prefill was tested on b11969 and made output worse (duplicated text), so it is not used.",
             "smoke": "2026-10-28 b11969 prebuilt x86_64 CPU llama-server --jinja --reasoning off -c 8192, system 'Perform ASR in English.', temp 0, real speech clip: 'The quick brown fox jumps over the lazy dog.' (14 tokens, fits max_tokens 40). Earlier text_end-only replies were from a missing system prompt (mtmd-cli interleaved mode), not upstream."
+        },
+        {
+            "role": "guard",
+            "pick": "qwen3guard",
+            "repo": "mradermacher/Qwen3Guard-Gen-4B-GGUF",
+            "revision": "b3b010b37c75197c5e887fa7dce9ff907d0be6ff",
+            "file": "Qwen3Guard-Gen-4B.Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2716068928,
+            "sha256": "c81d88da8e1f90a80d1b892a29fb3deac592fc5f321b35fc964a568398c1dbfb",
+            "license": "Apache-2.0",
+            "base_model": "Qwen/Qwen3Guard-Gen-4B",
+            "base_revision": "6ec42827da0c1ff11e7a49dc269d2e810d27e108",
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "guard",
+            "dir": "models-optional/qwen3guard",
+            "publisher": "community GGUF (mradermacher) of the official Qwen model",
+            "required": [
+                "--jinja"
+            ],
+            "note": "second, independent guard (different vendor from nemotron-guard) (opt-in: --pick qwen3guard). PARTIAL TESTED: architecture qwen3 is supported by stock llama.cpp; load and verdict test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "audit",
+            "pick": "foundation-sec",
+            "repo": "fdtn-ai/Foundation-Sec-8B-Reasoning-Q4_K_M-GGUF",
+            "revision": "4a04f7b19513ff9f672169b8fe4288000ab87b07",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 4920851232,
+            "sha256": "7a61e41b1ca1b339d41caf3001ea7832469d866e7c52a23980a1e95cbf5cd58b",
+            "license": "Foundation-Sec model license (HF tag: other; Llama 3.1 based, keep Llama 3.1 Community License terms)",
+            "license_flags": [
+                "restrictive"
+            ],
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "audit",
+            "guard_gated": true,
+            "dir": "models-optional/foundation-sec",
+            "publisher": "official Cisco Foundation AI GGUF",
+            "required": [
+                "--jinja"
+            ],
+            "note": "defensive code/security review of our own components (opt-in: --pick foundation-sec). PARTIAL TESTED: llama arch, load and review test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "audit",
+            "pick": "antares",
+            "repo": "Skipti/antares-gguf-community",
+            "revision": "f2b46072eae3ac827aa8410741cd1abe06569799",
+            "file": "antraes-1b-f16.gguf",
+            "quant": "F16",
+            "bytes": 3678443424,
+            "sha256": "96fdf8acebb95d55b24d5f6b5c52cf35d3f86c3e63cb71882eb9675463861b98",
+            "license": "Apache-2.0",
+            "base_model": "fdtn-ai/antares-1b",
+            "base_revision": "10417eb35641b32e7141157db19c76eb545193b6",
+            "ctx": 8192,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "audit",
+            "guard_gated": true,
+            "specialty": "vuln-locator",
+            "dir": "models-optional/antares",
+            "publisher": "community F16 GGUF (Skipti) of Cisco Antares-1B; Cisco ships no GGUF",
+            "note": "tiny locator: given a CWE, points at the files of OUR repo that likely contain it (opt-in: --pick antares). PARTIAL TESTED: community F16 conversion, granite arch; load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "repo": "bartowski/WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-GGUF",
+            "revision": "5cc667f09d00b213c07530c716a0f900dd59f5aa",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 4683074752,
+            "sha256": "584bfc1f4c160928842866c566129f9789c4671af8e51a9e36ba0ebf10f24f41",
+            "license": "Apache-2.0 (HF tag) plus WhiteRabbitNeo usage restrictions per the upstream card",
+            "license_flags": [
+                "usage-restrictions"
+            ],
+            "base_model": "WhiteRabbitNeo/WhiteRabbitNeo-V3-7B",
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "risky",
+            "guard_gated": true,
+            "gating": "strict",
+            "banner": "RISKY SPECIALIST: WhiteRabbitNeo is trained not to refuse. Opt-in, guard-gated, read/analyze our own swarm only; never act, attack or exploit. Upstream usage restrictions apply.",
+            "dir": "models-optional/whiterabbitneo",
+            "publisher": "community GGUF (bartowski) of WhiteRabbitNeo-V3-7B",
+            "required": [
+                "--jinja"
+            ],
+            "note": "risky specialist (opt-in: --pick whiterabbitneo). Strict gating: fails closed for itself when no guard is healthy, unless an admin override is logged. PARTIAL TESTED: qwen2 arch, load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
         }
 
     ],
