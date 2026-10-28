@@ -460,7 +460,7 @@ Reasoning is a per-role toggle (`on`, `off`, `auto`). `config/models-preset.ini`
 
 Sizing is a per-host choice, available on every local host (`start.sh`/`serve.sh` on Linux, macOS and Termux, `start.bat`/`serve.ps1` on Windows). `monolithic` (the default) gives general and coder one long pool each (131072 tokens; lowram coder 65536) with one session, and keeps more models resident. `distributed` is the older small-slot layout: unified KV split into per-session slots (general 16384, coder 32768 with 4 sessions, decision 8192, smaller in moderate/lowram) and at most 2 models loaded, for hosts that serve several clients at once or have little RAM. The minimum for `CODER_CTX` is 32768 (`GENERAL_CTX` 16384) in monolithic and 2048 in distributed. Set it once per host in the cockpit's settings panel (saved in `.cache/panel.env`) or in the environment; the banner and the cockpit header (`SIZING …`) show the one in use. An unknown value stops the launcher.
 
-**Model sets.** `unimpeded` is the default because it is today's behaviour: LFM3-1.7B-Uncensored stays the promoted general and coder model, and it passed the same checks as the official file (2+3, a tool call, a small Python function). Switch with `MODEL_SET=official`; files of the other set are parked in `models-inactive/`, not deleted, so switching back does not download again. Role hierarchy: the coder can do everything, the general (chat) model usually can but may be weak at development, and a specialist (decision, embed, language, media, automation, guard) only does its own task but is preferred for it.
+**Model sets.** `unimpeded` is the default because it is today's behaviour: LFM3-1.7B-Uncensored stays the promoted general and coder model, and it passed the same checks as the official file (2+3, a tool call, a small Python function). Switch with `MODEL_SET=official`; files of the other set are parked in `models-inactive/`, not deleted, so switching back does not download again. Role hierarchy: the coder can do everything, the general (chat) model usually can but may be weak at development, and a specialist (decision, embed, language, media, automation, guard, audit, pentest) only does its own task but is preferred for it.
 
 | Role | `official` | `unimpeded` |
 |---|---|---|
@@ -474,6 +474,8 @@ Sizing is a per-host choice, available on every local host (`start.sh`/`serve.sh
 | automation | nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF (opt-in `--pick nemotron-nano`) | fallback: official |
 | guard | Nemotron-3.5-Content-Safety `Q4_K_M` (community GGUF; NVIDIA and ggml-org ship none), enforcing | the same model, advisory only |
 | rerank | none: no Nemotron rerank GGUF loads in llama.cpp | none |
+| audit | fdtn-ai Foundation-Sec-8B-Reasoning `Q4_K_M` (opt-in, partial tested) | fallback: official |
+| pentest | WhiteRabbitNeo-V3-7B `Q4_K_M` (community GGUF; opt-in, guard-gated, partial tested) | fallback: official |
 
 Guard: in `official` the guard model enforces; in `unimpeded` it stays in the set and runs **advisory only**: it labels prompts and replies but blocks nothing. It is never removed silently. The Nemotron picks (automation, guard) are opt-in downloads that `serve.sh` does not start as roles yet, so today this column records the intent (`guard` key in `config/model-sets.json`); the guard mode takes effect when the guard role is wired in.
 

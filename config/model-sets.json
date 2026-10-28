@@ -151,6 +151,36 @@
             "role": "rerank",
             "fallback": "official",
             "status": "not shipped: same as official"
+        },
+        {
+            "set": "official",
+            "role": "audit",
+            "pick": "foundation-sec",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "vendor": "fdtn-ai (Cisco Foundation AI) own GGUF; opt-in, partial tested (#65)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "audit",
+            "pick": "foundation-sec",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "fallback": "official",
+            "vendor": "same as official: a defensive reviewer, nothing to unlock"
+        },
+        {
+            "set": "official",
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "vendor": "WhiteRabbitNeo weights; community GGUF (bartowski): neither the vendor nor ggml-org ships one. Opt-in, guard-gated (config/security-gating.json), partial tested (#65)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "fallback": "official",
+            "vendor": "same as official (already the least-restricted pentest model); still guard-gated"
         }
     ]
 }
