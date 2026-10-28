@@ -1,5 +1,5 @@
 {
-    "_comment": "Security model gating policy (#65). Design config: serve.sh/serve.ps1 do not read it yet (TODO #65). Every model is optional and can be disabled live; a failing model is dropped alone, never the swarm. See docs/security-models.md.",
+    "_comment": "Security model gating policy (#65). Enforced at serve time for starter MCP picks by scripts/lib/mcp_gate.py (fail-closed). Every model is optional and can be disabled live; a failing model is dropped alone, never the swarm. See docs/security-models.md.",
     "admin": {
         "ultimate_authority": true,
         "delegable_limits": [

@@ -49,3 +49,22 @@ Encoded in `config/security-gating.json`:
 
 No risky-model execution without a named-admin-signed sandbox spec. Point pentest tools (Shannon,
 ligolo-ng) at staging/disposable targets only, never production.
+
+## Serve-time enforcement (starter MCP picks)
+`scripts/lib/mcp_gate.py` applies this file when `serve.sh`/`serve.ps1` build the MCP config.
+It is **fail-closed**: a missing/malformed gating file, an unreadable kill switch
+(`state/disabled-models.json`, `{"disabled": [...]}` or a list) or an unknown `_tier` refuses the pick.
+A refused pick is dropped alone; everything else keeps serving.
+
+Risky picks additionally need `config/sandbox-spec.<name>.json` with every `sandbox_spec.fields`
+key set, unexpired, and signed by the named admin:
+
+```sh
+ssh-keygen -Y sign -f ~/.ssh/admin_ed25519 -n familia-sandbox config/sandbox-spec.<name>.json
+# -> config/sandbox-spec.<name>.json.sig ; admin_name must be a principal in:
+echo "brian $(cat ~/.ssh/admin_ed25519.pub)" >> config/admin-allowed-signers   # or SANDBOX_ALLOWED_SIGNERS=path
+```
+
+Any edit to the spec invalidates the signature. Because `no_guard` is `fail_closed_self_only`,
+a risky pick also needs `FAMILIA_GUARD_HEALTHY=1` (set by the guard wiring) or a logged
+`MCP_ADMIN_OVERRIDE=<admin_name>`.

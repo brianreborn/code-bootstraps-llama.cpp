@@ -48,3 +48,6 @@ logs/
 *.log
 *.log.*
 development-session*.txt
+
+# Local runtime state (kill switch, metrics): never committed
+state/

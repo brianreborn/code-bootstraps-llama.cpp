@@ -2,7 +2,8 @@
 """Build the effective MCP servers config that serve.sh / serve.ps1 hand to llama-server.
 
 Merges config/mcp-servers.json (base, always wins on a name clash) with the ENABLED picks
-of config/mcp-servers.starter.json. A pick is enabled by `"enabled": true` in the starter
+of config/mcp-servers.starter.json that pass
+config/security-gating.json (mcp_gate.py; fail-closed). A pick is enabled by `"enabled": true` in the starter
 file or by naming it in MCP_PICKS (comma list). Placeholder picks (command "TODO"), picks
 whose placeholders cannot be filled, and doc-only `_*` keys are dropped with a warning.
 A broken starter file never breaks serving: the base config is still emitted.
@@ -13,6 +14,8 @@ import argparse
 import json
 import os
 import sys
+
+import mcp_gate
 
 TAG = "mcp_load"
 
@@ -64,7 +67,7 @@ def starter_picks(starter, wanted):
             yield name, entry
 
 
-def build(root, base_path, starter_path, picks, env=None):
+def build(root, base_path, starter_path, picks, env=None, gate=None):
     env = dict(env or {})
     env.setdefault("ROOT", root)
     env.setdefault("FAMILIA_ROOT", os.environ.get("FAMILIA_ROOT", ""))
@@ -78,6 +81,7 @@ def build(root, base_path, starter_path, picks, env=None):
         else:
             servers[name] = filled
     added = []
+    gate = gate or mcp_gate.Gate(root)
     if starter_path and os.path.exists(starter_path):
         try:
             starter = load_json(starter_path)
@@ -91,6 +95,12 @@ def build(root, base_path, starter_path, picks, env=None):
             if not entry.get("command") or entry.get("command") == "TODO":
                 warn(f"pick '{name}' has no runnable command yet (doc-TODO); skipped")
                 continue
+            ok, why = gate.decide(name, entry)
+            if not ok:
+                warn(f"pick '{name}' refused by security gating: {why}")
+                continue
+            if why not in ("utility", "guard"):  # audit/risky decisions (incl. admin override) are logged
+                warn(f"pick '{name}': {why}")
             filled = subst(clean(entry), env)
             if filled is None:
                 warn(f"pick '{name}' needs a placeholder that is not set (e.g. FAMILIA_ROOT); skipped")
