@@ -54,13 +54,13 @@ Start **read-only / audit**; applying anything is **admin-gated** and never defa
 | `oh-my-hermes` | value-add Hermes coding-harness bundle | https://github.com/rlaope/oh-my-hermes | MIT |
 | Hermes community registry | browse/install more MCPs & skills | https://github.com/hermesonehq/hermes-registry (site registry.hermesone.org) | not stated upstream |
 
-## Serve wiring (TODO, out of scope for this small PR)
-`serve.sh`/`serve.ps1` only read `config/mcp-servers.json` today. Wiring the starter pack through
-the approval gate is more than a small change:
-- [ ] Loader that merges enabled starter picks into the effective MCP config, honoring `enabled`.
-- [ ] Enforce `security-gating.json` tiers/kill-switch for guard/audit/risky picks at serve time.
-- [ ] Pinned install scripts (`install-<pick>.sh` / `.ps1`) for the security + community picks.
-- [ ] PowerShell parity for all of the above.
+## Serve wiring (status)
+These are now wired (see sections below + #70–#74):
+- [x] Loader that merges enabled starter picks into the effective MCP config, honoring `enabled`.
+- [x] Enforce `security-gating.json` tiers/kill-switch for guard/audit/risky picks at serve time.
+- [x] Pinned install scripts (`install-addon.sh` / `install-addon.ps1`) for named, sha256-checked installs.
+- [x] PowerShell parity for the above.
+Follow-ups still open: actually setting `FAMILIA_GUARD_HEALTHY`, and feeding metrics into the orchestration display + scale-down.
 
 ## Verified vs TODO links
 - **Verified 200:** modelcontextprotocol/servers, KeygraphHQ/shannon, KeygraphHQ/shannon-action,
@@ -104,6 +104,15 @@ one-use sign-in link.
 Doc-only picks (`command: "TODO"`) and picks with an unset placeholder (`@FAMILIA_ROOT@` needs
 `FAMILIA_ROOT`) are skipped with a warning; a broken starter file falls back to the base config.
 Loader: `scripts/lib/mcp_load.py`. Override the file with `MCP_STARTER=path` (empty = none).
+
+## Installing an add-on: `scripts/install-addon.sh` / `install-addon.ps1`
+```sh
+sh scripts/install-addon.sh --fetch oh-my-hermes   # download to a named file + sha256 check; read it
+sh scripts/install-addon.sh oh-my-hermes           # ...and run it
+```
+The pick needs `"_installer": {"url": "https://...", "sha256": "<64 hex>"}`. No pin, a non-https
+URL, or a digest mismatch is refused (a mismatch is kept as `install-<pick>.sh.bad`, never run).
+Files land in `.cache/installers/` (git-ignored).
 
 ## PowerShell parity
 - `serve.ps1` builds the effective MCP config with the same `scripts\lib\mcp_load.py` + `mcp_gate.py`
