@@ -274,7 +274,7 @@ def write_stamp(stamps, pth, file):
     fp = subprocess.run(["bash", "-c", '. "$1/scripts/lib/common.sh" && fingerprint "$2"', "-", sb, pth],
                         check=True, capture_output=True, text=True).stdout
     sha = next(c["sha256"] for c in CANDS if c["file"] == file)
-    open(os.path.join(stamps, sha), "w").write(fp)
+    open(os.path.join(stamps, sha), "a").write(fp)
 
 
 CACHE_KINDS = ("llama-cache", "llama-cache-stale", "llama-cache-symlink")
@@ -449,6 +449,9 @@ def prepare(j, n, stubs):
 def run_sh(j):
     # output to a file, not a pipe: start.sh's UI helper keeps the pipe open until it sees
     # serve.sh gone, and a pipe reader would only reap serve.sh after EOF
+    if j["sh"]["cmd"][0] is None:   # a pwsh -File job without pwsh: skipped, like run_ps
+        open(os.path.join(j["capture"], "status.txt"), "w").write("skipped: pwsh not found")
+        return
     with open(os.path.join(j["capture"], "output.txt"), "w") as f:
         r = subprocess.run(j["sh"]["cmd"], env=j["sh"]["env"], cwd=j["sandbox"], stdout=f, stderr=subprocess.STDOUT, timeout=120)
     text = open(os.path.join(j["capture"], "output.txt")).read()

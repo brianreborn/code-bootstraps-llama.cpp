@@ -315,12 +315,12 @@ manifest_rows() { awk -v match_kv="$1" -v fields="file sha256 dir" -f "$ROOT/scr
 manifest_sha() { manifest_rows "" | awk -F '\t' -v f="$1" '$1 == f { print $2; exit }'; }
 verify_model() {
   vm_stamp="$ROOT/.cache/verified/$2"
-  if [ "${FULL_VERIFY:-0}" != 1 ] && [ -f "$vm_stamp" ] && [ "$(cat "$vm_stamp")" = "$(fingerprint "$1")" ]; then return 0; fi
+  if [ "${FULL_VERIFY:-0}" != 1 ] && stamp_ok "$vm_stamp" "$1"; then return 0; fi
   echo "serve.sh: checking the sha256 of $1" >&2
   vm_got=$(sha256_of "$1")
   [ "$vm_got" = "$2" ] || die "sha256 mismatch for $1 (got $vm_got, want $2)"
   mkdir -p "$ROOT/.cache/verified"
-  fingerprint "$1" > "$vm_stamp"
+  stamp_add "$vm_stamp" "$1"
 }
 check_model() {
   cm_sha=$(manifest_sha "$(basename "$1")")

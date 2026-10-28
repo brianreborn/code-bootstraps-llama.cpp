@@ -7,8 +7,8 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
 [ "$(uname -s)" = FreeBSD ] || {
-  echo "test-freebsd: run this test on FreeBSD; current OS is $(uname -s)" >&2
-  exit 2
+  echo "test-freebsd: SKIP (needs FreeBSD; current OS is $(uname -s))"
+  exit 0
 }
 
 BUILD_DIR=${BUILD_DIR:-build-freebsd}

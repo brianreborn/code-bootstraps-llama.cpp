@@ -257,8 +257,7 @@ if printf '\n' | PATH="$T/stubs:$PATH" GGUF_HOME="$T/real-store" \
   if [ "$miss" = 0 ] && [ -s "$T/real-offers" ] \
     && grep -F 'offer agenthorse/AgentHorse-4B.Q4_K_M.gguf' "$T/real-offers" >/dev/null \
     && grep -F 'offer jev/Qwen3-0.6B-Q8_0.gguf' "$T/real-offers" >/dev/null \
-    && ! grep -F 'LFM2.5-1.2B-Instruct-Q4_K_M.gguf' "$T/real-offers" >/dev/null \
-    && ! grep -F 'Qwen3.5-2B-Q4_K_M.gguf' "$T/real-offers" >/dev/null \
+    && ! grep -F 'LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf' "$T/real-offers" >/dev/null \
     && [ ! -s "$T/real.log" ] && [ ! -e "$T/real-store" ]; then
     ok "real manifest offers only hashed rows other than the default general and coder"
   else

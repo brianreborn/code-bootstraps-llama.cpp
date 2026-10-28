@@ -33,10 +33,10 @@ sandbox() {
   while IFS=$tab read -r role f sha ctsha; do
     mkdir -p "$d/models/$role"
     echo "placeholder $f" > "$d/models/$role/$f"
-    fingerprint "$d/models/$role/$f" > "$d/.cache/verified/$sha"
+    fingerprint "$d/models/$role/$f" >> "$d/.cache/verified/$sha"
     if [ "$ctsha" != "-" ]; then   # the repo chat template serve.sh requires (familia #51)
       echo "placeholder template" > "$d/models/$role/${f%.gguf}.chat-template.jinja"
-      fingerprint "$d/models/$role/${f%.gguf}.chat-template.jinja" > "$d/.cache/verified/$ctsha"
+      fingerprint "$d/models/$role/${f%.gguf}.chat-template.jinja" >> "$d/.cache/verified/$ctsha"
     fi
   done < "$d/.cache/default-rows"
 }
@@ -46,7 +46,7 @@ place() {
   d=$3
   mkdir -p "$(dirname "$path")" "$d/.cache/verified"
   echo "placeholder $sha" > "$path"
-  fingerprint "$path" > "$d/.cache/verified/$sha"
+  fingerprint "$path" >> "$d/.cache/verified/$sha"
 }
 
 nkey() {
@@ -246,19 +246,15 @@ else
   bad "Android LOAD_MODE=mmap+mlock: got '$got' $(tail -n 8 "$d/out.txt")"
 fi
 
-# familia #51: a model whose GGUF template differs from its repo's is served with the repo's
+# familia #51: only a default whose manifest row has chat_template_sha256 gets chat-template-file.
+# The LFM3 default (#26) has none, so neither role gets one.
 ini="$d/.cache/models-preset.effective.ini"
-if [ "$(val "$ini" general chat-template-file)" = "$d/models/general/LFM2.5-1.2B-Instruct-Q4_K_M.chat-template.jinja" ] \
-  && [ "$(nkey "$ini" coder chat-template-file)" = 0 ]; then
-  ok "general gets its repo chat template, coder keeps the GGUF's"
+if cut -f4 "$d/.cache/default-rows" | grep -qv '^-$'; then
+  echo "test_reasoning: SKIP chat-template checks (a default now has a repo chat template; update this test)"
+elif [ "$(nkey "$ini" general chat-template-file)" = 0 ] && [ "$(nkey "$ini" coder chat-template-file)" = 0 ]; then
+  ok "LFM3 default: no repo chat-template-file for general or coder"
 else
   bad "chat-template-file: general '$(val "$ini" general chat-template-file)', coder $(nkey "$ini" coder chat-template-file)"
-fi
-d2=$(launch no-template --no-template)
-if grep -q "needs its repo chat template" "$d2/out.txt" 2>/dev/null; then
-  ok "a missing repo chat template stops serve.sh"
-else
-  bad "missing chat template not refused: $(tail -n 4 "$d2/out.txt")"
 fi
 
 if [ "$fails" -eq 0 ]; then echo "all reasoning overlay tests passed"

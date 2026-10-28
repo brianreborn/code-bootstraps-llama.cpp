@@ -139,7 +139,7 @@ foreach ($e in $entries) {
     }
     $stamp = Join-Path $verified $sha
     if (-not $fresh) {
-        if (-not $FullVerify -and (Test-Path -LiteralPath $stamp) -and ((Get-Content -LiteralPath $stamp -TotalCount 1) -eq (Get-Fingerprint $path))) {
+        if (-not $FullVerify -and (Test-Stamp $stamp $path)) {
             Write-Host "fetch-models: $($e.file) unchanged since its last sha256 check (-FullVerify re-hashes)"
         } else {
             $got = Get-Sha256 $path
@@ -167,7 +167,7 @@ foreach ($e in $entries) {
             Move-Item -LiteralPath $_.FullName -Destination $inactiveDir
         }
     }
-    Write-TextFile $stamp (Get-Fingerprint $path)
+    Add-Stamp $stamp $path
     Write-Host "fetch-models: OK $($e.role) = $($e.file)"
 }
 Write-Host "fetch-models: done. Restart scripts\serve.ps1 (or start.bat) to serve a newly installed model."

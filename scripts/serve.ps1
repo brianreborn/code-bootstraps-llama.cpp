@@ -239,12 +239,12 @@ function Get-Field($o, [string]$name) { if ($o.PSObject.Properties.Name -contain
 function Get-ManifestSha([string]$file) { foreach ($c in $manifest) { if ($c.file -eq $file) { return $c.sha256 } }; return $null }
 function Assert-Model([string]$path, [string]$sha) {
     $stamp = Join-Path $Root ".cache\verified\$sha"
-    if ($env:FULL_VERIFY -ne "1" -and (Test-Path -LiteralPath $stamp) -and ((Get-Content -LiteralPath $stamp -TotalCount 1) -eq (Get-Fingerprint $path))) { return }
+    if ($env:FULL_VERIFY -ne "1" -and (Test-Stamp $stamp $path)) { return }
     Write-Host "serve.ps1: checking the sha256 of $path"
     $got = Get-Sha256 $path
     if ($got -ne $sha) { throw "sha256 mismatch for $path (got $got, want $sha from $manifestPath): run scripts\fetch-models.ps1" }
     New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache\verified") | Out-Null
-    Write-TextFile $stamp (Get-Fingerprint $path)
+    Add-Stamp $stamp $path
 }
 function Test-Model([string]$path, [string]$what) {   # manifest file: sha256-checked; other files: warning
     $sha = Get-ManifestSha (Split-Path -Leaf $path)

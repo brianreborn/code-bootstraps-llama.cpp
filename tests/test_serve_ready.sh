@@ -49,7 +49,7 @@ sandbox() {
     mkdir -p "$d/$dir"
     [ -f "$d/$dir/$f" ] && continue  # shared by two roles (dir models/<other role>)
     echo "placeholder $f" > "$d/$dir/$f"
-    fingerprint "$d/$dir/$f" > "$d/.cache/verified/$sha"
+    fingerprint "$d/$dir/$f" >> "$d/.cache/verified/$sha"
   done < "$d/.cache/default-rows"
 }
 hf_model() {

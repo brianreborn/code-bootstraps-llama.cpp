@@ -226,10 +226,10 @@ place_defaults() {
   while IFS=$tab read -r role f sha ctsha; do
     mkdir -p "$base/$role" "$stamp_root/.cache/verified"
     echo "placeholder $f" > "$base/$role/$f"
-    fingerprint "$base/$role/$f" > "$stamp_root/.cache/verified/$sha"
+    fingerprint "$base/$role/$f" >> "$stamp_root/.cache/verified/$sha"
     if [ "$ctsha" != "-" ]; then   # the repo chat template serve.sh requires (familia #51)
       echo "placeholder template" > "$base/$role/${f%.gguf}.chat-template.jinja"
-      fingerprint "$base/$role/${f%.gguf}.chat-template.jinja" > "$stamp_root/.cache/verified/$ctsha"
+      fingerprint "$base/$role/${f%.gguf}.chat-template.jinja" >> "$stamp_root/.cache/verified/$ctsha"
     fi
   done < "$T/default-rows"
 }
@@ -247,7 +247,7 @@ place_defaults "$T/srv-co/models" "$T/srv-co"
 mkdir -p "$T/srv-co-store"
 if run_serve "$T/srv-co" GGUF_HOME="$T/srv-co-store"; then
   coder=$(model_of "$T/srv-co/.cache/models-preset.effective.ini" coder)
-  if [ "$coder" = "$T/srv-co/models/coder/Qwen3.5-2B-Q4_K_M.gguf" ]; then
+  if [ "$coder" = "$T/srv-co/models/general/LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf" ]; then
     ok "serve uses the checkout copy when the store has no file"
   else
     bad "serve checkout path: '$coder'"
@@ -262,7 +262,7 @@ place_defaults "$T/srv-store/models" "$T/srv-store"
 place_defaults "$T/srv-store-home/models" "$T/srv-store"
 if run_serve "$T/srv-store" GGUF_HOME="$T/srv-store-home"; then
   coder=$(model_of "$T/srv-store/.cache/models-preset.effective.ini" coder)
-  if [ "$coder" = "$T/srv-store-home/models/coder/Qwen3.5-2B-Q4_K_M.gguf" ]; then
+  if [ "$coder" = "$T/srv-store-home/models/general/LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf" ]; then
     ok "serve prefers the store over the checkout"
   else
     bad "serve store path: '$coder'"

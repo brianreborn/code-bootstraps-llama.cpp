@@ -2,6 +2,7 @@
 # Tool-call chat against a patched llama-server with the API key enabled (single model, --jinja).
 #   tests/smoke-toolcall.sh <llama-server> <model.gguf> [port]     log: $SMOKE_LOG (never commit)
 set -eu
+if [ $# -lt 2 ]; then echo "smoke-toolcall: SKIP (needs <llama-server> <model.gguf>; see header)"; exit 0; fi
 BIN=$1; MODEL=$2; PORT=${3:-19941}
 T=$(mktemp -d); LOG=${SMOKE_LOG:-$T/server.log}
 trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; rm -rf "$T"' EXIT

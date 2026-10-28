@@ -5,6 +5,7 @@
 #   tests/smoke-router-auth.sh <llama-server> <model.gguf> [port]
 # Writes its log to $SMOKE_LOG (default: a temp file); never commit logs (see .gitignore).
 set -eu
+if [ $# -lt 2 ]; then echo "smoke-router-auth: SKIP (needs <llama-server> <model.gguf>; see header)"; exit 0; fi
 BIN=$1; MODEL=$2; PORT=${3:-19931}
 T=$(mktemp -d); LOG=${SMOKE_LOG:-$T/router.log}
 trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; rm -rf "$T"' EXIT
