@@ -215,14 +215,15 @@ if (-not $uaCacheRam) {
     }
     Set-Overlay "*.cache-ram" "$cacheRam"
 }
-# Empty and off leave the preset. on and auto overlay general and coder only.
 $reasoning = [Environment]::GetEnvironmentVariable("REASONING")
 if (-not $reasoning) { $reasoning = "" }
-if ($reasoning -eq "on" -or $reasoning -eq "auto") {
-    Set-Overlay "general.reasoning" $reasoning
-    Set-Overlay "coder.reasoning" $reasoning
-} elseif ($reasoning -ne "" -and $reasoning -ne "off") {
-    throw "unknown REASONING=$reasoning (on|off|auto)"
+# Reasoning toggle per role: REASONING_GENERAL / REASONING_CODER, else REASONING, else the preset.
+foreach ($rsRole in @("general", "coder")) {
+    $rsV = [Environment]::GetEnvironmentVariable("REASONING_" + $rsRole.ToUpper())
+    if (-not $rsV) { $rsV = $reasoning }
+    if ($rsV -eq "") { continue }
+    if (@("on", "off", "auto") -notcontains $rsV) { throw "unknown REASONING=$rsV for $rsRole (on|off|auto)" }
+    Set-Overlay "$rsRole.reasoning" $rsV
 }
 
 # --- models: every role pinned to ONE file (same rules as serve.sh) ---------------------

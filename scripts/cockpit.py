@@ -9,6 +9,8 @@ Logs come from .cache/logs.manifest (written by scripts/serve.sh: router with ea
 
 Every panel is on by default (long lines truncated in the view, never in the file); turn panels
 off with the switches. The heat map is a synthetic extra (lines/second per log), off by default.
+The header shows the per-role reasoning toggle (GET /reasoning, display only: set it with
+REASONING / REASONING_GENERAL / REASONING_CODER and restart serve).
 
 Same API key as the server: the page asks once and sends it as ?key= on the SSE stream (EventSource
 cannot set headers) and as "Authorization: Bearer" elsewhere. Binds 127.0.0.1 only.
@@ -53,6 +55,27 @@ def logs(manifests):
     return out
 
 
+def reasoning():
+    """Per-role reasoning toggle as the router got it (effective preset; else the committed one).
+    Display only: it changes on the next serve start (REASONING / REASONING_GENERAL / REASONING_CODER)."""
+    out = {"general": "off", "coder": "off", "source": None,
+           "set": "REASONING_GENERAL=on|off|auto REASONING_CODER=on|off|auto scripts/serve.sh (or REASONING=... for both)"}
+    for f in (os.path.join(ROOT, ".cache", "models-preset.effective.ini"), os.path.join(ROOT, "config", "models-preset.ini")):
+        try:
+            sec = None
+            for line in open(f):
+                line = line.strip()
+                if line.startswith("["):
+                    sec = line[1:line.find("]")]
+                elif sec in ("general", "coder") and line.split("=", 1)[0].strip() == "reasoning":
+                    out[sec] = line.split("=", 1)[1].strip()
+            out["source"] = f
+            return out
+        except OSError:
+            pass
+    return out
+
+
 class H(BaseHTTPRequestHandler):
     manifests = []
 
@@ -78,6 +101,9 @@ class H(BaseHTTPRequestHandler):
         L = logs(self.manifests)
         if u.path == "/logs":
             body = json.dumps(L).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
+        if u.path == "/reasoning":
+            body = json.dumps(reasoning()).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(body); return
         if u.path == "/stream":
             path = L.get(q.get("log", [""])[0])

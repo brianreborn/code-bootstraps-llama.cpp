@@ -70,8 +70,8 @@ if [ "$(nkey "$src" coder reasoning)" = 1 ] && [ "$(val "$src" coder reasoning)"
   && [ "$(nkey "$src" language reasoning)" = 1 ] && [ "$(val "$src" language reasoning)" = off ] \
   && [ "$(nkey "$src" locale.ja.general reasoning)" = 1 ] && [ "$(val "$src" locale.ja.general reasoning)" = off ] \
   && [ "$(nkey "$src" locale.ja.coder reasoning)" = 1 ] && [ "$(val "$src" locale.ja.coder reasoning)" = off ] \
-  && [ "$(nkey "$src" general reasoning)" = 0 ] && [ "$(nkey "$src" decision reasoning)" = 0 ]; then
-  ok "committed preset keeps reasoning off (coder, language, locale only)"
+  && [ "$(nkey "$src" general reasoning)" = 1 ] && [ "$(val "$src" general reasoning)" = off ] && [ "$(nkey "$src" decision reasoning)" = 0 ]; then
+  ok "committed preset keeps reasoning off (general, coder, language, locale; a per-role toggle)"
 else
   bad "committed preset reasoning keys changed"
 fi
@@ -159,7 +159,7 @@ expect_off() {
   ini=$1/.cache/models-preset.effective.ini
   name=$2
   if [ ! -f "$ini" ]; then bad "$name: no effective preset: $(tail -n 5 "$1/out.txt")"; return; fi
-  if [ "$(nkey "$ini" general reasoning)" = 0 ] && [ "$(nkey "$ini" coder reasoning)" = 1 ] \
+  if [ "$(nkey "$ini" general reasoning)" = 1 ] && [ "$(val "$ini" general reasoning)" = off ] && [ "$(nkey "$ini" coder reasoning)" = 1 ] \
     && [ "$(val "$ini" coder reasoning)" = off ] && [ "$(nkey "$ini" decision reasoning)" = 0 ] \
     && [ "$(nkey "$ini" language reasoning)" = 0 ] \
     && ! grep -E 'reasoning[ \t]*=[ \t]*(on|auto)' "$ini" >/dev/null; then
@@ -207,6 +207,27 @@ d=$(launch interpret --language REASONING=on LANGUAGE_MODE=interpret LOCALE=ja)
 expect_mode "$d" "interpret + REASONING=on" on yes
 d=$(launch swap --locale REASONING=on LANGUAGE_MODE=swap LOCALE=ja SWAP_CODER=1)
 expect_mode "$d" "swap + REASONING=on" on no
+role_mode() {   # dir name general-mode coder-mode
+  ini=$1/.cache/models-preset.effective.ini
+  if [ -f "$ini" ] && [ "$(nkey "$ini" general reasoning)" = 1 ] && [ "$(val "$ini" general reasoning)" = "$3" ] \
+    && [ "$(nkey "$ini" coder reasoning)" = 1 ] && [ "$(val "$ini" coder reasoning)" = "$4" ]; then
+    ok "$2: general=$3 coder=$4"
+  else
+    bad "$2: got general=$(val "$ini" general reasoning) coder=$(val "$ini" coder reasoning) $(tail -n 3 "$1/out.txt")"
+  fi
+}
+d=$(launch gen-only REASONING_GENERAL=on)
+role_mode "$d" "REASONING_GENERAL=on" on off
+d=$(launch coder-only REASONING_CODER=auto)
+role_mode "$d" "REASONING_CODER=auto" off auto
+d=$(launch role-wins REASONING=on REASONING_CODER=off)
+role_mode "$d" "REASONING=on REASONING_CODER=off" on off
+d=$(launch bad-role REASONING_CODER=maybe)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "unknown REASONING=maybe for coder" "$d/out.txt"; then
+  ok "REASONING_CODER=maybe is refused"
+else
+  bad "REASONING_CODER=maybe not refused: $(tail -n 3 "$d/out.txt")"
+fi
 d=$(launch bad REASONING=yes)
 if [ -f "$d/.cache/models-preset.effective.ini" ]; then
   bad "REASONING=yes wrote a preset"

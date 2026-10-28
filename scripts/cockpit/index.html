@@ -44,7 +44,7 @@ canvas{width:100%;height:130px;display:block}
 footer{text-align:center;color:var(--dim);font-size:10px;letter-spacing:.3em;padding:.5em}
 </style>
 <header><span class="logo">FAMILIA <i>//</i> COCKPIT</span>
-<span class="st"><span><i id="dot" class="dot"></i><span id="st">link offline</span></span><span>LINES <b id="tl">0</b></span><span>ERR <b id="te">0</b></span><span>WARN <b id="tw">0</b></span><span id="clk"></span></span>
+<span class="st"><span><i id="dot" class="dot"></i><span id="st">link offline</span></span><span>LINES <b id="tl">0</b></span><span>ERR <b id="te">0</b></span><span>WARN <b id="tw">0</b></span><span id="rs" title="">THINK <b id="rsg">?</b>/<b id="rsc">?</b></span><span id="clk"></span></span>
 <div id="sw"></div></header>
 <main id="m"></main>
 <footer>ALL LOG DISPLAYS ON BY DEFAULT · TAP A SWITCH TO POWER A SCREEN DOWN · HEAT MAP IS SYNTHETIC (OPT-IN)</footer>
@@ -59,6 +59,8 @@ async function start(){
   if(!key){key=prompt("API key (same as the server's; see the instance api-keys file)")||"";sessionStorage.k=key}
   const r=await fetch("/logs",{headers:{Authorization:"Bearer "+key}});
   if(r.status==401){sessionStorage.k="";key="";$("st").textContent="API key rejected — reload";$("dot").className="dot bad";return}
+  fetch("/reasoning",{headers:{Authorization:"Bearer "+key}}).then(x=>x.json()).then(R=>{$("rsg").textContent="GEN "+R.general;$("rsc").textContent="CODER "+R.coder;
+    $("rs").title="reasoning per role (from "+R.source+"); display only. Change: "+R.set+", then restart"}).catch(()=>{});
   const L=await r.json();$("st").textContent=Object.keys(L).length+" log screens";$("dot").className="dot on";const m=$("m");
   for(const [n,p] of Object.entries(L)){
     const s=panel(n,p);m.append(s);const pre=document.createElement("pre");s.firstChild.append(pre);const meta=s.querySelector(".meta");

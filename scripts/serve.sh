@@ -42,7 +42,7 @@ LOAD_MODE=${LOAD_MODE-}
 LOCALE=${LOCALE:-auto}
 LANGUAGE_MODE=${LANGUAGE_MODE:-native}
 SWAP_CODER=${SWAP_CODER:-0}
-# empty or off: leave the preset. on or auto: general and coder only (see the case below).
+# reasoning toggle (on|off|auto) for general+coder; REASONING_GENERAL / REASONING_CODER per role; empty: preset
 REASONING=${REASONING:-}
 # LANGUAGE_DIR, when set, is the only interpreter directory. Unset: store, then checkout.
 LOG_FILE=${LOG_FILE:-$ROOT/.cache/server.log}
@@ -251,14 +251,15 @@ fi
 [ -n "$CACHE_RAM_MIB" ] && ov_set "*.cache-ram" "$CACHE_RAM_MIB"
 # Language and decision stay as the preset wrote them. A locale section's reasoning = off
 # would otherwise win over this overlay when that role is swapped in.
-case "$REASONING" in
-  ""|off) ;;
-  on|auto)
-    ov_set general.reasoning "$REASONING"
-    ov_set coder.reasoning "$REASONING"
-    ;;
-  *) die "unknown REASONING=$REASONING (on|off|auto)" ;;
-esac
+# Reasoning toggle per role: REASONING_GENERAL / REASONING_CODER, else REASONING, else the preset.
+for rs_role in general coder; do
+  case $rs_role in general) rs_v=${REASONING_GENERAL:-$REASONING} ;; *) rs_v=${REASONING_CODER:-$REASONING} ;; esac
+  case "$rs_v" in
+    "") ;;
+    on|off|auto) ov_set "$rs_role.reasoning" "$rs_v" ;;
+    *) die "unknown REASONING=$rs_v for $rs_role (on|off|auto)" ;;
+  esac
+done
 # An untrusted Android app has RLIMIT_MEMLOCK of 64 KB. mmap+mlock fails
 # immediately and locks nothing. Keep the preset's mmap+mlock on other hosts.
 if [ "$IS_ANDROID" = 1 ] && [ -z "$LOAD_MODE" ]; then
