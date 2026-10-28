@@ -21,6 +21,10 @@ curl -fsSLo install-$p.sh $u       && \
 sh        ./install-$p.sh
 ```
 
+```sh
+p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -188,6 +192,10 @@ h=raw.githubusercontent.com        && \
 u=https://$h/$o/$p/main/install.sh && \
 curl -fsSLo install-$p.sh $u       && \
 sh        ./install-$p.sh
+```
+
+```sh
+p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
 ```
 
 ```powershell
