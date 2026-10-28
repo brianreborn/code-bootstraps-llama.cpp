@@ -34,10 +34,12 @@ PY
   fi
 }
 mkdir -p .cache
-check config/models-manifest.json candidates "pick role repo revision file sha256 tested dir notice"
+check config/models-manifest.json candidates "pick role repo revision file sha256 n_ctx_train tested dir notice"
 if [ -f config/llama-release.json ]; then
   check config/llama-release.json assets "platform variant file sha256 bytes base_url"
 fi
 # the preset's sampling and ctx-size must follow each model's card or say why (familia #51)
 python3 scripts/check-card-defaults.py || rc=1
+# no profile may ask more context than a role's model was trained for (n_ctx_train)
+python3 scripts/check-ctx-fit.py || rc=1
 exit "$rc"

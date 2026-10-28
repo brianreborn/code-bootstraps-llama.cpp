@@ -531,6 +531,52 @@ T_CODER=$(chat_template_for "$( case " $SWAP_ROLES " in *" coder "*) locale_mode
 T_DECISION=$(chat_template_for "$M_DECISION")
 T_LANGUAGE=""
 [ -n "$LANG_MODEL" ] && T_LANGUAGE=$(chat_template_for "$LANG_MODEL")
+# >>> ctx-fit (tests/test_ctx_fit.sh runs this block)
+# Fit each role's context to its model's real limit (issue: ctx vs n_ctx_train). The manifest
+# records n_ctx_train per file (read from the GGUF header at the pinned revision). A profile
+# ctx-size above it is lowered to it (llama-server would cap the slot anyway, with a warning);
+# batch / ubatch / kv-unified-per-slot never exceed the fitted ctx. No RoPE/YaRN stretching
+# here: going past n_ctx_train stays an explicit opt-in (rope-scaling keys in the preset).
+CTX_FIT=""
+preset_raw() { # SECTION KEY: the raw value in $MODELS_PRESET, else empty
+  awk -v want="$1" -v key="$2" '/^\[/ { sec = substr($0, 2, index($0, "]") - 2); next }
+    sec == want && $0 ~ ("^" key "[ \t]*=") { sub(/^[^=]*=[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$MODELS_PRESET"
+}
+ov_get() { for og_x in $OVERLAY; do [ "${og_x%%=*}" = "$1" ] && og_v=${og_x#*=}; done; printf '%s' "${og_v:-}"; og_v=""; }
+role_value() { # ROLE KEY: overlay, then [ROLE], then [*]
+  rv=$(ov_get "$1.$2"); [ -n "$rv" ] || rv=$(preset_raw "$1" "$2")
+  [ -n "$rv" ] || rv=$(ov_get "*.$2"); [ -n "$rv" ] || rv=$(preset_raw '*' "$2"); printf '%s' "$rv"
+}
+n_ctx_train_of() {
+  awk -v match_kv="" -v fields="file n_ctx_train" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
+    awk -F '\t' -v f="$(basename "$1")" '$1 == f && $2 ~ /^[0-9]+$/ { print $2; exit }'
+}
+CTX_MIN_SLOT=${CTX_MIN_SLOT:-2048}
+for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "language:$LANG_MODEL"; do
+  fit_role=${fit_pair%%:*}; fit_model=${fit_pair#*:}
+  [ -n "$fit_model" ] || continue
+  fit_train=$(n_ctx_train_of "$fit_model"); [ -n "$fit_train" ] || continue
+  fit_ctx=$(role_value "$fit_role" ctx-size)
+  case "$fit_ctx" in ''|*[!0-9]*) continue ;; esac
+  [ -n "$(role_value "$fit_role" rope-scaling)$(role_value "$fit_role" rope-scale)$(role_value "$fit_role" yarn-orig-ctx)" ] && continue
+  fit_eff=$fit_ctx
+  if [ "$fit_ctx" -gt "$fit_train" ]; then
+    fit_eff=$fit_train; ov_set "$fit_role.ctx-size" "$fit_eff"
+    CTX_FIT="$CTX_FIT $fit_role=$fit_eff(model max; profile asked $fit_ctx)"
+    echo "serve.sh: context $fit_role $fit_eff (model max; profile asked $fit_ctx)" >&2
+  fi
+  for fit_k in batch-size ubatch-size kv-unified-per-slot; do
+    fit_v=$(role_value "$fit_role" "$fit_k")
+    case "$fit_v" in ''|*[!0-9]*) continue ;; esac
+    [ "$fit_v" -gt "$fit_eff" ] && ov_set "$fit_role.$fit_k" "$fit_eff"
+  done
+  fit_par=$(role_value "$fit_role" parallel)
+  case "$fit_par" in ''|*[!0-9]*|0) fit_par=1 ;; esac   # kv-unified (llama-server default): every slot may use the whole pool
+  fit_kvu=$(role_value "$fit_role" kv-unified)
+  fit_slot=$fit_eff; [ "$fit_kvu" = false ] && fit_slot=$((fit_eff / fit_par))
+  [ "$fit_slot" -lt "$CTX_MIN_SLOT" ] && warn "the $fit_role role has only $fit_slot tokens of context per slot (ctx $fit_eff / $fit_par slots)"
+done
+# <<< ctx-fit
 mkdir -p "$ROOT/.cache"
 EFFECTIVE_PRESET=$ROOT/.cache/models-preset.effective.ini
 echo "$SIZING" > "$ROOT/.cache/sizing"   # shown by the cockpit
@@ -800,6 +846,7 @@ resident_note=""
   printf '  Sizing:  %s (SIZING=monolithic|distributed, per host in .cache/panel.env)\n' "$SIZING"
   printf '  Profile: %s (%s): %s general/coder model(s) loaded%s%s\n' \
     "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$resident_note" "${TUNED:+; set:$TUNED}"
+  [ -n "$CTX_FIT" ] && printf '  Context: fitted to model limits:%s\n' "$CTX_FIT"
   echo '  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")'
 } > "$ROOT/.cache/profile.txt"
 echo "serve.sh: sizing=$SIZING profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
