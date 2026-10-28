@@ -1,0 +1,58 @@
+# .ci/warnings-baseline.txt: pre-existing warnings tolerated by .ci/lint-warnings.sh (cbl).
+# Format: <count> <file> <code>  # why. The check fails when a file/code count goes ABOVE
+# its baseline (new warning); a lower count only prints a "fixed" hint, so shrink this file
+# as warnings get fixed. Generated with shellcheck 0.11.0 -x -S warning (.mk as -s sh).
+# Regenerate counts: SHELLCHECK=shellcheck sh .ci/lint-warnings.sh --current
+# Python: none baselined (compile -W error; pytest --collect-only -W error::*Deprecation* where pytest.ini exists).
+2 scripts/apply-patches.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/build-android-release.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/build-linux.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/build-macos.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/build-termux.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/cache-model.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/check-manifests.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/configure-tui.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/configure-tui.sh SC2188  # redirection without a command (pre-existing, unreviewed)
+1 scripts/configure.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/fetch-llama.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/fetch-models.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/fetch-models.sh SC2034  # variable appears unused (pre-existing, unreviewed)
+1 scripts/lib/backend.sh SC2034  # variable appears unused (pre-existing, unreviewed)
+1 scripts/lib/raise-once.sh SC3045  # read option not in POSIX sh (pre-existing, unreviewed)
+1 scripts/predownload.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/predownload.sh SC1072  # parse error at a shellcheck directive inside case; hides further checks in this file
+1 scripts/predownload.sh SC1073  # parse error at a shellcheck directive inside case; hides further checks in this file
+1 scripts/predownload.sh SC1085  # parse error at a shellcheck directive inside case; hides further checks in this file
+1 scripts/predownload.sh SC1124  # shellcheck directive in front of a case branch (parse error)
+1 scripts/raise.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/serve.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 scripts/serve.sh SC2034  # variable appears unused (pre-existing, unreviewed)
+1 scripts/serve.sh SC2221  # overlapping case patterns (pre-existing)
+1 scripts/serve.sh SC2222  # overlapping case patterns (pre-existing)
+1 start.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+3 start.sh SC3044  # `disown` is not POSIX sh (pre-existing, unreviewed)
+1 tests/check-ps1.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/e2e_user_journey.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+2 tests/e2e_user_journey.sh SC2046  # unquoted command substitution (pre-existing, unreviewed)
+2 tests/e2e_user_journey.sh SC2155  # declare and assign separately (pre-existing, unreviewed)
+1 tests/model-selection-matrix.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test-freebsd.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_android_gate.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_api_key_persist.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_api_key_persist.sh SC2010  # ls | grep (pre-existing, unreviewed)
+1 tests/test_bindhost.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_child_no_tools.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_configure.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_cpu.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_fetch_extra.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_fetch_llama_stamp.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_gguf_store.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_install.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_no_sudo_without_opt_in.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_prebuilt_first.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_raise_gate.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_ready_wait.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_reasoning.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_route_alias.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_serve_ready.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
+1 tests/test_startup_recover.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
