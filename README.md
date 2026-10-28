@@ -352,9 +352,14 @@ models/decision/  decision model for POST /v1/systemone
 |---|---|---|---|
 | `lfm3` | LiquidAI LFM3-1.7B Q4_K_M (official) | 1.10 GB | yes (tool call) |
 | `lfm3-qad` | LiquidAI LFM3-1.7B QAD Q4_0 | 1.05 GB | yes (tool call, ~20% faster prompt eval on CPU) |
+| `lfm3-vl` | LiquidAI LFM3-VL-2B Q4_K_M + mmproj Q8_0 (images) | 1.10 + 0.20 GB | yes (image prompt via router) |
+| `lfm3-omni` | LiquidAI LFM3-Omni-2B Q4_K_M + mmproj Q8_0 (images + audio) | 1.10 + 0.54 GB | partial (image yes; audio loads, reply untested) |
+| `lfm3-audio` | LiquidAI LFM3-Audio-2B Q4_K_M + mmproj Q8_0 (audio) | 1.10 + 0.34 GB | partial (loads; audio reply untested) |
 | `nemotron` | unsloth NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL | 5.06 GB | not yet |
 | `saluki` | Kujira Underdog-Saluki-27B-1.0 IQ2-mix MTP | 8.35 GB | not yet |
 | `coder-qwen` | unsloth Qwen3.5-2B Q4_K_M (previous coder default) | 1.28 GB | yes (earlier pins) |
+
+**LFM3 family (vision / omni / audio).** Try them: `scripts/fetch-models.sh --pick lfm3-vl` (or `lfm3-omni`, `lfm3-audio`) downloads the model and its `mmproj` projector, both sha256-pinned, next to each other in `models-optional/<pick>/`. They are never fetched by default. On the next `scripts/serve.sh` start, each installed pick is served as its own model alias (`lfm3-vl`, …) with `--mmproj`, so OpenAI-style `image_url` / `input_audio` messages work; `MEDIA_MODELS=0` turns this off. The b11944 prebuilt and source builds both load them (libmtmd). License: LFM Open License v1.0 (lfm1.0), commercial use only below US$10M annual revenue.
 
 LFM2.5-1.2B stays as `--fallback`. Any role can share another role's file with `"dir": "models/<role>"` in the manifest (no second download).
 
