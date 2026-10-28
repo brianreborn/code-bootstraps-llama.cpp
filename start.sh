@@ -75,7 +75,7 @@ else
   esac
   command -v cmake >/dev/null 2>&1 || { say "$(t "cmake was not found")"; exit 1; }
   if [ ! -f llama.cpp/CMakeLists.txt ] && [ ! -e .git ]; then
-    # archive install (install.sh / install-cbl.sh): no submodule, so fetch the pinned, sha256-checked source tarball
+    # archive install (install.sh / install-code-bootstraps-llama.cpp.sh): no submodule, so fetch the pinned, sha256-checked source tarball
     if ! SKIP_PACKAGES=1 SKIP_MODELS=1 scripts/predownload.sh; then
       say "$(t "llama.cpp sources are missing from this download")"
       exit 1
