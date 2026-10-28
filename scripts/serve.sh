@@ -199,6 +199,29 @@ else
     warn "$(t "this CPU is slow for the chosen profile")"
   fi
 fi
+# SIZING (per host; .cache/panel.env or the environment): monolithic = few big models with long
+# context (one 131072 pool per role, up to 8 loaded); distributed = several small slots per role
+# (16k pools, 2-4 parallel, 2 loaded), the pre-b1f6678 sizing for spreading work across hosts.
+SIZING=${SIZING:-monolithic}
+CTX_MIN_CODER=32768; CTX_MIN_GENERAL=16384
+case "$SIZING" in
+  monolithic) ;;
+  distributed)
+    CTX_MIN_CODER=2048; CTX_MIN_GENERAL=2048
+    DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
+    DIST_SMALL="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    ;;
+  *) die "unknown SIZING=$SIZING (monolithic|distributed)" ;;
+esac
+if [ "$SIZING" = distributed ]; then
+case "$PROFILE" in
+  default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="$DIST_BASE decision.load-on-startup=true" ;;
+  moderate) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
+    OVERLAY="$DIST_BASE $DIST_SMALL coder.ctx-size=24576 decision.load-on-startup=true" ;;
+  lowram) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0; OVERLAY="$DIST_BASE $DIST_SMALL" ;;
+  *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
+esac
+else
 case "$PROFILE" in
   default) MODELS_MAX=${MODELS_MAX:-8}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
@@ -212,6 +235,7 @@ case "$PROFILE" in
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
+fi
 num_ok() {
   case "$2" in
     ''|*[!0-9]*) die "$1=$2: want a whole number from $3 to $4" ;;
@@ -225,12 +249,14 @@ ov_set() {
   done
   OVERLAY="${ov_o}$1=$2"
 }
+ov_in=$OVERLAY; OVERLAY=""   # one entry per key, the last wins (distributed: base, then profile)
+for ov_y in $ov_in; do ov_set "${ov_y%%=*}" "${ov_y#*=}"; done
 num_ok MODELS_MAX "$MODELS_MAX" 1 8
 ROUTER_MAX=$((MODELS_MAX + RESIDENT))
 TUNED=""
-if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 32768 262144
+if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" "$CTX_MIN_CODER" 262144
   ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
-if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 16384 262144
+if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" "$CTX_MIN_GENERAL" 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
 # Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens, so the old
@@ -360,20 +386,24 @@ role_model() {
     rm -f "$rm_rows"
     return 0
   fi
-  while IFS=$tab read -r f sha dir; do
-    # dir "-" = models/<role>/; dir "models/<other role>" = share that role's file (one download
-    # serves two roles with different parameter profiles, e.g. chat + coder on one model)
-    case "$dir" in
-      -) rm_path=$(gguf_resolve "models/$1/$f") ;;
-      models/*) rm_path=$(gguf_resolve "$dir/$f") ;;
-      *) continue ;;
-    esac
-    [ -f "$rm_path" ] || continue
-    verify_model "$rm_path" "$sha"
-    printf '%s' "$rm_path"
-    rm -f "$rm_rows"
-    return 0
-  done < "$rm_rows"
+  # dir "-" = models/<role>/; dir "models/<other role>" = share that role's file (one download
+  # serves two roles with different parameter profiles, e.g. chat + coder on one model).
+  # The role's own folder wins: a model the user installed there (fetch-models --fallback,
+  # --step-up) must not be shadowed by the shared default in the other role's folder.
+  for rm_pass in own shared; do
+    while IFS=$tab read -r f sha dir; do
+      case "$rm_pass:$dir" in
+        own:-) rm_path=$(gguf_resolve "models/$1/$f") ;;
+        shared:models/*) rm_path=$(gguf_resolve "$dir/$f") ;;
+        *) continue ;;
+      esac
+      [ -f "$rm_path" ] || continue
+      verify_model "$rm_path" "$sha"
+      printf '%s' "$rm_path"
+      rm -f "$rm_rows"
+      return 0
+    done < "$rm_rows"
+  done
   rm -f "$rm_rows"
   if [ -n "${MODELS_DIR:-}" ]; then
     die "no model for the $1 role in $MODELS_DIR/$1/"
@@ -474,6 +504,7 @@ T_LANGUAGE=""
 [ -n "$LANG_MODEL" ] && T_LANGUAGE=$(chat_template_for "$LANG_MODEL")
 mkdir -p "$ROOT/.cache"
 EFFECTIVE_PRESET=$ROOT/.cache/models-preset.effective.ini
+echo "$SIZING" > "$ROOT/.cache/sizing"   # shown by the cockpit
 LOC_GENERAL=$(section_value "locale.$LANG_CODE.general" model)
 LOC_CODER=$(section_value "locale.$LANG_CODE.coder" model)
 awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$ROOT" \
@@ -715,11 +746,12 @@ echo "serve.sh: env LLAMA_API_KEY=<from $API_KEY_FILE> LLAMA_ARG_TOOLS=${LLAMA_A
 resident_note=""
 [ "$RESIDENT" = 1 ] && resident_note=" + decision kept loaded"
 {
+  printf '  Sizing:  %s (SIZING=monolithic|distributed, per host in .cache/panel.env)\n' "$SIZING"
   printf '  Profile: %s (%s): %s general/coder model(s) loaded%s%s\n' \
     "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$resident_note" "${TUNED:+; set:$TUNED}"
   echo '  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")'
 } > "$ROOT/.cache/profile.txt"
-echo "serve.sh: profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
+echo "serve.sh: sizing=$SIZING profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
 echo "serve.sh: models: general=$M_GENERAL coder=$M_CODER decision=$M_DECISION" >&2
 echo "serve.sh: language: locale=$LANG_CODE ($LOCALE_SRC) mode=$MODE${SWAP_ROLES:+ swapped=[$SWAP_ROLES]}${LANG_MODEL:+ language-slot=$LANG_MODEL}" >&2
 echo "serve.sh: tools cwd for clients (x-tool-cwd): ${TOOL_CWD:-<runtime default>}" >&2

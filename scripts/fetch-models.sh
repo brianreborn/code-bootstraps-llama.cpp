@@ -285,6 +285,22 @@ while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_p
       echo "fetch-models.sh: parking $other -> $park_to/"
       mv "$other" "$park_to/"
     done
+    # A role served from another role's folder (coder on the general file): a model in the
+    # role's own folder would win at serve time, so park it too (e.g. an old --fallback coder).
+    if [ "$dir" != "models/$r" ]; then
+      own=$(gguf_dest "models/$r")
+      for other in "$own"/*.gguf; do
+        [ -f "$other" ] || continue
+        base=$(basename "$other")
+        case "$base" in *mmproj*) continue ;; esac
+        if [ "$keep_defaults" = 1 ] && { [ "$base" = "$def_general" ] || [ "$base" = "$def_coder" ]; }; then
+          continue
+        fi
+        mkdir -p "$(gguf_dest "models-inactive/$r")"
+        echo "fetch-models.sh: parking $other -> models-inactive/$r/"
+        mv "$other" "$(gguf_dest "models-inactive/$r")/"
+      done
+    fi
   fi
   mkdir -p .cache/verified
   stamp_add "$stamp" "$path"

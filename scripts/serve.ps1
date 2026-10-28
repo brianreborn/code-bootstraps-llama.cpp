@@ -168,20 +168,34 @@ if ($RamProfile -eq "auto") {
 }
 # same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
 # model is loaded at startup and kept (one --models-max slot more than ModelsMax), except lowram.
-$small = [ordered]@{ "coder.parallel" = "2"; "coder.ctx-size" = "16384"; "coder.kv-unified-per-slot" = "16384";
-              "general.parallel" = "1"; "general.ctx-size" = "8192"; "decision.parallel" = "1"; "decision.ctx-size" = "4096";
-              "language.parallel" = "1"; "language.ctx-size" = "4096" }
+# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic = long
+# context (131072 pools, up to 8 loaded); distributed = small slots (16k pools, 2-4 parallel, 2 loaded).
+$sizing = if ($env:SIZING) { $env:SIZING } else { "monolithic" }
+if ($sizing -notin @("monolithic", "distributed")) { throw "unknown SIZING=$sizing (monolithic|distributed)" }
 $overlay = [ordered]@{}
 $resident = 1
-if ($RamProfile -eq "lowram") {
+$ctxMinCoder = 32768; $ctxMinGeneral = 16384
+function Add-Pairs($pairs) { foreach ($p in ($pairs -split ' ')) { if ($p) { $kv = $p -split '=', 2; if ($overlay.Contains($kv[0])) { $overlay.Remove($kv[0]) }; $overlay[$kv[0]] = $kv[1] } } }
+if ($sizing -eq "distributed") {
+    $ctxMinCoder = 2048; $ctxMinGeneral = 2048
+    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
+    $small = "coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay = $small; $resident = 0
-} elseif ($RamProfile -eq "moderate") {
-    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay = $small; $overlay["coder.ctx-size"] = "24576"; $overlay["decision.load-on-startup"] = "true"
+    if ($RamProfile -eq "lowram") { Add-Pairs $small; $resident = 0 }
+    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=24576 decision.load-on-startup=true" }
+    else { Add-Pairs "decision.load-on-startup=true" }
 } else {
-    if ($ModelsMax -eq 0) { $ModelsMax = 2 }
-    $overlay["decision.load-on-startup"] = "true"
+    if ($RamProfile -eq "lowram") {
+        if ($ModelsMax -eq 0) { $ModelsMax = 2 }
+        $resident = 0
+        Add-Pairs "coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    } elseif ($RamProfile -eq "moderate") {
+        if ($ModelsMax -eq 0) { $ModelsMax = 4 }
+        Add-Pairs "coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    } else {
+        if ($ModelsMax -eq 0) { $ModelsMax = 8 }
+        Add-Pairs "decision.load-on-startup=true"
+    }
 }
 if ($ModelsMax -lt 1 -or $ModelsMax -gt 8) { throw "MODELS_MAX / -ModelsMax $ModelsMax`: want a whole number from 1 to 8" }
 $routerMax = $ModelsMax + $resident
@@ -194,8 +208,8 @@ function Get-Knob([string]$name, [int]$lo, [int]$hi, [string]$fallback = "") {
     return "$n"
 }
 $tuned = ""
-$coderCtx = Get-Knob "CODER_CTX" 2048 262144 $env:CTX
-$generalCtx = Get-Knob "GENERAL_CTX" 2048 262144 $env:CTX
+$coderCtx = Get-Knob "CODER_CTX" $ctxMinCoder 262144 $env:CTX
+$generalCtx = Get-Knob "GENERAL_CTX" $ctxMinGeneral 262144 $env:CTX
 $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
@@ -273,6 +287,14 @@ function Get-RoleModel([string]$role) {
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
         $p = Resolve-GgufPath ("models/" + $role + "/" + $c.file)
+        if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+    }
+    # dir "models/<other role>": one download serves two roles (chat + coder on one file).
+    # Checked after the role's own folder, so an installed fallback/step-up is not shadowed.
+    foreach ($c in $manifest) {
+        $d = Get-Field $c "dir"
+        if ($c.role -ne $role -or -not $d -or -not $d.StartsWith("models/")) { continue }
+        $p = Resolve-GgufPath ($d + "/" + $c.file)
         if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
     }
     if (-not [string]::IsNullOrEmpty($env:MODELS_DIR)) {
@@ -519,7 +541,9 @@ $profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder mo
               "  Change:  set PROFILE=lowram|moderate|default (or start.bat -RamProfile moderate), or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README `"Light tuning`")`n"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
-Write-Host "serve.ps1: profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
+New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
+Write-TextFile (Join-Path $Root ".cache\sizing") $sizing   # shown by the cockpit
+Write-Host "serve.ps1: sizing=$sizing profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
 # Ready = OUR llama-server listens on the port and answers /health: it wrote "listening on

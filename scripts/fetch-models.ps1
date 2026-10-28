@@ -166,6 +166,19 @@ foreach ($e in $entries) {
             Write-Host "fetch-models: parking $($_.FullName) -> $inactiveDir\"
             Move-Item -LiteralPath $_.FullName -Destination $inactiveDir
         }
+        # A role served from another role's folder (coder on the general file): park a model
+        # in the role's own folder too, or it would win at serve time (old -Fallback coder).
+        $ownDir = Get-GgufDest ("models/" + $e.role)
+        if ((Split-Path -Parent $path) -ne $ownDir) {
+            $ownInactive = Get-GgufDest ("models-inactive/" + $e.role)
+            Get-ChildItem -LiteralPath $ownDir -Filter *.gguf -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notmatch 'mmproj' -and -not ($keepDefaults -and ($_.Name -eq $defGeneral -or $_.Name -eq $defCoder)) } |
+                ForEach-Object {
+                New-Item -ItemType Directory -Force -Path $ownInactive | Out-Null
+                Write-Host "fetch-models: parking $($_.FullName) -> $ownInactive\"
+                Move-Item -LiteralPath $_.FullName -Destination $ownInactive
+            }
+        }
     }
     Add-Stamp $stamp $path
     Write-Host "fetch-models: OK $($e.role) = $($e.file)"

@@ -58,8 +58,12 @@ def logs(manifests):
 def reasoning():
     """Per-role reasoning toggle as the router got it (effective preset; else the committed one).
     Display only: it changes on the next serve start (REASONING / REASONING_GENERAL / REASONING_CODER)."""
-    out = {"general": "off", "coder": "off", "source": None,
+    out = {"general": "off", "coder": "off", "source": None, "sizing": "monolithic",
            "set": "REASONING_GENERAL=on|off|auto REASONING_CODER=on|off|auto scripts/serve.sh (or REASONING=... for both)"}
+    try:
+        out["sizing"] = open(os.path.join(ROOT, ".cache", "sizing")).read().strip() or out["sizing"]
+    except OSError:
+        pass
     for f in (os.path.join(ROOT, ".cache", "models-preset.effective.ini"), os.path.join(ROOT, "config", "models-preset.ini")):
         try:
             sec = None

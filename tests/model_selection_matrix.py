@@ -57,8 +57,10 @@ SHORT = {"LFM2.5-1.2B-Instruct-Q4_K_M.gguf": "LFM2.5-1.2B", "Qwen3.5-2B-Q4_K_M.g
          "Qwen3.5-0.8B-Q4_K_M.gguf": "Qwen3.5-0.8B", "Julia-1-Q8_0.gguf": "Julia-1",
          "Qwen3.5-4B-Q4_K_M.gguf": "Qwen3.5-4B", "HY-MT1.5-1.8B-Q4_K_M.gguf": "HY-MT1.5-1.8B",
          "Qwen3.5-0.8B-Japanese-SFT-v2-Q4_K_M.gguf": "JA-SFT-0.8B"}
+SIZING = os.environ.get("SIZING", "monolithic")   # per-host model sizing under test (serve.sh SIZING)
 DEFAULTS = {c["role"]: c["file"] for c in CANDS if c["pick"] == "default"}
 # directory under models/ that holds each default (manifest "dir"; the LFM3 coder shares models/general)
+KNOB_CTX = "8192" if SIZING == "distributed" else "32768"   # CODER_CTX floor: 2048 / 32768
 ROLE_DIR = {c["role"]: (c.get("dir") or "models/" + c["role"]).split("/", 1)[1] for c in CANDS if c["pick"] == "default"}
 REAL_LLAMA = None
 for cand in [os.environ.get("REAL_LLAMA_SERVER", "")] + sorted(
@@ -194,7 +196,7 @@ def jobs_all():
         J.append(job(l, "moderate", m, loc, "optin", grid="moderate"))
     for l in LAUNCHERS:   # light-tuning knobs
         J.append(job(l, "moderate", "(unset)", "en_US", "defaults", grid="knobs",
-                     env_extra={"CODER_CTX": "8192", "PARALLEL": "3", "MODELS_MAX": "1"}, label="knobs"))
+                     env_extra={"CODER_CTX": KNOB_CTX, "PARALLEL": "3", "MODELS_MAX": "1"}, label="knobs"))
     # Windows PowerShell 5.1 emulation (Windows code paths taken, 6+ variables absent)
     for l, p, m, loc in itertools.product(["start.ps1", "serve.ps1"], PROFILES, ["(unset)", "swap", "interpret", "auto"], ["en-US", "ja-JP"]):
         J.append(job(l, p, m, loc, "optin", grid="ps51"))
@@ -381,6 +383,7 @@ def prepare(j, n, stubs):
     make_sandbox(d, j["install"], prefetched, ex, ps51=j["ps51"])
     cap = os.path.join(d, "capture")
     env = {k: v.replace("@SANDBOX@", d) for k, v in j["env_extra"].items()}
+    env.setdefault("SIZING", SIZING)
     env.update({"CAPTURE_DIR": cap, "SHAMAP": os.path.join(WORK, "shamap.txt"), "NO_BROWSER": "1"})
     # The sandbox is the shared store (models/, models-optional/, models-inactive/).
     # Otherwise fetch and serve would use the user's ~/.local/share/gguf.
@@ -705,10 +708,16 @@ def main():
 #  - a combination may only refuse to start with a language-mode error, and then starts nothing.
 ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51", "moderate", "knobs")
 DEF_URLS = sorted({f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default"})   # general+coder share one file
-PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
+# distributed: the pre-b1f6678 small-slot sizing; monolithic: one long-context pool per role
+PARAMS_DISTRIBUTED = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
           "moderate": ({"general": "8192", "coder": "24576", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "3"),
           "knobs": ({"general": "8192", "coder": "8192", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
           "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "2")}
+PARAMS_MONOLITHIC = {"default": ({"general": "131072", "coder": "131072", "decision": "32768"}, {"general": None, "coder": None, "decision": None}, "9"),
+                     "moderate": ({"general": "131072", "coder": "131072", "decision": "4096"}, {"general": "1", "coder": "1", "decision": "1"}, "5"),
+                     "knobs": ({"general": "131072", "coder": "32768", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
+                     "lowram": ({"general": "131072", "coder": "65536", "decision": "4096"}, {"general": None, "coder": None, "decision": "1"}, "2")}
+PARAMS = PARAMS_DISTRIBUTED if SIZING == "distributed" else PARAMS_MONOLITHIC
 
 
 def lang_code(r):
@@ -859,7 +868,10 @@ def assertions_decoy_env(rows):
             elif lab == "passthrough --ctx-size":
                 check_started(r, tag, {}, fails, ctx="2048")
             elif lab == "MODELS_DIR=other":
-                check_started(r, tag, {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"}, fails)
+                # serve.sh serves the set as found (0.8B fallback coder); start.* fetches the
+                # defaults first, and the default coder shares the general file already there,
+                # so the fallback is parked (same as fallback-installed)
+                check_started(r, tag, {} if r["launcher"].startswith("start") else {"coder": "Qwen3.5-0.8B-Q4_K_M.gguf"}, fails)
             elif lab == "MODELS_PRESET=other":   # [coder] model = /tmp/decoy.gguf, which does not exist
                 if r["argv"] or "file not found" not in r["status"] + r["output"]:
                     fails.append(f"{tag}: a missing custom model file was not refused ({r['status'][:80]})")
@@ -871,7 +883,7 @@ def assertions_decoy_env(rows):
                 mm = next((a[i + 1] for i, x in enumerate(a) if x == "--models-max" and i + 1 < len(a)), None)
                 if lab == "MODELS_MAX=3" and mm != "4":
                     fails.append(f"{tag}: models-max {mm}, want 4 (MODELS_MAX=3 general/coder + the resident decision model)")
-                if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != "16384" or mm != "2"):
+                if lab == "PROFILE=lowram env" and ((r["roles"]["coder"] or {}).get("ctx") != PARAMS["lowram"][0]["coder"] or mm != "2"):
                     fails.append(f"{tag}: PROFILE=lowram not applied (coder ctx {(r['roles']['coder'] or {}).get('ctx')}, models-max {mm})")
             if "--models-dir" in r["argv"]:
                 fails.append(f"{tag}: --models-dir passed to the router")
@@ -885,7 +897,11 @@ def assertions_parity(rows):
         if r["grid"] in ("main", "tools", "locale-env", "ps51") and r["status"] == "ok" and r["preset"]:
             loc = lang_code(r)
             key = (r["profile"], r["mode"] if r["mode"] not in ("(unset)", "auto") else "native", loc, r["install"], r["tools"])
-            groups.setdefault(key, {}).setdefault(r["preset"], []).append(f"{r['grid']}/{r['launcher']}/{r['locale']}/{r['explicit_locale']}")
+            # cache-ram follows the free RAM measured at start, and Android cannot mlock
+            # (serve.sh drops +mlock on Termux): neither is launcher drift.
+            norm = re.sub(r"(?m)^cache-ram\s*=.*$", "cache-ram = <free/4>", r["preset"])
+            norm = re.sub(r"(?m)^(load-mode)\s*=\s*mmap\+mlock\s*$", r"\1 = mmap", norm)
+            groups.setdefault(key, {}).setdefault(norm, []).append(f"{r['grid']}/{r['launcher']}/{r['locale']}/{r['explicit_locale']}")
     for key, variants in groups.items():
         if len(variants) > 1:
             fails.append(f"parity {key}: {len(variants)} different presets: " + " | ".join(v[0] + f" (+{len(v) - 1})" for v in variants.values()))

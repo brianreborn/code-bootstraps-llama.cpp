@@ -237,6 +237,30 @@ else
   bad "REASONING=yes: $(tail -n 5 "$d/out.txt")"
 fi
 
+# SIZING: both layouts on every host; monolithic is the default.
+sz_of() {
+  ini=$1/.cache/models-preset.effective.ini
+  if [ ! -f "$ini" ]; then echo "MISSING"; return; fi
+  printf '%s %s %s\n' "$(cat "$1/.cache/sizing" 2>/dev/null)" "$(val "$ini" coder ctx-size)" "$(val "$ini" coder parallel)"
+}
+d=$(launch sz-default PROFILE=default SIZING=)
+got=$(sz_of "$d")
+case "$got" in "monolithic 131072 "*) ok "SIZING unset is monolithic (coder ctx 131072)" ;; *) bad "SIZING unset: got '$got' $(tail -n 5 "$d/out.txt")" ;; esac
+d=$(launch sz-dist PROFILE=default SIZING=distributed)
+got=$(sz_of "$d")
+if [ "$got" = "distributed 32768 4" ]; then ok "SIZING=distributed: coder 32768 tokens, 4 sessions"
+else bad "SIZING=distributed: got '$got' $(tail -n 5 "$d/out.txt")"; fi
+d=$(launch sz-dist-ctx PROFILE=default SIZING=distributed CODER_CTX=8192)
+got=$(sz_of "$d")
+if [ "$got" = "distributed 8192 4" ]; then ok "SIZING=distributed accepts CODER_CTX=8192"
+else bad "SIZING=distributed CODER_CTX=8192: got '$got' $(tail -n 5 "$d/out.txt")"; fi
+d=$(launch sz-mono-ctx PROFILE=default SIZING=monolithic CODER_CTX=8192)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "CODER_CTX" "$d/out.txt"; then ok "SIZING=monolithic refuses CODER_CTX=8192 (min 32768)"
+else bad "SIZING=monolithic CODER_CTX=8192 not refused: $(tail -n 3 "$d/out.txt")"; fi
+d=$(launch sz-bad SIZING=huge)
+if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "unknown SIZING=huge" "$d/out.txt"; then ok "SIZING=huge is refused"
+else bad "SIZING=huge not refused: $(tail -n 3 "$d/out.txt")"; fi
+
 # Android cannot hold mlock. Other hosts keep the preset unless LOAD_MODE is set.
 load_of() {
   ini=$1/.cache/models-preset.effective.ini

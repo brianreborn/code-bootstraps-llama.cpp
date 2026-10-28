@@ -369,7 +369,8 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | Setting | Values (default) | What it does | Example |
 |---|---|---|---|
 | `PROFILE` | `auto` \| `lowram` \| `moderate` \| `default` | auto: `lowram` under 6.9 GB of RAM, on a slow CPU, or with under 2 GB free; `moderate` on Android or with under 6.5 GB free; else `default` | `PROFILE=moderate ./start.sh` |
-| `MODELS_MAX` | 1-8 (default 2 on every profile) | how many of general/coder stay loaded; the decision model stays loaded on top (not in lowram) | `MODELS_MAX=2 ./start.sh` |
+| `SIZING` | `monolithic` \| `distributed` (monolithic) | how the context is sized, see below | `SIZING=distributed ./start.sh` |
+| `MODELS_MAX` | 1-8 (monolithic: default 8, moderate 4, lowram 2; distributed: 2) | how many of general/coder stay loaded; the decision model stays loaded on top (not in lowram) | `MODELS_MAX=2 ./start.sh` |
 | `CTX` | tokens (profile) | context pool of the coder and the general model | `CTX=8192 ./start.sh` |
 | `CODER_CTX`, `GENERAL_CTX` | tokens (profile) | the same for one role (wins over `CTX`); one session may use the whole pool | `CODER_CTX=32768 ./start.sh` |
 | `PARALLEL` | 1-16 (lowram/moderate 2, default 4) | coder sessions at once, sharing the coder's pool | `PARALLEL=1 ./start.sh` |
@@ -378,6 +379,8 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `TOOLS` | `auto` \| `full` \| `lean` \| list \| `""` | tools offered to the model; lean = 4 tools, half the prompt (auto: lean in lowram) | `TOOLS=lean ./start.sh` |
 
 Reasoning is a per-role toggle (`on`, `off`, `auto`). `config/models-preset.ini` sets `reasoning = off` for `general` (LFM3-1.7B chat stays fast) and `coder` (tool calling, "Repeat guard"); language and decision never reason. At serve start, `REASONING` sets both roles, and `REASONING_GENERAL` / `REASONING_CODER` override one role (`REASONING=on REASONING_CODER=off` thinks in chat only). The value goes into the effective preset, so it takes effect on the next start; an unknown value stops `serve.sh` / `serve.ps1`. The cockpit header shows the current value per role (`THINK GEN …/CODER …`, display only). `scripts/agent.py` sends `chat_template_kwargs.enable_thinking` only when `REASONING=on` (that one request, no restart). Thinking tokens are printed on stderr as they arrive, prefixed `[think]`.
+
+Sizing is a per-host choice, available on every local host (`start.sh`/`serve.sh` on Linux, macOS and Termux, `start.bat`/`serve.ps1` on Windows). `monolithic` (the default) gives general and coder one long pool each (131072 tokens; lowram coder 65536) with one session, and keeps more models resident. `distributed` is the older small-slot layout: unified KV split into per-session slots (general 16384, coder 32768 with 4 sessions, decision 8192, smaller in moderate/lowram) and at most 2 models loaded, for hosts that serve several clients at once or have little RAM. The minimum for `CODER_CTX` is 32768 (`GENERAL_CTX` 16384) in monolithic and 2048 in distributed. Set it once per host in the cockpit's settings panel (saved in `.cache/panel.env`) or in the environment; the banner and the cockpit header (`SIZING …`) show the one in use. An unknown value stops the launcher.
 
 Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Model choice and role pinning are not tunable here (see Models and Security).
 
