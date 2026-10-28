@@ -58,7 +58,11 @@ MK_TAG=serve.sh; MK_ERR=""; . "$ROOT/lib/msg.mk"   # die, warn
 ua_dir=$(mktemp -d)
 UA_CACHE_RAM=""
 ua_n=0
+ms_next=0
 for a in "$@"; do
+  # --set official|unimpeded (= MODEL_SET): the launcher's model set, not a llama-server flag
+  if [ "$ms_next" = 1 ]; then MODEL_SET=$a; ms_next=0; continue; fi
+  case "$a" in --set) ms_next=1; continue ;; --set=*) MODEL_SET=${a#--set=}; continue ;; esac
   case "$(arg_name "$a")" in --cache-ram|-cram) UA_CACHE_RAM=1 ;; esac
   case "$(arg_name "$a")" in
     --tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-*|--ui-mcp-proxy|--webui-mcp-proxy|\
@@ -84,6 +88,8 @@ for a in "$@"; do
   ua_n=$((ua_n + 1))
   printf '%s' "$a" > "$ua_dir/$ua_n"
 done
+[ "$ms_next" = 0 ] || die "--set needs official or unimpeded"
+MS_TAG=serve.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
 if [ "$ua_n" -gt 0 ]; then
   echo "serve.sh: extra llama-server arguments apply to EVERY role (general, coder, decision)" >&2
 fi
@@ -376,6 +382,29 @@ section_value() {
   esac
   printf '%s' "$ROOT/$sv"
 }
+# model_set_path ROLE: the MODEL_SET pick for ROLE (config/model-sets.json) when it is installed,
+# sha256-checked. unimpeded falls through to the manifest order (its picks are the defaults);
+# official must not fall back to an uncensored default, so a missing file is pending or an error.
+model_set_path() {
+  ms_sp=$(model_set_pick "$1"); [ -n "$ms_sp" ] || return 1
+  ms_row=$(awk -v match_kv="pick=${ms_sp%%"$tab"*} role=${ms_sp#*"$tab"}" -v fields="file sha256 dir" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" | head -n 1)
+  [ -n "$ms_row" ] || return 1
+  IFS=$tab read -r ms_f ms_sha ms_dir <<MSROW
+$ms_row
+MSROW
+  [ "$ms_dir" = "-" ] && ms_dir="models/${ms_sp#*"$tab"}"
+  ms_path=$(gguf_resolve "$ms_dir/$ms_f")
+  if [ -f "$ms_path" ]; then verify_model "$ms_path" "$ms_sha"; printf '%s' "$ms_path"; return 0; fi
+  [ "$MODEL_SET" = official ] || return 1
+  if [ "${MODELS_PENDING_OK:-0}" = 1 ] && [ "$1" != general ] && [ "$1" != embed ]; then
+    mkdir -p "$ROOT/.cache"
+    printf '%s\t%s\t%s\n' "$1" "$ms_path" "$ms_sha" >> "$ROOT/.cache/pending-models"
+    echo "serve.sh: the $1 role's model $ms_f is still downloading; it hot-adds when done" >&2
+    printf '%s' "$ms_path"; return 0
+  fi
+  [ "$1" = embed ] && { warn "MODEL_SET=official: $ms_f (embed) is not installed: scripts/fetch-models.sh --set official"; printf ''; return 0; }
+  die "MODEL_SET=official: the $1 role's model $ms_f is not installed: run scripts/fetch-models.sh --set official" 3
+}
 role_model() {
   # MODEL_GENERAL / MODEL_CODER / MODEL_DECISION: a GGUF path for that role (startup recovery
   # menu, cockpit, or by hand). It wins over the preset and manifest.
@@ -395,6 +424,8 @@ role_model() {
     rm -f "$rm_rows"
     return 0
   fi
+  set_path=$(model_set_path "$1") || [ $? = 1 ] || exit 1   # 1 = no set pick here; other = died
+  if [ -n "$set_path" ]; then printf '%s' "$set_path"; rm -f "$rm_rows"; return 0; fi
   # dir "-" = models/<role>/; dir "models/<other role>" = share that role's file (one download
   # serves two roles with different parameter profiles, e.g. chat + coder on one model).
   # The role's own folder wins: a model the user installed there (fetch-models --fallback,
@@ -458,6 +489,9 @@ embed_model() {
     rm -f "$em_rows"
     return 0
   fi
+  em_path=""; em_set=0
+  em_path=$(model_set_path embed) && em_set=1 || [ $? = 1 ] || exit 1
+  if [ "$em_set" = 1 ]; then printf '%s' "$em_path"; rm -f "$em_rows"; return 0; fi
   while IFS=$tab read -r ef esha edir; do
     [ "$edir" = "-" ] || continue
     em_path=$(gguf_resolve "models/embed/$ef")
@@ -822,6 +856,7 @@ resident_note=""
     "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$resident_note" "${TUNED:+; set:$TUNED}"
   echo '  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")'
 } > "$ROOT/.cache/profile.txt"
+echo "serve.sh: model set: $MODEL_SET (MODEL_SET / --set official|unimpeded; config/model-sets.json)" >&2
 echo "serve.sh: sizing=$SIZING profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
 echo "serve.sh: models: general=$M_GENERAL coder=$M_CODER decision=$M_DECISION" >&2
 echo "serve.sh: language: locale=$LANG_CODE ($LOCALE_SRC) mode=$MODE${SWAP_ROLES:+ swapped=[$SWAP_ROLES]}${LANG_MODEL:+ language-slot=$LANG_MODEL}" >&2

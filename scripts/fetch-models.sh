@@ -10,6 +10,7 @@
 #   scripts/fetch-models.sh --locale ja
 #   scripts/fetch-models.sh --pick NAME     (LFM3 family: --pick lfm3-vl|lfm3-omni|lfm3-audio, + mmproj)
 #   scripts/fetch-models.sh --role coder
+#   scripts/fetch-models.sh --set official  (or MODEL_SET=official; default unimpeded, config/model-sets.json)
 #   scripts/fetch-models.sh --ask
 # --ask lists manifest rows that already have a sha256, except the default
 # general and coder files, and reads one name from stdin. It does not open a
@@ -39,6 +40,8 @@ while [ $# -gt 0 ]; do
     --locale) pick=locale-${2:?--locale needs a language code}; shift ;;
     --pick) pick=${2:?--pick needs a name}; shift ;;
     --role) role=${2:?--role needs a name}; shift ;;
+    --set) MODEL_SET=${2:?--set needs official or unimpeded}; shift ;;
+    --set=*) MODEL_SET=${1#--set=} ;;
     --ask) ask=1 ;;
     --dry-run) mode=dry ;;
     --damp-run) mode=damp ;;
@@ -49,6 +52,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 . "$ROOT/scripts/lib/common.sh"
+MS_TAG=fetch-models.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
 # One listed extra. Sets pick and file_only. Exits 0 when nothing is chosen.
 ask_one() {
   ask_all=$(mktemp)
@@ -146,6 +150,20 @@ awk -v match_kv="$kv" \
   -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license mmproj mmproj_sha256" \
   -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
 [ -s "$rows" ] || { echo "fetch-models.sh: no manifest entries for pick='$pick'" >&2; rm -f "$rows"; exit 1; }
+# MODEL_SET=official: the default download takes each role's official pick instead
+# (config/model-sets.json); unimpeded is the manifest's pick=default, unchanged.
+if [ "$pick" = default ] && [ "$MODEL_SET" = official ]; then
+  set_rows=$(mktemp)
+  for sr in $(cut -f1 "$rows" | awk '!seen[$0]++'); do
+    sp=$(model_set_pick "$sr")
+    [ -n "$sp" ] || { grep "^$sr$tab" "$rows" >> "$set_rows"; continue; }
+    awk -v match_kv="pick=${sp%%"$tab"*} role=${sp#*"$tab"}" \
+      -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license mmproj mmproj_sha256" \
+      -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" >> "$set_rows"
+  done
+  awk '!seen[$0]++' "$set_rows" > "$rows"; rm -f "$set_rows"
+  echo "fetch-models.sh: model set official (config/model-sets.json)" >&2
+fi
 
 # fetch_template GGUF_PATH REPO REV PATH SHA: the repo chat template the model must be served with
 # (its GGUF's differs; familia #51) as <model>.chat-template.jinja, pinned and sha256-checked.

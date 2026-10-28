@@ -1,6 +1,7 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
 # Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1 (build the pinned source with patches/; default: reuse an existing local build, else the sha256-checked b11969 release binary for this OS/arch, else build from source),
+# MODEL_SET=official|unimpeded (or --set NAME; default unimpeded, config/model-sets.json),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
@@ -14,6 +15,15 @@ cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/scripts/lib/i18n.sh"
 . "$ROOT/scripts/lib/raise-once.sh"
+# --set NAME / --set=NAME: the model set for fetch-models.sh too (serve.sh reads the flag itself)
+ms_prev=""
+for a in "$@"; do
+  [ "$ms_prev" = --set ] && MODEL_SET=$a
+  case "$a" in --set=*) MODEL_SET=${a#--set=} ;; esac
+  ms_prev=$a
+done
+MS_TAG=start.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
+export MODEL_SET
 . "$ROOT/scripts/lib/bindhost.sh"
 LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"

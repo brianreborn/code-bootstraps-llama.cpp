@@ -451,6 +451,7 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `STARTUP_LOG` | `live` (default), `quiet`, `follow` | `live` streams every llama-server log line (and background download progress) to the terminal while it starts, prefixed `  \| `; `quiet` keeps only the "still starting" lines; `follow` keeps streaming after it is ready. The cockpit streams the same logs | `STARTUP_LOG=quiet ./start.sh` |
 | `STARTUP_RECOVER` | `1` (default), `0` | when the start is slow (READY_TIMEOUT) or llama-server exits before it is ready, a terminal gets a menu: keep waiting, model (`MODEL_GENERAL`), `SIZING`, `CTX`, `REASONING`, `PROFILE`, backend (`LLAMA_SERVER` / `GPU_LAYERS=0`), `READY_TIMEOUT`; retry restarts only llama-server (downloads, launcher and cockpit keep running). The cockpit has the same controls (POST `/recover`, local or cockpit token only, whitelisted keys). Without a terminal it stays automatic | `STARTUP_RECOVER=0 ./start.sh` |
 | `MODELS_BG` | `1` (default), `0` | `start.sh` downloads the general model first and starts chat with it; the other roles download in the background (`.cache/fetch-models.log`, shown live) and hot-add when their file lands (the router opens a model file only when it loads it). `0` = download everything before starting | `MODELS_BG=0 ./start.sh` |
+| `MODEL_SET` (also `--set NAME`, Windows `-ModelSet NAME`) | `unimpeded` (default) \| `official` | which of the two default model sets `fetch-models` downloads and `serve` pins, per role (`config/model-sets.json`, shown in the banner as `model set: …`). `official` = each vendor's own GGUF (or ggml-org's conversion when the vendor ships none) and never falls back to an uncensored file: a missing one stops `serve`. `unimpeded` = the least-restricted variant that passes our checks; a role with none serves the official model, marked `fallback` in that file. An unknown value stops every launcher. See "Model sets" | `MODEL_SET=official ./start.sh` |
 | `MODEL_GENERAL`, `MODEL_CODER`, `MODEL_DECISION` | a GGUF path | serve that file for the role instead of the preset / manifest choice (sha256 checked when the manifest knows it) | `MODEL_GENERAL=~/m.gguf ./start.sh` |
 | `THREADS` | number (auto: big/physical cores) | generation threads | `THREADS=4 ./start.sh` |
 | `TOOLS` | `auto` \| `full` \| `lean` \| list \| `""` | tools offered to the model; lean = 4 tools, half the prompt (auto: lean in lowram) | `TOOLS=lean ./start.sh` |
@@ -459,7 +460,26 @@ Reasoning is a per-role toggle (`on`, `off`, `auto`). `config/models-preset.ini`
 
 Sizing is a per-host choice, available on every local host (`start.sh`/`serve.sh` on Linux, macOS and Termux, `start.bat`/`serve.ps1` on Windows). `monolithic` (the default) gives general and coder one long pool each (131072 tokens; lowram coder 65536) with one session, and keeps more models resident. `distributed` is the older small-slot layout: unified KV split into per-session slots (general 16384, coder 32768 with 4 sessions, decision 8192, smaller in moderate/lowram) and at most 2 models loaded, for hosts that serve several clients at once or have little RAM. The minimum for `CODER_CTX` is 32768 (`GENERAL_CTX` 16384) in monolithic and 2048 in distributed. Set it once per host in the cockpit's settings panel (saved in `.cache/panel.env`) or in the environment; the banner and the cockpit header (`SIZING …`) show the one in use. An unknown value stops the launcher.
 
-Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Model choice and role pinning are not tunable here (see Models and Security).
+**Model sets.** `unimpeded` is the default because it is today's behaviour: LFM3-1.7B-Uncensored stays the promoted general and coder model, and it passed the same checks as the official file (2+3, a tool call, a small Python function). Switch with `MODEL_SET=official`; files of the other set are parked in `models-inactive/`, not deleted, so switching back does not download again. Role hierarchy: the coder can do everything, the general (chat) model usually can but may be weak at development, and a specialist (decision, embed, language, media, automation, guard, audit, pentest) only does its own task but is preferred for it.
+
+| Role | `official` | `unimpeded` |
+|---|---|---|
+| general | LiquidAI/LFM3-1.7B-GGUF `LFM3-1.7B-Q4_K_M` | AtomicChat/LFM3-1.7B-Uncensored-GGUF `AD-Q4_K_M` |
+| coder | the official general file, coder profile | the unimpeded general file, coder profile |
+| decision | ggml-org/Laya-GGUF `Q8_0` | fallback: official |
+| embed | ggml-org/embeddinggemma-2-GGUF `Q8_0` (`models/embed-official/`) | unsloth/embeddinggemma-2-GGUF `Q8_0` (fallback: same Google weights, the current default) |
+| language | tencent/HY-MT1.5-1.8B-GGUF | fallback: official |
+| media | LiquidAI/LFM3-VL-2B-GGUF | fallback: official |
+| jev | Qwen/Qwen3-0.6B-GGUF | fallback: official |
+| automation | nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF (opt-in `--pick nemotron-nano`) | fallback: official |
+| guard | Nemotron-3.5-Content-Safety `Q4_K_M` (community GGUF; NVIDIA and ggml-org ship none), enforcing | the same model, advisory only |
+| rerank | none: no Nemotron rerank GGUF loads in llama.cpp | none |
+| audit | fdtn-ai Foundation-Sec-8B-Reasoning `Q4_K_M` (opt-in, partial tested) | fallback: official |
+| pentest | WhiteRabbitNeo-V3-7B `Q4_K_M` (community GGUF; opt-in, guard-gated, partial tested) | fallback: official |
+
+Guard: in `official` the guard model enforces; in `unimpeded` it stays in the set and runs **advisory only**: it labels prompts and replies but blocks nothing. It is never removed silently. The Nemotron picks (automation, guard) are opt-in downloads that `serve.sh` does not start as roles yet, so today this column records the intent (`guard` key in `config/model-sets.json`); the guard mode takes effect when the guard role is wired in.
+
+Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Beyond `MODEL_SET`, model choice and role pinning are not tunable here (see Models and Security).
 
 ### Hardware use
 

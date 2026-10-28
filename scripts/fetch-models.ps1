@@ -3,7 +3,7 @@
 # Hugging Face commit pinned in config\models-manifest.json and check their sha256 before
 # moving them into place. MODELS_DIR replaces the models root. A checkout copy is used in
 # place and is not moved. A mismatch is renamed to *.bad. Same picks and rules as the shell script:
-#   powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 [-Pick default|fallback|step-up|language|language-small|locale-ja] [-Role coder] [-Ask]
+#   powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1 [-Pick default|fallback|step-up|language|language-small|locale-ja] [-Role coder] [-Ask] [-ModelSet official|unimpeded]
 # -Ask lists manifest rows that already have a sha256, except the default general and coder
 # files, and reads one name from stdin (not the console host). Empty or unknown input downloads
 # nothing and does not replace, move, or re-download that default pair.
@@ -15,6 +15,7 @@
 param(
     [string]$Pick = "default",
     [string]$Role = "",
+    [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
     [switch]$FullVerify,
     [switch]$Ask
 )
@@ -25,6 +26,7 @@ Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
 . (Join-Path $PSScriptRoot "lib\download.ps1")
 if ($env:FULL_VERIFY -eq "1") { $FullVerify = $true }
+Assert-ModelSet $ModelSet
 
 function Get-Field($o, [string]$name) { if ($o.PSObject.Properties.Name -contains $name) { $o.$name } else { $null } }
 
@@ -96,6 +98,17 @@ if ($fileOnly) {
     $entries = @($manifest.candidates | Where-Object { $_.pick -eq $Pick -and $_.file -eq $fileOnly })
 } else {
     $entries = @($manifest.candidates | Where-Object { $_.pick -eq $Pick -and (-not $Role -or $_.role -eq $Role) })
+}
+# MODEL_SET=official: the default download takes each role's official pick (config\model-sets.json)
+if ($Pick -eq "default" -and -not $fileOnly -and $ModelSet -eq "official") {
+    $setEntries = @()
+    foreach ($e in $entries) {
+        $sp = Get-ModelSetPick $Root $ModelSet ([string]$e.role)
+        $pickEntries = if ($sp) { @($manifest.candidates | Where-Object { $_.pick -eq $sp[0] -and $_.role -eq $sp[1] }) } else { @($e) }
+        foreach ($pe in $pickEntries) { if (@($setEntries | Where-Object { $_.file -eq $pe.file -and $_.role -eq $pe.role }).Count -eq 0) { $setEntries += $pe } }
+    }
+    $entries = $setEntries
+    Write-Host "fetch-models: model set official (config\model-sets.json)"
 }
 if ($entries.Count -eq 0) { throw "fetch-models: no manifest entries for pick='$Pick'$(if ($Role) { " role='$Role'" })" }
 $verified = Join-Path $Root ".cache\verified"
