@@ -202,6 +202,23 @@ def _ready(path):
     return port, pid
 
 
+
+def local_api_key():
+    """First key of this instance: LLAMA_API_KEY is a comma list (serve.sh), else .secrets/api-keys."""
+    for k in os.environ.get("LLAMA_API_KEY", "").split(","):
+        if k.strip():
+            return k.strip()
+    path = os.environ.get("API_KEY_FILE") or os.path.join(_root(), ".secrets", "api-keys")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    return line
+    except OSError:
+        pass
+    return ""
+
 def _http(url, method, path, key, body=None):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(url.rstrip("/") + path, data=data, method=method)
@@ -232,7 +249,7 @@ def save_slots(name, ready_file=None, slot_dir=None):
         return "no server"
     port, pid = found
     url = f"http://127.0.0.1:{port}"
-    key = os.environ.get("LLAMA_API_KEY", "")
+    key = local_api_key()
     try:
         _status, raw = _http(url, "GET", "/slots", key)
         slots = json.loads(raw.decode() or "[]")

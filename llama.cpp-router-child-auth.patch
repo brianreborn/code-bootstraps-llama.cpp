@@ -1,0 +1,43 @@
+diff --git a/tools/server/server-models.cpp b/tools/server/server-models.cpp
+index 6035324..fa19ae9 100644
+--- a/tools/server/server-models.cpp
++++ b/tools/server/server-models.cpp
+@@ -58,6 +58,20 @@ static void request_child_exit(server_subproc & proc) {
+ // ref: https://github.com/ggml-org/llama.cpp/issues/17862
+ #define CHILD_ADDR "127.0.0.1"
+ 
++// forward the caller's credentials to a child. children inherit LLAMA_API_KEY from the
++// router env and enforce it, so every router->child call must carry the key
++static httplib::Headers child_auth_headers(const server_http_req & req) {
++    httplib::Headers h;
++    for (const auto & [key, value] : req.headers) {
++        std::string lowered = key;
++        std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) { return std::tolower(c); });
++        if (lowered == "authorization" || lowered == "x-api-key") {
++            h.emplace(key, value);
++        }
++    }
++    return h;
++}
++
+ // single-threaded, watching all child processes at once
+ struct server_monitor {
+     server_monitor(server_models & models) : models(models) {
+@@ -2332,7 +2346,7 @@ void server_models_routes::init_routes() {
+             cli.set_connection_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+             cli.set_read_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+             cli.set_write_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+-            auto resp = cli.Post("/v1/streams/lookup", child_body.dump(), "application/json");
++            auto resp = cli.Post("/v1/streams/lookup", child_auth_headers(req), child_body.dump(), "application/json");
+             if (!resp || resp->status != 200) {
+                 continue;
+             }
+@@ -2370,7 +2384,7 @@ void server_models_routes::init_routes() {
+             cli.set_connection_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+             cli.set_read_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+             cli.set_write_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+-            auto resp = cli.Delete(child_path.c_str());
++            auto resp = cli.Delete(child_path.c_str(), child_auth_headers(req));
+             (void) resp; // the child logs its own miss when the session is unknown there
+         } else if (auto tracked = models.conv_models.lookup(conv_id); tracked.has_value()) {
+             // the entry exists but its model is still loading: the forget below erases it,

@@ -531,10 +531,17 @@ esac
 
 mkdir -p "$(dirname "$API_KEY_FILE")"
 chmod 700 "$(dirname "$API_KEY_FILE")"
+# Load the existing key; create one ONLY when missing. The first write is atomic: a private
+# temp file is hard-linked into place (ln fails if another starter won), so two starters in
+# the bootstrap window end up sharing one key instead of overwriting each other.
 if [ ! -s "$API_KEY_FILE" ]; then
+  key_tmp="$API_KEY_FILE.$$.tmp"
   ( umask 077
-    { echo "# llama-server API key(s), one per line"; od -An -tx1 -N24 /dev/urandom | tr -d ' \n'; echo; } > "$API_KEY_FILE" )
-  echo "serve.sh: $(t "generated an API key")" >&2
+    { echo "# llama-server API key(s), one per line"; od -An -tx1 -N24 /dev/urandom | tr -d ' \n'; echo; } > "$key_tmp" )
+  if ln "$key_tmp" "$API_KEY_FILE" 2>/dev/null; then
+    echo "serve.sh: $(t "generated an API key")" >&2
+  fi
+  rm -f "$key_tmp"
 fi
 chmod 600 "$API_KEY_FILE"
 API_KEYS=$(grep -v -e '^#' -e '^[[:space:]]*$' "$API_KEY_FILE" | tr -d ' \r' | tr '\n' ',' | sed 's/,$//')
