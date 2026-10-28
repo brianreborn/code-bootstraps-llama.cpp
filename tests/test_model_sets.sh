@@ -56,7 +56,7 @@ for a in "-m x.gguf" "--model=x.gguf" "--host 0.0.0.0" "--mmproj x"; do
 done
 # official never falls back to the uncensored default: a missing official file stops serve.sh
 ms_d=$(mktemp -d)
-out=$(MODELS_DIR=$ms_d LLAMA_SERVER=/bin/true PORT=18779 TOOLS= sh scripts/serve.sh --set official 2>&1) || true
+out=$(MODELS_DIR=$ms_d LLAMA_SERVER=/bin/true PORT=18779 TOOLS='' sh scripts/serve.sh --set official 2>&1) || true
 rm -rf "$ms_d"
 case "$out" in *"MODEL_SET=official: the general role's model LFM3-1.7B-Q4_K_M.gguf is not installed"*) note ok "serve.sh official: missing file refused, no fallback" ;; *) note bad "serve.sh official missing: $(printf %s "$out" | tail -n 1)" ;; esac
 # 5. PowerShell parity (when pwsh is here): same refusal and lookup
