@@ -110,36 +110,47 @@
         {
             "set": "official",
             "role": "automation",
-            "status": "pending: NVIDIA Nemotron-3.5-Bolt-E4B (nvidia or ggml-org GGUF), added by the Nemotron PR"
+            "pick": "nemotron-nano",
+            "from": "general",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+            "vendor": "NVIDIA's own GGUF (opt-in --pick nemotron-nano; serve.sh does not start an automation role yet)"
         },
         {
             "set": "unimpeded",
             "role": "automation",
+            "pick": "nemotron-nano",
+            "from": "general",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
             "fallback": "official",
-            "status": "pending: same as official (no tested uncensored Bolt)"
+            "vendor": "NVIDIA (no tested uncensored Nemotron)"
         },
         {
             "set": "official",
             "role": "guard",
-            "status": "pending: NVIDIA Nemotron-3.5-Content-Safety, enforcing; added by the Nemotron PR"
+            "pick": "nemotron-guard",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
+            "guard": "enforce",
+            "vendor": "NVIDIA Nemotron-3.5-Content-Safety weights; community GGUF (mradermacher): neither NVIDIA nor ggml-org ships one"
         },
         {
             "set": "unimpeded",
             "role": "guard",
+            "pick": "nemotron-guard",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
             "fallback": "official",
             "guard": "advisory",
-            "status": "pending: same model as official, advisory only (it labels, never blocks); never removed silently"
+            "vendor": "same model as official, advisory only (it labels, never blocks); never removed silently"
         },
         {
             "set": "official",
             "role": "rerank",
-            "status": "pending: nvidia/llama-nemotron-rerank-1b-v2; added by the Nemotron PR"
+            "status": "not shipped: no llama-nemotron-rerank-1b-v2 GGUF loads on llama.cpp (tensor-count error)"
         },
         {
             "set": "unimpeded",
             "role": "rerank",
             "fallback": "official",
-            "status": "pending: same as official"
+            "status": "not shipped: same as official"
         }
     ]
 }
