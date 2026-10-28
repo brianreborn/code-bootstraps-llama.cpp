@@ -105,6 +105,15 @@ Doc-only picks (`command: "TODO"`) and picks with an unset placeholder (`@FAMILI
 `FAMILIA_ROOT`) are skipped with a warning; a broken starter file falls back to the base config.
 Loader: `scripts/lib/mcp_load.py`. Override the file with `MCP_STARTER=path` (empty = none).
 
+## Installing an add-on: `scripts/install-addon.sh` / `install-addon.ps1`
+```sh
+sh scripts/install-addon.sh --fetch oh-my-hermes   # download to a named file + sha256 check; read it
+sh scripts/install-addon.sh oh-my-hermes           # ...and run it
+```
+The pick needs `"_installer": {"url": "https://...", "sha256": "<64 hex>"}`. No pin, a non-https
+URL, or a digest mismatch is refused (a mismatch is kept as `install-<pick>.sh.bad`, never run).
+Files land in `.cache/installers/` (git-ignored).
+
 ## PowerShell parity
 - `serve.ps1` builds the effective MCP config with the same `scripts\lib\mcp_load.py` + `mcp_gate.py`
   as `serve.sh` (needs a working Python 3; without one, only the base config is served and
