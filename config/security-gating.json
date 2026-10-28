@@ -2,7 +2,11 @@
     "_comment": "Security model gating policy (#65). Design config: serve.sh/serve.ps1 do not read it yet (TODO #65). Every model is optional and can be disabled live; a failing model is dropped alone, never the swarm. See docs/security-models.md.",
     "admin": {
         "ultimate_authority": true,
-        "delegable_limits": ["enable_pick", "disable_pick", "guard_override"],
+        "delegable_limits": [
+            "enable_pick",
+            "disable_pick",
+            "guard_override"
+        ],
         "_comment": "The admin owns all security decisions and can delegate these limits to named operators. Every delegated action is logged."
     },
     "kill_switch": {
@@ -10,7 +14,10 @@
         "cli": "scripts/models-ctl.sh disable|enable <pick> (TODO)",
         "api": "POST /api/models/<pick>/disable|enable on the loopback panel (TODO)",
         "live": true,
-        "on_disable": ["remove_from_routing", "stop_process"],
+        "on_disable": [
+            "remove_from_routing",
+            "stop_process"
+        ],
         "requires_restart": false
     },
     "failure_policy": {
@@ -19,21 +26,75 @@
         "unhealthy_after_failed_health_checks": 3
     },
     "guards": {
-        "picks": ["nemotron-guard", "qwen3guard"],
+        "picks": [
+            "nemotron-guard",
+            "qwen3guard"
+        ],
         "hard_dependency": false,
         "recommended_path": true,
-        "screen": ["input", "output"],
+        "screen": [
+            "input",
+            "output"
+        ],
         "_comment": "Any healthy enabled guard counts. With no guard, normal roles keep working unchanged."
     },
     "tiers": {
-        "guard": {"default": false},
-        "audit": {"default": false, "guard_gated": true, "no_guard": "allow_with_warning"},
-        "risky": {"default": false, "guard_gated": true, "no_guard": "fail_closed_self_only", "admin_override": "logged", "banner": true}
+        "guard": {
+            "default": false
+        },
+        "audit": {
+            "default": false,
+            "guard_gated": true,
+            "no_guard": "allow_with_warning"
+        },
+        "risky": {
+            "default": false,
+            "guard_gated": true,
+            "no_guard": "fail_closed_self_only",
+            "admin_override": "logged",
+            "banner": true,
+            "execution_requires": {
+                "sandbox_spec": "config/sandbox-spec.<name>.json",
+                "sandbox_well_defined": true,
+                "named_admin_signoff": true,
+                "_comment": "Risky models (pentest/audit) MAY be tested/run, but ONLY after a well-defined sandbox AND an explicit sign-off by a named human administrator. No risky-model execution without a named-admin-signed sandbox spec."
+            }
+        }
     },
     "scope": {
         "preservative_only": true,
-        "allowed": ["read", "analyze", "report"],
-        "forbidden": ["act", "exploit", "network_scan_external", "write_outside_report"]
+        "allowed": [
+            "read",
+            "analyze",
+            "report"
+        ],
+        "forbidden": [
+            "act",
+            "exploit",
+            "network_scan_external",
+            "write_outside_report"
+        ]
     },
-    "license_flags_block_commercial_builds": ["non-commercial"]
+    "license_flags_block_commercial_builds": [
+        "non-commercial"
+    ],
+    "sandbox_spec": {
+        "required_for_tiers": [
+            "risky"
+        ],
+        "fields": [
+            "name",
+            "admin_name",
+            "admin_signature",
+            "signed_at",
+            "isolation",
+            "network_policy",
+            "targets",
+            "data_policy",
+            "expires_at"
+        ],
+        "file_pattern": "config/sandbox-spec.<name>.json",
+        "no_signoff_behavior": "fail_closed",
+        "_comment": "A risky pick refuses to run until a matching, unexpired sandbox spec signed by a named admin is present. Audit tier: sandbox-spec recommended; risky tier: required."
+    }
 }
