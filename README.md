@@ -112,6 +112,7 @@ starts (router incl. each child's `[pid name:port]` lines, embed, recover, watch
 scripts/cockpit.py` serves a live view of every log at http://127.0.0.1:9933/ (all panels on, switch off
 what you do not want; optional synthetic heat map), protected by the instance API key. familia adds its
 own logs through `FAMILIA_LOG_MANIFEST`. Logs are never committed (see `.gitignore`).
+The page is a self-contained mecha HUD (bezeled screens, scanlines, live status strip with line/error/warn counts, error-flash on panels); no network fonts or images.
 
 ## Getting started
 
