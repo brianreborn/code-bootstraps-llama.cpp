@@ -58,6 +58,8 @@ SHORT = {"LFM2.5-1.2B-Instruct-Q4_K_M.gguf": "LFM2.5-1.2B", "Qwen3.5-2B-Q4_K_M.g
          "Qwen3.5-4B-Q4_K_M.gguf": "Qwen3.5-4B", "HY-MT1.5-1.8B-Q4_K_M.gguf": "HY-MT1.5-1.8B",
          "Qwen3.5-0.8B-Japanese-SFT-v2-Q4_K_M.gguf": "JA-SFT-0.8B"}
 DEFAULTS = {c["role"]: c["file"] for c in CANDS if c["pick"] == "default"}
+# directory under models/ that holds each default (manifest "dir"; the LFM3 coder shares models/general)
+ROLE_DIR = {c["role"]: (c.get("dir") or "models/" + c["role"]).split("/", 1)[1] for c in CANDS if c["pick"] == "default"}
 REAL_LLAMA = None
 for cand in [os.environ.get("REAL_LLAMA_SERVER", "")] + sorted(
         __import__("glob").glob(os.path.join(ROOT, "bin", "llama-b*-linux-x64-cpu", "llama-server"))):
@@ -92,7 +94,9 @@ exit 7
 ''',
         f"{st}/sha256sum": '#!/bin/bash\nfor f; do printf "%s  %s\\n" "$(head -c 64 "$f")" "$f"; done\n',
         f"{st}/llama-server-stub": r'''#!/bin/bash
-# stub router: record argv, LLAMA_* environment and the effective preset, then exit
+# stub router: record argv, LLAMA_* environment and the effective preset, then exit.
+# Other llama-server starts (serve.sh's separate embed server) are only listed in aux-argv.txt.
+case " $* " in *" --models-preset "*) ;; *) printf '%s\n' "$*" >> "$CAPTURE_DIR/aux-argv.txt"; exit 0 ;; esac
 printf '%s\n' "$@" > "$CAPTURE_DIR/argv.txt"
 if [ -n "$LLAMA_CACHE" ]; then   # what the router would find in its cache directory
   { echo "path=$LLAMA_CACHE"; [ -d "$LLAMA_CACHE" ] && [ ! -L "$LLAMA_CACHE" ] && echo "dir=yes"; ls -A "$LLAMA_CACHE" 2>/dev/null; } > "$CAPTURE_DIR/llama-cache.txt"
@@ -147,7 +151,7 @@ def make_sandbox(d, install, prefetched, extra=None, ps51=False):
     os.makedirs(os.path.join(d, "models"))
     if prefetched:   # serve.sh / serve.ps1 run alone: the defaults are already installed
         for role, file in DEFAULTS.items():
-            placeholder(os.path.join(d, "models", role, file), file)
+            placeholder(os.path.join(d, "models", ROLE_DIR[role], file), file)
     if install == "optin":   # after fetch-models --locale ja and --language
         placeholder(os.path.join(d, "models-optional/locale/ja/Qwen3.5-0.8B-Japanese-SFT-v2-Q4_K_M.gguf"),
                     "Qwen3.5-0.8B-Japanese-SFT-v2-Q4_K_M.gguf")
@@ -204,20 +208,20 @@ def decoy_extra(kind):
             # several names, so the directory order puts a decoy last at least once (the router
             # takes the LAST non-mmproj .gguf it sees; NTFS lists alphabetically, ext4 by hash)
             for nm in ("aaa-decoy.gguf", "zzz-decoy.gguf", "Qwen3.5-4B-Q4_K_M.gguf", "decoy-1.gguf", "decoy-2.gguf"):
-                placeholder(os.path.join(m, "coder", nm), "Qwen3.5-0.8B-Q4_K_M.gguf")
+                placeholder(os.path.join(m, ROLE_DIR["coder"], nm), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "top-level":    # a .gguf directly in models/
             placeholder(os.path.join(m, "decoy.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "extra-dir":    # a new subdirectory
             placeholder(os.path.join(m, "extra", "decoy.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "mmproj":       # a projector-named file in a role directory (never parked)
-            placeholder(os.path.join(m, "coder", "decoy-mmproj-F16.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            placeholder(os.path.join(m, ROLE_DIR["coder"], "decoy-mmproj-F16.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "draft":        # a speculative-draft-named file (mtp-*)
-            placeholder(os.path.join(m, "coder", "mtp-decoy.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            placeholder(os.path.join(m, ROLE_DIR["coder"], "mtp-decoy.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "stale-part":   # leftovers of an interrupted / failed download
-            placeholder(os.path.join(m, "coder", "Qwen3.5-0.8B-Q4_K_M.gguf.part"), "Qwen3.5-0.8B-Q4_K_M.gguf")
-            placeholder(os.path.join(m, "coder", "old.gguf.bad"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            placeholder(os.path.join(m, ROLE_DIR["coder"], "Qwen3.5-0.8B-Q4_K_M.gguf.part"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            placeholder(os.path.join(m, ROLE_DIR["coder"], "old.gguf.bad"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "inactive":     # a parked model from an earlier --fallback
-            placeholder(os.path.join(d, "models-inactive", "coder", "Qwen3.5-0.8B-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
+            placeholder(os.path.join(d, "models-inactive", ROLE_DIR["coder"], "Qwen3.5-0.8B-Q4_K_M.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "language-dir":  # a decoy next to HY-MT in the interpreter directory
             placeholder(os.path.join(d, "models-optional", "language", "AAA-decoy.gguf"), "Qwen3.5-0.8B-Q4_K_M.gguf")
         elif kind == "fallback-installed":  # user ran fetch-models --fallback earlier (0.8B coder active)
@@ -239,8 +243,8 @@ def decoy_extra(kind):
             # same size with the old mtime: a new file (new inode) or rewritten in place (ctime)
             stamps = os.path.join(d, ".cache", "verified"); os.makedirs(stamps, exist_ok=True)
             for role, file in DEFAULTS.items():
-                write_stamp(stamps, os.path.join(m, role, file), file)
-            pth = os.path.join(m, "coder", DEFAULTS["coder"]); old = os.stat(pth)
+                write_stamp(stamps, os.path.join(m, ROLE_DIR[role], file), file)
+            pth = os.path.join(m, ROLE_DIR["coder"], DEFAULTS["coder"]); old = os.stat(pth)
             other = next(c["sha256"] for c in CANDS if c["file"] == "Qwen3.5-0.8B-Q4_K_M.gguf") + "\n"
             if kind == "toctou-replace":
                 with open(pth + ".new", "w") as fh:
@@ -395,7 +399,7 @@ def prepare(j, n, stubs):
         # PATH; the models are pre-installed with fresh stamps so no hashing is needed.
         stamps = os.path.join(d, ".cache", "verified"); os.makedirs(stamps, exist_ok=True)
         for role, file in DEFAULTS.items():
-            write_stamp(stamps, os.path.join(d, "models", role, file), file)
+            write_stamp(stamps, os.path.join(d, "models", ROLE_DIR[role], file), file)
         stub = os.path.join(d, "llama-server-stub")
         shutil.copy(os.path.join(st, "llama-server-stub"), stub)
         env.update({"STUB_LLAMA": stub, "PATH": os.path.join(WORK, "stubs-pwshfile") + ":" + st + ":" + os.environ["PATH"],
@@ -665,7 +669,7 @@ def main():
     for j in J:
         res = j.get("router")
         roles = {r: role_view(res, r, j["sandbox"]) for r in ("general", "coder", "decision", "language")}
-        extra = sorted(k for k in (res or {}) if k not in ("general", "coder", "decision", "language", "error"))
+        extra = sorted(k for k in (res or {}) if k not in ("general", "coder", "decision", "language", "embed", "error"))   # [embed]: preset section since #26
         out.append({k: j[k] for k in ("launcher", "profile", "mode", "locale", "install", "tools", "explicit_locale", "grid",
                                      "mem", "env_extra", "label", "status", "downloads", "argv", "preset", "language_json", "tree",
                                      "cache_seen", "cache_left", "outside_cache")}
@@ -676,7 +680,10 @@ def main():
                       "output": j["output"].replace(j["sandbox"], "<ROOT>")[-3000:]})
     json.dump(out, open(os.path.join(WORK, "results.json"), "w"), indent=1)
     print(f"[matrix] results: {os.path.join(WORK, 'results.json')}", file=sys.stderr)
-    fails = assertions(out)
+    skipped = [r for r in out if str(r.get("status", "")).startswith("skipped")]
+    if skipped:   # pwsh absent: those launchers ran nothing, so there is nothing to assert
+        print(f"[matrix] SKIP {len(skipped)} combination(s): {skipped[0]['status']}", file=sys.stderr)
+    fails = assertions([r for r in out if r not in skipped])
     with open(os.path.join(WORK, "assertions.txt"), "w") as f:
         f.write("".join(x + "\n" for x in fails))
     checked = sum(1 for r in out if r["grid"] in ASSERT_GRIDS)
@@ -697,7 +704,7 @@ def main():
 #  - per-role ctx/parallel/models-max follow the profile;
 #  - a combination may only refuse to start with a language-mode error, and then starts nothing.
 ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51", "moderate", "knobs")
-DEF_URLS = sorted(f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default")
+DEF_URLS = sorted({f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default"})   # general+coder share one file
 PARAMS = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
           "moderate": ({"general": "8192", "coder": "24576", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "3"),
           "knobs": ({"general": "8192", "coder": "8192", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
