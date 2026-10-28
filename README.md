@@ -2,7 +2,7 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
-**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b11944`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b11969`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
 
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
@@ -78,7 +78,7 @@ Everything after this is the detail: the pinned llama.cpp, the models, what was 
 
 ## Pinned llama.cpp
 
-The current pin is llama.cpp release **`b11944`**, built **from source** with our patches
+The current pin is llama.cpp release **`b11969`**, built **from source** with our patches
 (`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). It was picked on
 2026-10-27 as the newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent
 upstream tags are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
@@ -86,15 +86,15 @@ ggml-org/llama.cpp#31252) needs.
 
 | | |
 |---|---|
-| Tag | `b11944` |
-| Commit | `1b4554eff124a8f0033bc09b3f708a5e51cbda15` |
-| Build number | `11944` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11944`) |
+| Tag | `b11969` |
+| Commit | `c3df4b7e22a1ac38da663552d19e649dd97ca936` |
+| Build number | `11969` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11969`) |
 | Source tarball sha256 | `e404ef4b7dcb9c791d130543d4dc0cdcb79b1fc18b4fd68faa7e2fff97002dad` |
 | Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`) |
 
 The pin is recorded in `config/llama-pin.env`, which the build scripts read. **The launchers are
 prebuilt-first:** `start.sh` / `start.bat` reuse an existing `build-*` llama-server, else download the
-sha256-checked b11944 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
+sha256-checked b11969 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
 macOS, Windows), and build the pinned source with `patches/` only when no release binary fits
 (FreeBSD, Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces the patched
 source build. The upstream binary has none of `patches/`, so `serve.sh` keeps TOOLS/MCP off with it
@@ -167,7 +167,7 @@ That is enough for the launchers below, which use release binaries. Without git,
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher uses the sha256-checked b11944 release binary for this machine (or an existing build; it builds the pinned source with `patches/` only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
+The launcher uses the sha256-checked b11969 release binary for this machine (or an existing build; it builds the pinned source with `patches/` only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
 
 **API key.** The server only answers with the API key. There is **one stable key per instance (port)**, kept in **`${XDG_CONFIG_HOME:-~/.config}/familia/instances/<port>/api-keys`** (`%APPDATA%\familia\instances\<port>\api-keys` on Windows; one key per line, directory 700, file 600). `serve.sh` / `serve.ps1` create it atomically on the very first start (adopting an older `.secrets/api-keys`) and never rotate it; every client (familia, `snap.py`, `agent.py`, the launchers) reads the same file. See [docs/api-key-design.md](docs/api-key-design.md). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
