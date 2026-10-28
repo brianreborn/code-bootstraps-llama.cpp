@@ -96,3 +96,11 @@ one-use sign-in link.
 - **Alternative community ports** (standalone browser UI over the gateway), both MIT, both verified 200:
   - `przbadu/hermes-ui` (https://github.com/przbadu/hermes-ui) — thin Vite web UI / PWA, ~140★.
   - `icyzh/hermes-web` (https://github.com/icyzh/hermes-web) — Docker + Caddy self-host port.
+
+## Serve-time loading
+`serve.sh` / `serve.ps1` build `.cache/mcp-servers.effective.json` from `config/mcp-servers.json`
+(base; wins on a name clash) plus every starter pick that has `"enabled": true` in
+`config/mcp-servers.starter.json` **or** is named in `MCP_PICKS` (e.g. `MCP_PICKS=time,git`).
+Doc-only picks (`command: "TODO"`) and picks with an unset placeholder (`@FAMILIA_ROOT@` needs
+`FAMILIA_ROOT`) are skipped with a warning; a broken starter file falls back to the base config.
+Loader: `scripts/lib/mcp_load.py`. Override the file with `MCP_STARTER=path` (empty = none).

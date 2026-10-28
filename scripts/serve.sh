@@ -29,6 +29,9 @@ PARALLEL=${PARALLEL:-}
 . "$ROOT/scripts/lib/instance-key.sh"
 API_KEY_FILE=$(instance_key_file "$PORT")
 MCP_CONFIG=${MCP_CONFIG-$ROOT/config/mcp-servers.json}
+# Starter MCP pack: picks with enabled:true there, or named in MCP_PICKS, are merged in.
+MCP_STARTER=${MCP_STARTER-$ROOT/config/mcp-servers.starter.json}
+MCP_PICKS=${MCP_PICKS-}
 TOOLS=${TOOLS-auto}
 TOOLS_FULL="read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info"
 TOOLS_LEAN="read_file,write_file,edit_file,exec_shell_command"
@@ -799,8 +802,16 @@ if [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
   [ -n "$RUNTIME_ARG" ] && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
 fi
 if [ -n "$MCP_CONFIG" ] && [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
-  root_json=$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g')
-  sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
+  # Base config + enabled starter picks (config/mcp-servers.starter.json, MCP_PICKS=a,b).
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$ROOT/scripts/lib/mcp_load.py" --root "$ROOT" --base "$(abspath "$MCP_CONFIG")" \
+      --starter "$(abspath "$MCP_STARTER")" --picks "$MCP_PICKS" \
+      --out "$ROOT/.cache/mcp-servers.effective.json" || die "MCP config could not be built"
+  else
+    [ -z "$MCP_PICKS" ] || warn "python3 is missing: MCP_PICKS ($MCP_PICKS) ignored"
+    root_json=$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g')
+    sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
+  fi
   export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
 fi
 
