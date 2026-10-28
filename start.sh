@@ -1,6 +1,6 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=0 (upstream prebuilt binary, without patches/; default: build the pinned source with patches/),
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1 (build the pinned source with patches/; default: reuse an existing local build, else the sha256-checked b11944 release binary for this OS/arch, else build from source),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
@@ -51,15 +51,19 @@ maybe_raise
 VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then
   say "$(t "using the binary you named")"
-elif [ "${BUILD:-1}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
-  :
+elif [ "${BUILD:-0}" != 1 ] && existing=$(ls -td "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1) && [ -x "$existing" ]; then
+  # prebuilt-first never forces a rebuild: an earlier (patched) source build is reused as-is
+  LLAMA_SERVER=$existing
+  say "using the existing build $LLAMA_SERVER (BUILD=1 rebuilds)"
+elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
+  say "using the sha256-checked release binary $LLAMA_SERVER (upstream, without patches/: tools/MCP stay off; BUILD=1 builds the patched source)"
 else
   rc=$?
-  if [ "${BUILD:-1}" != 1 ] && [ "$rc" != 3 ]; then
+  if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then
     say "$(t "downloading llama.cpp failed; check the network and run start.sh again")"
     exit 1
   fi
-  [ "${BUILD:-1}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
+  [ "${BUILD:-0}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
     FreeBSD) script=scripts/build-linux.sh; BUILD_DIR=${BUILD_DIR:-build-freebsd} ;;
@@ -101,6 +105,8 @@ else
   [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
 export LLAMA_SERVER
+# tests: stop once the llama-server choice is made
+if [ "${START_RESOLVE_ONLY:-0}" = 1 ]; then printf '%s\n' "$LLAMA_SERVER"; exit 0; fi
 
 rc=0
 # MODELS_BG=1 (default): download the general model first (chat starts with it), then the other

@@ -9,7 +9,7 @@ if git ls-files 2>/dev/null | grep -v '^tests/' | grep -E '\.(md|sh|ps1|bat|txt)
    xargs grep -nE '(curl|wget|irm|iwr|Invoke-RestMethod|Invoke-WebRequest)\b[^|]*\|[[:space:]]*(sh|bash|iex|Invoke-Expression)\b' 2>/dev/null; then
   bad "pipe install one-liner(s) above"
 fi
-grep -q 'curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh' README.md || bad "README lacks download-then-run sh form"
+grep -q "curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh && \\\\$" README.md && grep -q "^  sh ./install-cbl.sh" README.md || bad "README lacks download-then-run sh form"
 grep -q 'OutFile install-cbl.ps1' README.md || bad "README lacks download-then-run ps1 form"
 grep -q 'refs/heads/${INSTALL_BRANCH:-main}.tar.gz' install.sh || bad "install.sh ignores INSTALL_BRANCH"
 grep -q 'INSTALL_BRANCH' install.ps1 || bad "install.ps1 ignores INSTALL_BRANCH"
