@@ -1,6 +1,7 @@
 # Click-and-go launcher for Windows (start.bat runs this). Windows PowerShell 5.1 and PowerShell 7.
-# 1. llama.cpp: built from the pinned source with patches\ (scripts\build-windows.ps1; prerequisites:
-#    scripts\prereqs.ps1). -Prebuilt uses the upstream release in config\llama-release.json instead.
+# 1. llama.cpp: prebuilt-first. An existing build-windows-x64* build is reused; else the sha256-checked
+#    release in config\llama-release.json; only if none fits (or -Build / BUILD=1) the pinned source
+#    with patches\ is built (scripts\build-windows.ps1; prerequisites: scripts\prereqs.ps1).
 # 2. models: the default set from config\models-manifest.json (sha256-checked).
 # 3. scripts\serve.ps1: router with tools and an API key.
 # 4. opens the built-in web UI once serve.ps1 reports it ready (-CopyKey: key to the clipboard).
@@ -15,8 +16,8 @@ param(
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$Variant = $(if ($env:VARIANT) { $env:VARIANT } else { "cpu" }),
     [switch]$NoBrowser,
-    [switch]$Build,                   # kept for compatibility: building from source is now the default
-    [switch]$Prebuilt,                # use the upstream prebuilt binary instead (no patches/: router child auth and PID logs missing)
+    [switch]$Build,                   # build the pinned source with patches\ (default: prebuilt when one fits)
+    [switch]$Prebuilt,                # kept for compatibility: prebuilt is now the default
     [switch]$CopyKey,                 # also copy the API key to the clipboard (opt-in: clipboard history)
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ServeArgs = @()
 )
@@ -80,7 +81,11 @@ Invoke-RaiseOnce
 
 # --- 1. llama-server ---------------------------------------------------------
 $server = $null
-if ($Prebuilt) {
+if (-not $Build) {
+    $server = Get-ChildItem -Path $Root -Directory -Filter "build-windows-x64*" -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName "bin\Release\llama-server.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($server) { Write-Host "start: using the existing build $server (-Build rebuilds)" }
+}
+if (-not $Build -and -not $server) {
     $global:LASTEXITCODE = 0; $err = ""
     try { $out = & (Join-Path $PSScriptRoot "fetch-llama.ps1") -Variant $Variant } catch { $err = $_.ToString(); $out = $null; $global:LASTEXITCODE = 1 }
     if ($LASTEXITCODE -eq 0 -and $out) { $server = @($out)[-1] }

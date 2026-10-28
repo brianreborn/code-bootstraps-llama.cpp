@@ -1,7 +1,7 @@
 # Fetch this repository, unpack, then run start.bat.
 # Profile defaults, including MODELS_MAX=2, live in scripts/serve.ps1 after unpack.
 # Windows PowerShell 5.1 and PowerShell 7.
-#   Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
+#   Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; if ($?) { powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1 }
 # EXPECTED_SHA256 or INSTALL_SHA256, when set, must match the archive or it is
 # not unpacked. An empty digest still installs. Tests set INSTALL_URL, PREFIX,
 # and INSTALL_NO_START=1. A second run unpacks again only when the digest changes.
