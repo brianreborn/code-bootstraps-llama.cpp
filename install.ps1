@@ -1,13 +1,13 @@
 # Fetch this repository, unpack, then run start.bat.
 # Profile defaults, including MODELS_MAX=2, live in scripts/serve.ps1 after unpack.
 # Windows PowerShell 5.1 and PowerShell 7.
-#   irm https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1 | iex
+#   Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
 # EXPECTED_SHA256 or INSTALL_SHA256, when set, must match the archive or it is
 # not unpacked. An empty digest still installs. Tests set INSTALL_URL, PREFIX,
 # and INSTALL_NO_START=1. A second run unpacks again only when the digest changes.
 $ErrorActionPreference = "Stop"
 $Expected = ""
-if ($env:INSTALL_URL) { $Url = $env:INSTALL_URL } else { $Url = "https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/main.tar.gz" }
+if ($env:INSTALL_URL) { $Url = $env:INSTALL_URL } else { $Branch = if ($env:INSTALL_BRANCH) { $env:INSTALL_BRANCH } else { "main" }; $Url = "https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/$Branch.tar.gz" }  # INSTALL_BRANCH picks the branch archive
 if ($env:INSTALL_SHA256) { $Sha = $env:INSTALL_SHA256.ToLowerInvariant() } else { $Sha = $Expected }
 if ($env:PREFIX) { $Prefix = $env:PREFIX } else { $Prefix = Join-Path $env:USERPROFILE "code-bootstraps-llama.cpp" }
 

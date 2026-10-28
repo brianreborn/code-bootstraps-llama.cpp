@@ -1,7 +1,7 @@
 #!/bin/sh
 # Fetch this repository, unpack, then run start.sh.
 # Profile defaults, including MODELS_MAX=2, live in scripts/serve.sh after unpack.
-#   curl -fsSL https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh | sh
+#   curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh
 # EXPECTED_SHA256 or INSTALL_SHA256, when set, must match the archive or it is
 # not unpacked. An empty digest still installs. Tests set INSTALL_URL,
 # INSTALL_PREFIX, and INSTALL_NO_START=1. A second run unpacks again only when
@@ -10,7 +10,8 @@
 # does not unpack over the Termux prefix.
 set -eu
 EXPECTED_SHA256=""
-URL=${INSTALL_URL:-https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/main.tar.gz}
+# INSTALL_BRANCH picks the branch archive (default main); INSTALL_URL overrides the whole URL.
+URL=${INSTALL_URL:-https://github.com/brianreborn/code-bootstraps-llama.cpp/archive/refs/heads/${INSTALL_BRANCH:-main}.tar.gz}
 SHA=${INSTALL_SHA256:-$EXPECTED_SHA256}
 if [ -n "${INSTALL_PREFIX:-}" ]; then
   PREFIX=$INSTALL_PREFIX

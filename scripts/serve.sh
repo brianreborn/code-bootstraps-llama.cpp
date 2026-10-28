@@ -770,6 +770,7 @@ set -- \
 [ -n "$LOAD_MODE" ] && set -- "$@" --load-mode "$LOAD_MODE"
 [ "$REPACK" = off ] && set -- "$@" --no-repack
 LOG_FILE=$(abspath "$LOG_FILE")
+echo "serve.sh: logs: router $LOG_FILE" >&2
 set -- "$@" --log-file "$LOG_FILE"
 j=1
 while [ "$j" -le "$ua_n" ]; do
@@ -960,6 +961,7 @@ LOG_MANIFEST=$ROOT/.cache/logs.manifest
   printf 'serve\t%s\n' "$ROOT/.cache/server.log"
   [ ! -f "$ROOT/.cache/fetch-models.log" ] || printf 'downloads\t%s\n' "$ROOT/.cache/fetch-models.log"
 } > "$LOG_MANIFEST.tmp" && mv -f "$LOG_MANIFEST.tmp" "$LOG_MANIFEST"
+while IFS="$(printf '\t')" read -r ln lp; do echo "serve.sh: logs: $ln $lp" >&2; done < "$LOG_MANIFEST"
 forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; if [ -n "$EMBED_PID" ]; then kill "-$1" "$EMBED_PID" 2>/dev/null || true; fi; }
 trap 'forward INT' INT
 trap 'forward TERM' TERM
