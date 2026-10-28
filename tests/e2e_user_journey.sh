@@ -22,7 +22,7 @@ BRANCH=${E2E_BRANCH:-$(git -C "$HERE" rev-parse --abbrev-ref HEAD)}
 W=${E2E_WORK:-$(mktemp -d /tmp/e2e-journey.XXXXXX)}
 READY_MAX=${E2E_READY_TIMEOUT:-3600}; DL_MAX=${E2E_DL_TIMEOUT:-1800}
 FAM=${FAMILIA_DIR:-$HERE/../familia}
-R=$W/repo; LOG=$W/start.log; RES=$W/results.txt; : > "$RES"
+mkdir -p "$W"; R=$W/repo; LOG=$W/start.log; RES=$W/results.txt; : > "$RES"
 export GGUF_HOME=$W/gguf XDG_CONFIG_HOME=$W/xdg NO_BROWSER=1 STARTUP_RECOVER=0
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
 export PORT=$(free_port) COCKPIT_PORT=$(free_port)
