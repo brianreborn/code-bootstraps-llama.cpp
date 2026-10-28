@@ -6,7 +6,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 fail=0; bad() { echo "FAIL: $*" >&2; fail=1; }
 mk() {
-  rm -rf "$T/r"; mkdir -p "$T/r"; cp -R "$ROOT/start.sh" "$ROOT/scripts" "$T/r/"
+  rm -rf "$T/r"; mkdir -p "$T/r"; cp -R "$ROOT/start.sh" "$ROOT/scripts" "$ROOT/lib" "$T/r/"
   mkdir -p "$T/r/llama.cpp" "$T/r/.git"; : > "$T/r/llama.cpp/CMakeLists.txt"
   cat > "$T/r/scripts/fetch-llama.sh" <<S
 #!/bin/sh
