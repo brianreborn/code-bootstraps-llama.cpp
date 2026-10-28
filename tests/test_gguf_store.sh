@@ -145,7 +145,7 @@ sb() {
   d=$1
   rm -rf "$d"
   mkdir -p "$d"
-  cp -R "$ROOT/scripts" "$ROOT/config" "$d/"
+  cp -R "$ROOT/scripts" "$ROOT/config" "$ROOT/lib" "$d/"
 }
 mkdir -p "$T/stubs"
 cat > "$T/stubs/curl" <<'EOF'

@@ -11,7 +11,6 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/lib/path.mk"   # abs_path
-. "$ROOT/lib/os.mk"     # mk_is_termux
 abspath() { abs_path "$1" "$ROOT"; }   # relative paths here are relative to $ROOT
 
 HOST=${HOST:-127.0.0.1,::1} # 0.0.0.0 is IPv4 all interfaces; ::1 is IPv6 localhost; etc.
@@ -102,7 +101,7 @@ BIN=$(abspath "$BIN")
 
 OS=$(uname -s)
 IS_ANDROID=0
-if mk_is_termux; then IS_ANDROID=1; fi
+case "${PREFIX:-}" in *com.termux*) IS_ANDROID=1 ;; esac
 [ -n "${ANDROID_ROOT:-}" ] && IS_ANDROID=1
 
 # FreeBSD: detect Python and hermes paths the way mk scripts do (ports use /usr/local).
