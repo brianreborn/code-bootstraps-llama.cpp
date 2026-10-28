@@ -5,7 +5,11 @@ param([int]$Port = 9931, [switch]$NoBrowser, [switch]$CopyKey, [int]$ParentPid =
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $readyFile = Join-Path $Root ".cache\serve.ready"
 $ready = $false
-for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow disk)
+# no fixed limit: serve.ps1 owns the readiness ceiling (READY_TIMEOUT) and prints progress;
+# OPEN_UI_TIMEOUT (seconds, default 0 = none) caps this wait.
+$cap = if ($env:OPEN_UI_TIMEOUT) { [int]$env:OPEN_UI_TIMEOUT } else { 0 }
+$sw = [Diagnostics.Stopwatch]::StartNew()
+while ($cap -le 0 -or $sw.Elapsed.TotalSeconds -lt $cap) {
     if ($ParentPid -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { exit 0 }   # launcher gone
     if (Test-Path -LiteralPath $readyFile) {
         $f = (Get-Content -LiteralPath $readyFile -TotalCount 1) -split ' '
@@ -16,7 +20,7 @@ for ($i = 0; $i -lt 2400; $i++) {   # up to 20 min (first model load on a slow d
     }
     Start-Sleep -Milliseconds 500
 }
-if (-not $ready) { exit 0 }
+if (-not $ready) { Write-Host "start: the server was not ready after $([int]$sw.Elapsed.TotalSeconds)s (OPEN_UI_TIMEOUT=$cap); the web UI was not opened"; exit 0 }
 # the instance key of the port that went ready (same resolution as serve.ps1)
 $cfgBase = if ($env:APPDATA) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
 $keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path $cfgBase "familia\instances\$Port\api-keys" }

@@ -502,6 +502,20 @@ $env:LLAMA_CACHE = $llamaCache
 # the API key, e.g. from the web UI's model picker). Offline mode makes that download fail.
 $env:LLAMA_ARG_OFFLINE = "1"
 $env:MODEL_ENDPOINT = "https://offline.invalid/"   # the router checks a download request online even when offline (.invalid never resolves)
+# Router children listen on loopback without the API key and must get NO tools and no MCP
+# (same rule as serve.sh): only a llama-server with patches/0003 ("router-child-no-tools")
+# keeps them on the router; an unpatched one would pass them to every child.
+if ($Tools -or $McpConfig -or $runtime) {
+    $binDir = Split-Path -Parent $LlamaServer
+    $patched = $false
+    foreach ($f in @(Get-ChildItem -LiteralPath $binDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(llama-server(\.exe)?|.*server.*\.dll|libllama-server.*)$' })) {
+        if ([System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($f.FullName)).Contains('router-child-no-tools')) { $patched = $true; break }
+    }
+    if (-not $patched) {
+        Write-Warning "serve.ps1: $LlamaServer lacks patches/0003 (router-child-no-tools): its child instances would inherit the tools and MCP servers, so Tools and MCP are off; build with scripts\build-windows.ps1 to use them"
+        $Tools = ""; $McpConfig = ""; $runtime = ""
+    }
+}
 if ($Tools)     { $env:LLAMA_ARG_TOOLS = $Tools }
 if ($runtime)   { $env:LLAMA_ARG_TOOLS_RUNTIME = $runtime }
 if ($McpConfig) {
@@ -553,6 +567,13 @@ Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRol
 # .cache\serve.ready gets "<port> <pid>"; scripts\lib\open-ui.ps1 waits for that file. Checked
 # in a background runspace of this process, which ends with the server.
 $readyFile = Join-Path $Root ".cache\serve.ready"
+# Readiness ceiling (same as serve.sh): 1800 s, 3600 s for lowram or <= 2 logical CPUs;
+# READY_TIMEOUT=SECONDS overrides, 0 = wait as long as the server lives.
+$readyTimeout = if ($env:READY_TIMEOUT) { $env:READY_TIMEOUT } else { "auto" }
+if ($readyTimeout -eq "auto") {
+    $readyTimeout = if ($RamProfile -eq "lowram" -or [Environment]::ProcessorCount -le 2) { 3600 } else { 1800 }
+} elseif ($readyTimeout -notmatch '^\d+$') { throw "READY_TIMEOUT must be seconds (0 = no limit)" }
+$env:FAMILIA_READY_TIMEOUT_EFFECTIVE = "$readyTimeout"
 Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue
 Remove-Item -Force -LiteralPath $logFile -ErrorAction SilentlyContinue   # an old "listening on" line must not count
 $exeId = ""
@@ -605,8 +626,22 @@ $watch = [powershell]::Create()
         if ($exeId) { try { return [CodeBootstraps.FileId]::Identity($path) -eq $exeId } catch { } }
         return ([IO.Path]::GetFullPath($path) -ieq [IO.Path]::GetFullPath($exe))
     }
-    for ($i = 0; $i -lt 2400 -and -not $sync.Stop; $i++) {
+    # ceiling from READY_TIMEOUT (seconds, 0 = none), resolved by serve.ps1 before the start
+    $limit = [int]$env:FAMILIA_READY_TIMEOUT_EFFECTIVE
+    $every = if ($env:READY_EVERY) { [int]$env:READY_EVERY } else { 30 }
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $next = $every
+    while (-not $sync.Stop) {
         Start-Sleep -Milliseconds 500
+        $el = [int]$sw.Elapsed.TotalSeconds
+        if ($limit -gt 0 -and $el -ge $limit) {
+            [Console]::Out.WriteLine("serve.ps1: not ready after ${el}s (READY_TIMEOUT=$limit): llama-server has not answered /health on port $port. See $logFile; set READY_TIMEOUT=0 (no limit) or a larger value and restart")
+            return
+        }
+        if ($el -ge $next) {
+            $lim = if ($limit -gt 0) { "limit ${limit}s" } else { "no limit" }
+            [Console]::Out.WriteLine("serve.ps1: still starting (${el}s, $lim)")
+            $next += $every
+        }
         if (-not (Test-ServerSaidListening -LogFile $logFile -Port $port)) { continue }
         $owner = 0
         if ($onWindows) {

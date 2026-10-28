@@ -1,0 +1,54 @@
+Router children never inherit built-in tools, a tools runtime, MCP servers or the agent
+(env or preset). Replaces the preset workaround "tools = get_info", which injected get_info
+into every child. Marker string: router-child-no-tools.
+
+diff --git a/tools/server/server-models.cpp b/tools/server/server-models.cpp
+--- a/tools/server/server-models.cpp
++++ b/tools/server/server-models.cpp
+@@ -279,6 +279,12 @@
+ // delete). distinct from params.timeout_read/write which only applies to the generation proxy
+ static constexpr int STREAM_LOOKUP_TIMEOUT_MS = 250;
+ 
++// options a router child never inherits (marker: router-child-no-tools)
++static const char * const CHILD_NO_TOOLS_ENV[] = {
++    "LLAMA_ARG_TOOLS", "LLAMA_ARG_TOOLS_RUNTIME", "LLAMA_ARG_MCP_SERVERS_CONFIG",
++    "LLAMA_ARG_MCP_SERVERS_JSON", "LLAMA_ARG_UI_MCP_PROXY", "LLAMA_ARG_AGENT",
++};
++
+ static void unset_reserved_args(common_preset & preset, bool unset_model_args) {
+     preset.unset_option("LLAMA_ARG_SSL_KEY_FILE");
+     preset.unset_option("LLAMA_ARG_SSL_CERT_FILE");
+@@ -291,6 +297,11 @@
+     preset.unset_option("LLAMA_ARG_MODELS_AUTOLOAD");
+     preset.unset_option("LLAMA_ARG_CONNECT");
+     preset.unset_option("LLAMA_ARG_CONNECT_CODE");
++    // children listen on loopback without the router's auth: built-in tools, a tools
++    // runtime, MCP servers and the agent stay with the router (children get none at all)
++    for (const char * k : CHILD_NO_TOOLS_ENV) {
++        preset.unset_option(k);
++    }
+     if (unset_model_args) {
+         preset.unset_option("LLAMA_ARG_MODEL");
+         preset.unset_option("LLAMA_ARG_MMPROJ");
+@@ -419,6 +430,7 @@
+ 
+     // do not propagate these options, but allow preset to explicitly set them
+     base_preset.unset_option("LLAMA_ARG_LOG_FILE");
++    SRV_INF("%s\n", "router-child-no-tools: children get no built-in tools, tools runtime, MCP servers or agent");
+ 
+     // set binary path
+     try {
+@@ -1272,6 +1284,13 @@
+             set_child_env(child_env, "LLAMA_ARG_SPEC_TYPE", spec_types.empty() ? "none" : spec_types);
+         }
+ 
++        for (const char * k : CHILD_NO_TOOLS_ENV) { // router-child-no-tools
++            const std::string pfx = std::string(k) + "=";
++            child_env.erase(std::remove_if(child_env.begin(), child_env.end(), [&](const std::string & e) {
++                return e.rfind(pfx, 0) == 0;
++            }), child_env.end());
++        }
++
+         SRV_INF("%s", "spawning server instance with args:\n");
+         for (const auto & arg : child_args) {
+             SRV_INF("  %s\n", arg.c_str());

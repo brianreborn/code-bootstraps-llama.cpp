@@ -688,9 +688,21 @@ LLAMA_CACHE_DIR=$(mktemp -d "$ROOT/.cache/llama-cache.$$.XXXXXX") || die "cannot
 export LLAMA_CACHE="$LLAMA_CACHE_DIR"
 export LLAMA_ARG_OFFLINE=1
 export MODEL_ENDPOINT="https://offline.invalid/"
-[ -n "$TOOLS" ] && export LLAMA_ARG_TOOLS="$TOOLS"
-[ -n "$RUNTIME_ARG" ] && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
-if [ -n "$MCP_CONFIG" ]; then
+# Router children listen on loopback without the API key and must get NO tools and no MCP.
+# patches/0003 (marker "router-child-no-tools") keeps the LLAMA_ARG_TOOLS* / MCP / agent
+# settings on the router. An unpatched llama-server (e.g. an upstream release from
+# fetch-llama.sh) would hand them to every child, so tools and MCP are switched off there.
+if [ -n "$TOOLS" ] || [ -n "$MCP_CONFIG" ] || [ -n "$RUNTIME_ARG" ]; then
+  if ! grep -aqs "router-child-no-tools" "$BIN" "$(dirname "$BIN")"/libllama-server* "$(dirname "$BIN")"/*.so* 2>/dev/null; then
+    warn "$BIN lacks patches/0003 (router-child-no-tools): its child instances would inherit the tools and MCP servers, so TOOLS and MCP are off; build with scripts/build-*.sh to use them"
+    ROUTER_TOOLS_OFF=1; TOOLS_SET="off (unpatched llama-server)"
+  fi
+fi
+if [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
+  [ -n "$TOOLS" ] && export LLAMA_ARG_TOOLS="$TOOLS"
+  [ -n "$RUNTIME_ARG" ] && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
+fi
+if [ -n "$MCP_CONFIG" ] && [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
   root_json=$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g')
   sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
   export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
@@ -815,10 +827,31 @@ listener_is_ours() {
   fi
   return 2
 }
+# Readiness ceiling (seconds): the router must say "listening" and answer /health. A first
+# start loads (and may hash) models: slow on a phone, a 2-core or throttled CPU. READY_TIMEOUT
+# overrides (0 = wait as long as the server lives). Progress every READY_EVERY seconds.
+case "${READY_TIMEOUT:-auto}" in
+  auto)
+    READY_TIMEOUT=1800
+    if [ "$IS_ANDROID" = 1 ] || [ "$PROFILE" = lowram ] || [ "$(logical_cpus 2>/dev/null || echo 4)" -le 2 ]; then READY_TIMEOUT=3600; fi ;;
+  *[!0-9]*|"") die "READY_TIMEOUT must be seconds (0 = no limit)" ;;
+esac
+READY_EVERY=${READY_EVERY:-30}
 if command -v curl >/dev/null 2>&1; then
-  ( i=1
-    while [ "$i" -le 600 ]; do
+  ( t0=$(date +%s); next=$READY_EVERY
+    while :; do
       kill -0 "$SERVER_PID" 2>/dev/null || exit 0
+      el=$(( $(date +%s) - t0 ))
+      if [ "$READY_TIMEOUT" -gt 0 ] && [ "$el" -ge "$READY_TIMEOUT" ]; then
+        echo "serve.sh: not ready after ${el}s (READY_TIMEOUT=$READY_TIMEOUT): llama-server (pid $SERVER_PID) still runs but has not answered /health on port $PORT. See $LOG_FILE; set READY_TIMEOUT=0 (no limit) or a larger value and restart" >&2
+        exit 0
+      fi
+      if [ "$el" -ge "$next" ]; then
+        lim="no limit"; [ "$READY_TIMEOUT" -gt 0 ] && lim="limit ${READY_TIMEOUT}s"
+        stage="starting"; said_listening && stage="listening, waiting for /health"
+        echo "serve.sh: still starting (${el}s, $lim): $stage" >&2
+        next=$((next + READY_EVERY))
+      fi
       if said_listening && curl -s -o /dev/null --max-time 2 "http://$PROBE_URL_HOST:$PORT/health"; then
         owner=0
         listener_is_ours || owner=$?
@@ -854,7 +887,6 @@ if command -v curl >/dev/null 2>&1; then
         exit 0
       fi
       sleep 1
-      i=$((i + 1))
     done
   ) &
 fi

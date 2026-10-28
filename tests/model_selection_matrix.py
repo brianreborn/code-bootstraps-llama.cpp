@@ -97,6 +97,7 @@ exit 7
         f"{st}/sha256sum": '#!/bin/bash\nfor f; do printf "%s  %s\\n" "$(head -c 64 "$f")" "$f"; done\n',
         f"{st}/llama-server-stub": r'''#!/bin/bash
 # stub router: record argv, LLAMA_* environment and the effective preset, then exit.
+# router-child-no-tools: stands in for a build with patches/0003 (children get no tools)
 # Other llama-server starts (serve.sh's separate embed server) are only listed in aux-argv.txt.
 case " $* " in *" --models-preset "*) ;; *) printf '%s\n' "$*" >> "$CAPTURE_DIR/aux-argv.txt"; exit 0 ;; esac
 printf '%s\n' "$@" > "$CAPTURE_DIR/argv.txt"

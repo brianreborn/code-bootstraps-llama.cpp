@@ -121,17 +121,23 @@ open_ui() {
   port=""
   pid=""
   ready=0
-  i=1
-  while [ "$i" -le 600 ]; do
+  # No fixed limit here: serve.sh owns the readiness ceiling (READY_TIMEOUT) and prints the
+  # progress; this waits for its ready file as long as the launcher lives (OPEN_UI_TIMEOUT
+  # seconds caps it, 0 = no cap), then says so instead of returning silently.
+  t0=$(date +%s)
+  while :; do
     kill -0 "$parent" 2>/dev/null || return 0
     if [ -s .cache/serve.ready ]; then
       read -r port pid < .cache/serve.ready || true
       if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then ready=1; break; fi
     fi
+    if [ "${OPEN_UI_TIMEOUT:-0}" -gt 0 ] && [ $(( $(date +%s) - t0 )) -ge "$OPEN_UI_TIMEOUT" ]; then break; fi
     sleep 1
-    i=$((i + 1))
   done
-  [ "$ready" = 1 ] || return 0
+  if [ "$ready" != 1 ]; then
+    echo "start.sh: the server was not ready after $(( $(date +%s) - t0 ))s (OPEN_UI_TIMEOUT=$OPEN_UI_TIMEOUT); the web UI was not opened. It may still be loading: watch the serve.sh lines above" >&2
+    return 0
+  fi
   url="http://127.0.0.1:$port/?model=chat"
   . "$ROOT/scripts/lib/instance-key.sh"
   key=$(instance_key_first "$(instance_key_file "$port")" || true)
