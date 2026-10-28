@@ -589,6 +589,26 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
           if (rr[i] == "embed") print "alias = embed"
         } }
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"
+# LFM3 family multimodal picks (cbl #49): each installed role=media row (model + mmproj, from
+# fetch-models.sh --pick lfm3-vl|lfm3-omni|lfm3-audio) is served as model alias <pick> with
+# --mmproj. MEDIA_MODELS=0 turns this off. Nothing is served when none is installed.
+if [ "${MEDIA_MODELS:-1}" != 0 ]; then
+  md_rows=$(mktemp)
+  awk -v match_kv="role=media" -v fields="pick file sha256 dir mmproj mmproj_sha256" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$md_rows"
+  while IFS=$tab read -r md_pick md_file md_sha md_dir md_mp md_mpsha; do
+    case "$md_mp" in ""|-) continue ;; esac
+    [ "$md_dir" = "-" ] && md_dir="models-optional/$md_pick"
+    md_path=$(gguf_resolve "$md_dir/$md_file")
+    md_mpath="$(dirname "$md_path")/$md_mp"
+    [ -f "$md_path" ] || continue
+    if [ ! -f "$md_mpath" ]; then warn "$md_pick: $md_mp missing; run scripts/fetch-models.sh --pick $md_pick"; continue; fi
+    verify_model "$md_path" "$md_sha"
+    verify_model "$md_mpath" "$md_mpsha"
+    printf '\n[%s]\nmodel = %s\nmmproj = %s\nalias = %s\n' "$md_pick" "$md_path" "$md_mpath" "$md_pick" >> "$EFFECTIVE_PRESET"
+    echo "serve.sh: serving $md_pick ($md_file + --mmproj $md_mp)" >&2
+  done < "$md_rows"
+  rm -f "$md_rows"
+fi
 printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" "$SWAP_ROLES" > "$ROOT/.cache/language.json"
 
 case "$HOST" in
