@@ -1,5 +1,5 @@
 #!/bin/sh
-# The launcher asks for memlock once, as part of start.sh, and does not ask again
+# The launcher asks for memlock (root) only with RAISE=1, never just because a terminal exists.
 # after that succeeds.   sh tests/test_raise_gate.sh
 set -eu
 export COCKPIT=0   # no cockpit process per test sandbox
@@ -129,6 +129,6 @@ os.close(slave)
 os.close(master)
 sys.exit(r.returncode)
 PY
-note "$( [ "$(calls)" = 1 ] && [ -f "$ROOT/.cache/raise.stamp" ] && echo ok || echo no )" "a terminal asks once and stamps"
+note "$( [ "$(calls)" = 0 ] && [ ! -f "$ROOT/.cache/raise.stamp" ] && echo ok || echo no )" "a terminal alone never asks (sudo cache could run it silently; RAISE=1 required)"
 
 [ "$fails" = 0 ] && echo "test_raise_gate: ok" || { echo "test_raise_gate: $fails failed" >&2; exit 1; }

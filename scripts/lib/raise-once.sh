@@ -2,8 +2,7 @@
 # One privilege prompt from start.sh. Not a second launcher.
 # RAISE=0 skips. RAISE=1 asks again. A stamp is written only after success,
 # because the new memlock limit does not apply to this login.
-# Linux only. Termux and any other OS skip it. No terminal and RAISE is not 1:
-# do not ask (tests, cron, a piped install whose stderr is not a terminal).
+# Linux only. Termux and any other OS skip it. Never asks unless RAISE=1.
 
 maybe_raise() {
   [ "${RAISE:-}" = 0 ] && return 0
@@ -19,11 +18,13 @@ maybe_raise() {
     printf '%s\n' ok > "$mr_stamp" 2>/dev/null || true
     return 0
   fi
-  mr_tty=0
-  if [ -t 0 ] || [ -t 2 ]; then mr_tty=1; fi
-  if [ "$mr_tty" != 1 ] && [ "${RAISE:-}" != 1 ]; then
+  # Root only on explicit opt-in (RAISE=1). sudo may run silently from its
+  # credential cache, so a terminal is never treated as consent.
+  if [ "${RAISE:-}" != 1 ]; then
+    say "memlock is limited ($mr_lim); to raise it (needs root) re-run with RAISE=1"
     return 0
   fi
+  say "WARNING: the next step runs sudo (root) to write /etc/security/limits.d"
   say "$(t "Asking once for permission to allow memory locking. Sign in again afterwards.")"
   if sh "$ROOT/scripts/raise.sh"; then
     mkdir -p "$ROOT/.cache" 2>/dev/null || true
