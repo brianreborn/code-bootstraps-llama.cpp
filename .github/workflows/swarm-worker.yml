@@ -1,0 +1,110 @@
+# Swarm worker (mirror of brianreborn/familia .github/workflows/swarm-worker.yml).
+# ubuntu dispatch -> self-hosted [self-hosted, Linux, swarm-bench] -> ubuntu report.
+# Trigger: owner comment whose first line is `/run e2e|bench [ref]`, or workflow_dispatch.
+# Hosted jobs are trivial (parse, comment). Logs stay on the runner; no secrets used.
+name: Swarm worker
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue: { description: Issue number to report to, required: true }
+      ref: { description: Branch or SHA, required: false, default: main }
+      suite: { description: e2e or bench, required: false, default: e2e }
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: swarm-worker-${{ github.event.issue.number || github.event.inputs.issue }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.comment.user.login == github.repository_owner &&
+       github.event.comment.user.type != 'Bot' &&
+       startsWith(github.event.comment.body, '/run '))
+    outputs:
+      issue: ${{ steps.p.outputs.issue }}
+      ref: ${{ steps.p.outputs.ref }}
+      suite: ${{ steps.p.outputs.suite }}
+    steps:
+      - id: p
+        env:
+          BODY: ${{ github.event.comment.body }}
+          IN_ISSUE: ${{ github.event.inputs.issue }}
+          IN_REF: ${{ github.event.inputs.ref }}
+          IN_SUITE: ${{ github.event.inputs.suite }}
+          EV_ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -eu
+          if [ -n "${IN_ISSUE:-}" ]; then
+            issue=$IN_ISSUE; ref=${IN_REF:-main}; suite=${IN_SUITE:-e2e}
+          else
+            line=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
+            set -- $line
+            [ "${1:-}" = "/run" ] || { echo "not a command"; exit 1; }
+            suite=${2:-e2e}; ref=${3:-main}; issue=$EV_ISSUE
+          fi
+          case "$suite" in e2e|bench) ;; *) echo "unknown suite $suite" >&2; exit 1 ;; esac
+          case "$ref" in *[!A-Za-z0-9._/-]*) echo "bad ref" >&2; exit 1 ;; esac
+          { echo "issue=$issue"; echo "ref=$ref"; echo "suite=$suite"; } >> "$GITHUB_OUTPUT"
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ steps.p.outputs.issue }}" -R "${{ github.repository }}" -b "swarm-worker: queued \`${{ steps.p.outputs.suite }}\` on \`${{ steps.p.outputs.ref }}\`. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  bench:
+    needs: dispatch
+    runs-on: [self-hosted, Linux, swarm-bench]
+    timeout-minutes: 240
+    outputs:
+      status: ${{ steps.run.outputs.status }}
+      summary: ${{ steps.run.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.dispatch.outputs.ref }}
+      - id: run
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/swarm"; log="$RUNNER_TEMP/swarm/run.log"
+          h=$(hostname | cut -d. -f1); u=$(id -un)
+          stamp="stamp v=1 host=$h user=$u uid=$(id -u) pid=$$ node=$h-$u role=swarm-bench forge=github run=$GITHUB_RUN_ID"
+          case "${{ needs.dispatch.outputs.suite }}" in
+            bench) script=scripts/swarm-bench.sh ;;
+            *) script=tests/e2e_user_journey.sh ;;
+          esac
+          if [ -f "$script" ]; then
+            { echo "$stamp"; sh "$script"; } > "$log" 2>&1; rc=$?
+          else
+            printf '%s\n%s\n' "$stamp" "$script not present on this ref" > "$log"; rc=78
+          fi
+          sed -E -i 's/(api[_-]?key|token|authorization|bearer)([=: "]+)[^ "]+/\1\2[REDACTED]/Ig' "$log"
+          case $rc in 0) st=pass ;; 78) st=skip ;; *) st=fail ;; esac
+          echo "status=$st" >> "$GITHUB_OUTPUT"
+          { echo "summary<<SWARMEOF"; echo "exit $rc"; tail -n 20 "$log"; echo "SWARMEOF"; } >> "$GITHUB_OUTPUT"
+          echo "log kept on runner: $log"
+
+  report:
+    needs: [dispatch, bench]
+    if: always() && needs.dispatch.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BENCH: ${{ needs.bench.result }}
+          ST: ${{ needs.bench.outputs.status }}
+          SUM: ${{ needs.bench.outputs.summary }}
+        run: |
+          {
+            echo "swarm-worker: **${ST:-$BENCH}** (\`${{ needs.dispatch.outputs.suite }}\` @ \`${{ needs.dispatch.outputs.ref }}\`)"
+            echo; echo '```'; printf '%s\n' "${SUM:-bench job $BENCH; no output}"; echo '```'
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > body.md
+          gh issue comment "${{ needs.dispatch.outputs.issue }}" -R "${{ github.repository }}" -F body.md
