@@ -588,10 +588,83 @@
             "quant": "UD-Q4_K_XL",
             "bytes": 5060482240,
             "sha256": "84ff34f5834b929043f5ae74799e8d562d4056998f6a5923ceb44831e8ad84d6",
-            "license": "other (NVIDIA open model license, see repo)",
-            "tested": false,
+            "license": "OpenMDW-1.1 (per nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16 card; post-trained on Gemma 4, Apache-2.0)",
+            "ctx": 65536,
+            "native_ctx": 131072,
+            "native_ctx_source": "GGUF gemma4.context_length; card: up to 64K input",
+            "specialty": "automation",
+            "base_model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16",
+            "tested": true,
             "dir": "models-optional/nemotron",
-            "note": "optional chat model (opt-in: --pick nemotron). Repo + file verified on Hugging Face 2026-10-27; not loaded yet on b11944"
+            "note": "optional automation model (opt-in: --pick nemotron). Kept the unsloth UD-Q4_K_XL: NVIDIA's own GGUF (nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB Q4_K_M) is 6.18 GB and ggml-org only has Q8_0/BF16. Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~6.9 GB RSS at -c 4096, so not for 7-8 GB devices."
+        },
+        {
+            "role": "general",
+            "pick": "nemotron-nano",
+            "repo": "nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+            "revision": "ba223d14e45525f7fae81db77ea8cabeb2fc6c25",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2837072864,
+            "sha256": "be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2",
+            "license": "NVIDIA Nemotron Open Model License (other; commercial use allowed, see https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/)",
+            "ctx": 262144,
+            "native_ctx": 1048576,
+            "native_ctx_source": "GGUF nemotron_h.context_length (card: up to 262K)",
+            "specialty": "automation",
+            "tested": true,
+            "dir": "models-optional/nemotron-nano",
+            "publisher": "nvidia (official GGUF)",
+            "note": "optional automation/agent model (opt-in: --pick nemotron-nano). NVIDIA's own GGUF (arch nemotron_h). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~4.3 GB RSS at -c 4096."
+        },
+        {
+            "role": "embed",
+            "pick": "nemotron-embed",
+            "repo": "mradermacher/Nemotron-3.5-Embed-1B-BF16-GGUF",
+            "revision": "dc4621c8f95eb53116301f4cf146909143e1675b",
+            "file": "Nemotron-3.5-Embed-1B-BF16.Q8_0.gguf",
+            "quant": "Q8_0",
+            "bytes": 1220297280,
+            "sha256": "ae7f850f571a0b1e4468027a46129f12bd6a38f38ab91e025f9a2eebc15dd513",
+            "license": "OpenMDW-1.1 (permissive model license: use, modify, redistribute incl. commercial; keep the license and notices) https://openmdw.ai/license/1-1/",
+            "base_model": "nvidia/Nemotron-3.5-Embed-1B-BF16",
+            "base_revision": "e24ca1e346bcc53572bd7bdc02b3e8ebf66c197c",
+            "ctx": 32768,
+            "native_ctx": 262144,
+            "native_ctx_source": "GGUF mistral3.context_length; card caps input at 32768 tokens",
+            "tested": true,
+            "dir": "models-optional/nemotron-embed",
+            "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
+            "required": [
+                "--embeddings",
+                "--pooling mean",
+                "@prompt query: ",
+                "@prompt passage: "
+            ],
+            "note": "optional embed specialist (opt-in: --pick nemotron-embed; serve.sh keeps the default embed model). Text only (the image mmproj is not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: 2048-dim, query/related passage cosine 0.63 vs unrelated -0.02. The card's model is bidirectional (is_causal false); whether llama.cpp's mistral3 path matches the reference embeddings is unverified."
+        },
+        {
+            "role": "guard",
+            "pick": "nemotron-guard",
+            "repo": "mradermacher/Nemotron-3.5-Content-Safety-GGUF",
+            "revision": "4fcb2495f250aa0dba62d7a3b1a18bc6fb5f002a",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2489899936,
+            "sha256": "c8a65e9ef2f8d7a20b0ffe9df6d5cd73767ae0bc9a6953acc8239dd0c929e52d",
+            "license": "OpenMDW-1.1 plus Gemma Terms of Use and Gemma Prohibited Use Policy (base Gemma-3-4B-it) per the NVIDIA card",
+            "base_model": "nvidia/Nemotron-3.5-Content-Safety",
+            "base_revision": "35645ed3543b7e7ffaed2e788699e57a5051497c",
+            "ctx": 131072,
+            "native_ctx": 131072,
+            "native_ctx_source": "GGUF gemma3.context_length; card: up to 128K",
+            "tested": true,
+            "dir": "models-optional/nemotron-guard",
+            "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
+            "required": [
+                "--jinja"
+            ],
+            "note": "optional guard specialist (opt-in: --pick nemotron-guard), replies 'User Safety: safe|unsafe' (+ 'Response Safety'). Text only (image mmproj not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: sourdough question -> safe, pipe-bomb request -> unsafe."
         },
         {
             "role": "general",
@@ -670,6 +743,130 @@
 
     ],
     "unplaced_options": [
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/Nemotron-3-Diarization",
+            "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+            "role": "diarization",
+            "weights_file": "Nemotron-3-Diarization.q8_0.gguf",
+            "bytes": 107012128,
+            "sha256": "08456d9e22cd9a323c0364d98375f3746d6e68507ebb705cd46438c534c7a3a1",
+            "license": "openmdw-1.1",
+            "arch": "sortformer",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: b11944 loaded it: unknown model architecture 'sortformer'"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+            "revision": "ea30d66debe3740a08b573244286791d423d6b3e",
+            "role": "asr",
+            "weights_file": "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+            "bytes": 742090464,
+            "sha256": "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1",
+            "license": "openmdw-1.1",
+            "arch": "asr (FastConformer cache-aware RNNT)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944 src/llama-arch.cpp"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-speech-streaming-en-0.6b",
+            "revision": "ebe59e5a817142986528bbbee5dba8db7b38ed50",
+            "role": "asr",
+            "weights_file": "nemotron-speech-streaming-en-0.6b.q8_0.gguf",
+            "bytes": 699872960,
+            "sha256": "d9a01898d2a611c8764e23a1c2f45e70bbd5a425dc4de93692ac951dd603812d",
+            "license": "NVIDIA Open Model License (other; commercial use allowed)",
+            "arch": "asr (FastConformer RNNT, English)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/parakeet-tdt-0.6b-v3",
+            "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+            "role": "asr",
+            "weights_file": "parakeet-tdt-0.6b-v3.q8_0.gguf",
+            "bytes": 713975456,
+            "sha256": "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e",
+            "license": "cc-by-4.0",
+            "arch": "asr (FastConformer TDT)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944 (mtmd's parakeet projector is an audio encoder for LLMs, not this standalone transducer)"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
+            "revision": "8749fc71fd6e2d88ef230159bbf2aea69b524ee1",
+            "role": "asr-multitalker",
+            "weights_file": "multitalker-parakeet-streaming-0.6b-v1.nemo",
+            "bytes": 2489825280,
+            "sha256": "afaefe89829e201a0ee22c67a715eb5a467bd06c0704cc1579fbfb370fb5be73",
+            "license": "NVIDIA Open Model License (other; commercial use allowed)",
+            "arch": "NeMo .nemo only",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-labs-unified-asr-0.6b",
+            "revision": "023ce907267a09a308a5cb69239447cb3d0c1597",
+            "role": "asr",
+            "weights_file": "nemotron-labs-unified-asr-0.6b.nemo",
+            "bytes": 2507735040,
+            "sha256": "1718cc1b44fb8597b2356328d706a8d89f31c389ca6f2256c2e3f743c0246936",
+            "license": "openmdw-1.1",
+            "arch": "NeMo .nemo only",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/canary-1b-v2",
+            "revision": "d455706339a6b32e1aa40f82c713a482a0c938e2",
+            "role": "asr",
+            "weights_file": "canary-1b-v2.nemo",
+            "bytes": 6358958080,
+            "sha256": "ae5ef1bf06812a95a1594a8f5f0ee9c51f35418e5ba96939fa6b98ab00431094",
+            "license": "cc-by-4.0",
+            "arch": "CanaryForConditionalGeneration (.nemo)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Official NVIDIA reranker; skipped: no GGUF loads on stock llama.cpp.",
+            "id": "nvidia/llama-nemotron-rerank-1b-v2",
+            "revision": "828765652b05bd439c9789d2a6d093db1caa1443",
+            "role": "rerank",
+            "license": "openmdw-1.1",
+            "arch": "LlamaBidirectionalForSequenceClassification",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: memoryco-ai Q8_0 (af4bc6d4) and kread f16 (a1b4ca67) GGUFs (arch llama-embed) both fail: wrong number of tensors; expected 148, got 147"
+            },
+            "tested": false
+        },
         {
             "_comment": "Listed for consideration only. Not a candidate: fetch-models.sh and serve.sh never read this key. Move into candidates only after a GGUF exists and a runtime branch is verified end to end.",
             "id": "tencent/Youtu-Parsing-Omni",
