@@ -101,7 +101,7 @@
       "_license": "AGPL-3.0",
       "_tier": "risky",
       "_gating": "security-gating.json tiers.risky: guard_gated, fail_closed_self_only, admin_override logged, banner. Start read-only/audit; exploitation is admin-gated and never default.",
-      "_install": "CLI `npx @keygraph/shannon@latest` or GitHub Action KeygraphHQ/shannon-action@v1. Point at staging only, never production.",
+      "_install": "CLI `npx @keygraph/shannon@<pinned-version>` (no floating latest tag) or GitHub Action KeygraphHQ/shannon-action pinned to a commit sha. Point at staging only, never production.",
       "_status": "doc-TODO: CI/Action wiring, not an always-on MCP server.",
       "command": "TODO",
       "args": []
@@ -141,7 +141,7 @@
         "_desc": "Value-add Hermes coding-harness bundle.",
         "_source": "https://github.com/rlaope/oh-my-hermes",
         "_license": "MIT",
-        "_install": "curl -fsSLo install-oh-my-hermes.sh <url>; sh ./install-oh-my-hermes.sh"
+        "_install": "sh scripts/install-addon.sh oh-my-hermes (downloads to .cache/installers/install-oh-my-hermes.sh, sha256-checked, then runs). Add \"_installer\": {\"url\": \"https://...\", \"sha256\": \"...\"} once a release is pinned."
       },
       "hermes-community-registry": {
         "enabled": false,

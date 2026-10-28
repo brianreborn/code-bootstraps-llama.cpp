@@ -11,7 +11,7 @@ and `serve.ps1` load `config/mcp-servers.json`. To enable a pick, copy its block
 `config/mcp-servers.json` and set `enabled: true`.
 
 ## Install rule
-All installs are **download-to-named-file**, never `curl | sh`. Example:
+All installs are **download-to-named-file**, never piped into a shell. Example:
 
 ```sh
 curl -fsSLo install-oh-my-hermes.sh https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh
@@ -96,3 +96,12 @@ one-use sign-in link.
 - **Alternative community ports** (standalone browser UI over the gateway), both MIT, both verified 200:
   - `przbadu/hermes-ui` (https://github.com/przbadu/hermes-ui) — thin Vite web UI / PWA, ~140★.
   - `icyzh/hermes-web` (https://github.com/icyzh/hermes-web) — Docker + Caddy self-host port.
+
+## Installing an add-on: `scripts/install-addon.sh` / `install-addon.ps1`
+```sh
+sh scripts/install-addon.sh --fetch oh-my-hermes   # download to a named file + sha256 check; read it
+sh scripts/install-addon.sh oh-my-hermes           # ...and run it
+```
+The pick needs `"_installer": {"url": "https://...", "sha256": "<64 hex>"}`. No pin, a non-https
+URL, or a digest mismatch is refused (a mismatch is kept as `install-<pick>.sh.bad`, never run).
+Files land in `.cache/installers/` (git-ignored).
