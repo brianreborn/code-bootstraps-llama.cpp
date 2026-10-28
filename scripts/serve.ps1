@@ -537,7 +537,22 @@ if ($McpConfig) {
     # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
     $McpConfig = Get-RepoPath $McpConfig
     $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
-    $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd()
+    $rootFwd = $Root -replace '\\', '/'
+    $json = $null
+    if ($pyCmd) {
+        # Base config + enabled starter picks, gated by config\security-gating.json (fail-closed):
+        # scripts\lib\mcp_load.py + mcp_gate.py, the same code serve.sh runs. MCP_PICKS=a,b enables picks.
+        $starter = if ($null -ne $env:MCP_STARTER) { $env:MCP_STARTER } else { Join-Path $Root "config\mcp-servers.starter.json" }
+        if ($starter) { $starter = Get-RepoPath $starter }
+        $pre = @($pyCmd | Select-Object -Skip 1)
+        $picks = if ($env:MCP_PICKS) { $env:MCP_PICKS } else { "" }
+        & $pyCmd[0] @pre (Join-Path $Root "scripts\lib\mcp_load.py") --root $rootFwd --base $McpConfig --starter "$starter" --picks "$picks" --out $mcpEff
+        if ($LASTEXITCODE -ne 0) { throw "serve.ps1: the MCP config could not be built (scripts\lib\mcp_load.py)" }
+        $json = (Get-Content -Raw $mcpEff).TrimEnd()
+    } else {
+        if ($env:MCP_PICKS) { Write-Warning "serve.ps1: no working Python 3: MCP_PICKS ($env:MCP_PICKS) ignored" }
+        $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", $rootFwd).TrimEnd()
+    }
     if ($pyCmd -and $pyCmd[0] -ne "python3") {   # the example config says "python3"
         $json = $json.Replace('"command": "python3"', '"command": "' + $pyCmd[0] + '"')
         if ($pyCmd.Count -gt 1) { $json = $json.Replace('"args": ["scripts/', '"args": ["' + $pyCmd[1] + '", "scripts/') }
