@@ -70,8 +70,11 @@ else
   esac
   command -v cmake >/dev/null 2>&1 || { say "$(t "cmake was not found")"; exit 1; }
   if [ ! -f llama.cpp/CMakeLists.txt ] && [ ! -e .git ]; then
-    say "$(t "llama.cpp sources are missing from this download")"
-    exit 1
+    # archive install (install.sh / install-cbl.sh): no submodule, so fetch the pinned, sha256-checked source tarball
+    if ! SKIP_PACKAGES=1 SKIP_MODELS=1 scripts/predownload.sh; then
+      say "$(t "llama.cpp sources are missing from this download")"
+      exit 1
+    fi
   fi
   if [ ! -f llama.cpp/CMakeLists.txt ]; then
     if ! git submodule update --init --recursive llama.cpp; then
