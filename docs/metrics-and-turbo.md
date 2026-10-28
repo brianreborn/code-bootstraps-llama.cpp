@@ -28,7 +28,14 @@ collection (and therefore scale-down negotiation, which depends on metrics):
 | `scale_down_negotiation.requires_metrics_enabled` | negotiation needs metrics; off under turbo |
 | `privacy.local_only` / `no_external_upload` | telemetry never leaves the swarm |
 
-## Serve wiring (TODO, out of scope for this small PR)
-- [ ] `serve.sh` / `serve.ps1`: read `config/metrics.json`, honor `--turbo` / `FAMILIA_TURBO`,
-      sample the `collect.*` signals, and write `state/metrics.json`.
-- [ ] Expose rolling figures to the orchestration display + scale-down negotiator.
+## Serve wiring
+`scripts/lib/metrics.py` is the one gate both launchers use:
+- `serve.sh` / `serve.ps1` print `metrics on` or `metrics off (<reason>)` at start.
+- **On:** llama-server gets `--metrics` (`LLAMA_ARG_ENDPOINT_METRICS=1`) and a loopback-only
+  sampler writes `initial` + a `rolling` window (`collect.rolling_window_samples`) of t/s,
+  latency, RAM and health to `state/metrics.json` (git-ignored) every 5 s; it stops with serve.
+- **Off (turbo / `enabled:false`):** no `/metrics` endpoint and no sampler process, nothing written.
+- Turbo: `serve.sh --turbo`, `serve.ps1 -Turbo`, `FAMILIA_TURBO=1`, or `turbo_button.turbo: true`.
+  Passing `--metrics` yourself is refused; the config decides. A broken metrics.json = default (on).
+- `python3 scripts/lib/metrics.py status` prints the effective state (exit 0 on, 3 off).
+- [ ] Follow-up: feed the rolling figures to the orchestration display + scale-down negotiator.
