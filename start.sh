@@ -1,6 +1,6 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1,
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=0 (upstream prebuilt binary, without patches/; default: build the pinned source with patches/),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
@@ -37,15 +37,15 @@ maybe_raise
 VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then
   say "$(t "using the binary you named")"
-elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
+elif [ "${BUILD:-1}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
   :
 else
   rc=$?
-  if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then
+  if [ "${BUILD:-1}" != 1 ] && [ "$rc" != 3 ]; then
     say "$(t "downloading llama.cpp failed; check the network and run start.sh again")"
     exit 1
   fi
-  say "$(t "no release binary for this machine; building from source")"
+  [ "${BUILD:-1}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
     FreeBSD) script=scripts/build-linux.sh; BUILD_DIR=${BUILD_DIR:-build-freebsd} ;;
@@ -65,17 +65,9 @@ else
       exit 1
     fi
   fi
-  gpu_build=off
-  case "$(cat .cache/llama-variant 2>/dev/null || true)" in
-    vulkan) gpu_build=vulkan ;;
-    cuda-*) gpu_build=cuda ;;
-  esac
-  [ "$(uname -s)" != FreeBSD ] || gpu_build=off
-  if [ "$script" = scripts/build-linux.sh ] && [ "$gpu_build" != off ]; then
-    say "$(t "Linux will use a GPU build so the GPU is not left idle.")"
-    GPU=$gpu_build "$script"
-  elif [ "$(uname -s)" = FreeBSD ]; then
-    BUILD_DIR="$BUILD_DIR" GPU=off "$script"
+  # build-linux.sh picks ONE backend itself (scripts/lib/backend.sh; FAMILIA_BACKEND overrides)
+  if [ "$(uname -s)" = FreeBSD ]; then
+    BUILD_DIR="$BUILD_DIR" FAMILIA_BACKEND=cpu "$script"
   else
     "$script"
   fi
@@ -86,7 +78,8 @@ else
     esac
     LLAMA_SERVER=$built_dir/bin/llama-server
   else
-    LLAMA_SERVER=$(ls -d "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+    LLAMA_SERVER=$(ls -td "$ROOT"/build-"$(uname -s | tr A-Z a-z)"-*/bin/llama-server 2>/dev/null | head -n 1 || true)
+    [ -n "$LLAMA_SERVER" ] || LLAMA_SERVER=$(ls -td "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1 || true)
   fi
   [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
@@ -140,7 +133,8 @@ open_ui() {
   done
   [ "$ready" = 1 ] || return 0
   url="http://127.0.0.1:$port/?model=chat"
-  key=$(grep -v -e '^#' -e '^[[:space:]]*$' .secrets/api-keys 2>/dev/null | head -n 1 || true)
+  . "$ROOT/scripts/lib/instance-key.sh"
+  key=$(instance_key_first "$(instance_key_file "$port")" || true)
   if [ "${COPY_KEY:-0}" = 1 ]; then
     if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy || true
     elif command -v termux-clipboard-set >/dev/null 2>&1; then printf %s "$key" | termux-clipboard-set || true

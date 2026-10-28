@@ -25,7 +25,8 @@ CTX=${CTX:-}
 CODER_CTX=${CODER_CTX:-$CTX}
 GENERAL_CTX=${GENERAL_CTX:-$CTX}
 PARALLEL=${PARALLEL:-}
-API_KEY_FILE=${API_KEY_FILE:-$ROOT/.secrets/api-keys}
+. "$ROOT/scripts/lib/instance-key.sh"
+API_KEY_FILE=$(instance_key_file "$PORT")
 MCP_CONFIG=${MCP_CONFIG-$ROOT/config/mcp-servers.json}
 TOOLS=${TOOLS-auto}
 TOOLS_FULL="read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info"
@@ -359,8 +360,13 @@ role_model() {
     return 0
   fi
   while IFS=$tab read -r f sha dir; do
-    [ "$dir" = "-" ] || continue
-    rm_path=$(gguf_resolve "models/$1/$f")
+    # dir "-" = models/<role>/; dir "models/<other role>" = share that role's file (one download
+    # serves two roles with different parameter profiles, e.g. chat + coder on one model)
+    case "$dir" in
+      -) rm_path=$(gguf_resolve "models/$1/$f") ;;
+      models/*) rm_path=$(gguf_resolve "$dir/$f") ;;
+      *) continue ;;
+    esac
     [ -f "$rm_path" ] || continue
     verify_model "$rm_path" "$sha"
     printf '%s' "$rm_path"
@@ -529,21 +535,9 @@ case "$HOST" in
   *) warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")" ;;
 esac
 
-mkdir -p "$(dirname "$API_KEY_FILE")"
-chmod 700 "$(dirname "$API_KEY_FILE")"
-# Load the existing key; create one ONLY when missing. The first write is atomic: a private
-# temp file is hard-linked into place (ln fails if another starter won), so two starters in
-# the bootstrap window end up sharing one key instead of overwriting each other.
-if [ ! -s "$API_KEY_FILE" ]; then
-  key_tmp="$API_KEY_FILE.$$.tmp"
-  ( umask 077
-    { echo "# llama-server API key(s), one per line"; od -An -tx1 -N24 /dev/urandom | tr -d ' \n'; echo; } > "$key_tmp" )
-  if ln "$key_tmp" "$API_KEY_FILE" 2>/dev/null; then
-    echo "serve.sh: $(t "generated an API key")" >&2
-  fi
-  rm -f "$key_tmp"
-fi
-chmod 600 "$API_KEY_FILE"
+# One stable key per instance (docs/api-key-design.md): load it; create it atomically ONLY
+# when missing (adopting a legacy .secrets/api-keys); never rotate it on startup.
+instance_key_ensure "$API_KEY_FILE" "$ROOT/.secrets/api-keys"
 API_KEYS=$(grep -v -e '^#' -e '^[[:space:]]*$' "$API_KEY_FILE" | tr -d ' \r' | tr '\n' ',' | sed 's/,$//')
 [ -n "$API_KEYS" ] || die "no key in $API_KEY_FILE"
 
@@ -645,6 +639,8 @@ while IFS= read -r ev; do
 done < "$env_dump"
 rm -f "$env_dump"
 export LLAMA_API_KEY="$API_KEYS"
+# patches/0002: tag every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off
+export LLAMA_LOG_PID="${LLAMA_LOG_PID:-1}"
 for d in "$ROOT"/.cache/llama-cache "$ROOT"/.cache/llama-cache.*; do
   [ -e "$d" ] || [ -h "$d" ] || continue
   owner=${d#"$ROOT"/.cache/llama-cache.}
@@ -797,6 +793,14 @@ if command -v curl >/dev/null 2>&1; then
           warn "port $PORT answers, but not from this server (pid $SERVER_PID)"
           exit 0
         fi
+        # authenticated probe: /health needs no key, so also prove the key works. A 401 is a
+        # key mismatch (misconfiguration), never "no server"; say so loudly and do not go ready
+        code=$(printf 'header = "Authorization: Bearer %s"\n' "$(instance_key_first "$API_KEY_FILE")" |
+          curl -s -K - -o /dev/null -w '%{http_code}' --max-time 5 "http://$PROBE_URL_HOST:$PORT/v1/models" || true)
+        if [ "$code" = 401 ] || [ "$code" = 403 ]; then
+          echo "serve.sh: ERROR: the server on port $PORT rejects the instance key in $API_KEY_FILE (HTTP $code). This is a key misconfiguration, not a missing server: do not start another one. Check LLAMA_API_KEY / API_KEY_FILE." >&2
+          exit 0
+        fi
         kill -0 "$SERVER_PID" 2>/dev/null || exit 0
         printf '%s %s\n' "$PORT" "$SERVER_PID" > "$READY_FILE.tmp" && mv -f "$READY_FILE.tmp" "$READY_FILE"
         echo "serve.sh: listening on http://$PROBE_URL_HOST:$PORT (pid $SERVER_PID)" >&2
@@ -821,6 +825,17 @@ if command -v curl >/dev/null 2>&1; then
     done
   ) &
 fi
+# log manifest: every process this script starts writes to a named file listed here
+# (name<TAB>path); scripts/cockpit.py tails them. Router children log through the router
+# with a "[pid name:port]" prefix (patches/0002, LLAMA_LOG_PID=1).
+LOG_MANIFEST=$ROOT/.cache/logs.manifest
+{
+  printf 'router\t%s\n' "$LOG_FILE"
+  [ -z "${embed_log:-}" ] || printf 'embed\t%s\n' "$embed_log"
+  printf 'recover\t%s\n' "$ROOT/.cache/recover.log"
+  printf 'watchdog\t%s\n' "$ROOT/.cache/watchdog.log"
+  printf 'serve\t%s\n' "$ROOT/.cache/server.log"
+} > "$LOG_MANIFEST.tmp" && mv -f "$LOG_MANIFEST.tmp" "$LOG_MANIFEST"
 forward() { trap '' INT TERM HUP; kill "-$1" "$SERVER_PID" 2>/dev/null || true; if [ -n "$EMBED_PID" ]; then kill "-$1" "$EMBED_PID" 2>/dev/null || true; fi; }
 trap 'forward INT' INT
 trap 'forward TERM' TERM
@@ -834,7 +849,7 @@ trap 'forward TERM' HUP
   kill -0 "$SERVER_PID" 2>/dev/null && kill -TERM "-$SERVER_PID" 2>/dev/null
   [ -n "$EMBED_PID" ] && kill -0 "$EMBED_PID" 2>/dev/null && kill -TERM "-$EMBED_PID" 2>/dev/null
   exit 0
-) </dev/null >/dev/null 2>&1 &
+) </dev/null >>"$ROOT/.cache/watchdog.log" 2>&1 &
 status=0
 while :; do
   wait "$SERVER_PID" && status=0 || status=$?

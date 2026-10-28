@@ -6,14 +6,17 @@ umask 022
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 . config/llama-pin.env
+. scripts/lib/prereqs.sh
+prereqs_check build || exit 1
 . scripts/lib/common.sh
 . scripts/lib/ui-assets.sh
 
-[ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive
+[ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive || scripts/predownload.sh
 for t in clang cmake git curl tar; do
   command -v "$t" >/dev/null 2>&1 || { echo "build-termux.sh: missing $t; run: pkg install git clang cmake ninja" >&2; exit 1; }
 done
-actual=$(git -C llama.cpp rev-parse HEAD)
+if [ -f llama.cpp/.cbl-source-tag ]; then actual=$(cut -d' ' -f2 llama.cpp/.cbl-source-tag)   # unpacked tarball (predownload.sh)
+else actual=$(git -C llama.cpp rev-parse HEAD); fi
 if [ "$actual" != "$LLAMA_COMMIT" ]; then
   if [ "${ALLOW_UNPINNED:-0}" = 1 ]; then
     echo "build-termux.sh: WARNING: llama.cpp is at $actual, pin is $LLAMA_TAG ($LLAMA_COMMIT); ALLOW_UNPINNED=1" >&2
@@ -22,6 +25,9 @@ if [ "$actual" != "$LLAMA_COMMIT" ]; then
     exit 1
   fi
 fi
+
+# our patches (patches/*.patch) on top of the pinned source, every build
+scripts/apply-patches.sh "$ROOT/llama.cpp"
 
 ARCH=$(uname -m)
 BUILD_DIR=${BUILD_DIR:-build-termux-$ARCH}

@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>familia cockpit</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#05070d;--fg:#bfe9ff;--acc:#ff3d6e;--dim:#3a6b8a;--grid:#0b2236}
+body{margin:0;background:radial-gradient(circle at 50% -20%,#10213a,var(--bg) 60%);color:var(--fg);font:12px/1.35 ui-monospace,Menlo,Consolas,monospace}
+header{display:flex;gap:1em;align-items:center;padding:.4em 1em;border-bottom:2px solid var(--acc);letter-spacing:.15em;text-transform:uppercase}
+header b{color:var(--acc)}#sw label{margin-right:.8em;cursor:pointer}
+main{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:8px;padding:8px}
+section{border:1px solid var(--dim);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));background:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/100% 18px,#060b14cc}
+section h2{margin:0;padding:.2em .6em;font-size:11px;background:#0e2a44;color:var(--acc);letter-spacing:.2em}
+section h2 small{color:var(--dim);letter-spacing:0}
+pre{margin:0;height:300px;overflow:auto;padding:.3em .6em;white-space:pre}
+.l{overflow:hidden;text-overflow:ellipsis}.e{color:#ff8a8a}.w{color:#ffd27a}
+canvas{width:100%;height:120px;display:block}
+</style>
+<header><b>FAMILIA // COCKPIT</b><span id="st">offline</span><span id="sw"></span></header>
+<main id="m"></main>
+<script>
+const MAX=2000,CUT=400;let key=sessionStorage.k||"";const rate={};
+async function start(){
+  if(!key){key=prompt("API key (same as the server's; see the instance api-keys file)")||"";sessionStorage.k=key}
+  const r=await fetch("/logs",{headers:{Authorization:"Bearer "+key}});
+  if(r.status==401){sessionStorage.k="";key="";document.getElementById("st").textContent="API key rejected";return}
+  const L=await r.json();document.getElementById("st").textContent=Object.keys(L).length+" logs";
+  const sw=document.getElementById("sw"),m=document.getElementById("m");
+  for(const [n,p] of Object.entries(L)){
+    const s=document.createElement("section");s.innerHTML=`<h2>${n} <small>${p}</small></h2><pre></pre>`;m.append(s);
+    const pre=s.querySelector("pre");rate[n]=0;
+    const c=document.createElement("label");c.innerHTML=`<input type=checkbox checked> ${n}`;sw.append(c);
+    let es;const on=()=>{es=new EventSource("/stream?log="+encodeURIComponent(n)+"&key="+encodeURIComponent(key));
+      es.onmessage=e=>{let t=JSON.parse(e.data);rate[n]++;const d=document.createElement("div");d.className="l"+(/error|fail/i.test(t)?" e":/warn/i.test(t)?" w":"");
+        d.textContent=t.length>CUT?t.slice(0,CUT)+" …":t;const stick=pre.scrollTop+pre.clientHeight>=pre.scrollHeight-4;pre.append(d);
+        while(pre.childNodes.length>MAX)pre.firstChild.remove();if(stick)pre.scrollTop=pre.scrollHeight}};
+    on();c.firstChild.onchange=e=>{s.hidden=!e.target.checked;if(e.target.checked)on();else es.close()};
+  }
+  const h=document.createElement("label");h.innerHTML="<input type=checkbox> heat map (synthetic)";sw.append(h);
+  const hs=document.createElement("section");hs.hidden=true;hs.innerHTML="<h2>heat map <small>lines/s per log, synthetic</small></h2><canvas width=800 height=120></canvas>";m.prepend(hs);
+  h.firstChild.onchange=e=>hs.hidden=!e.target.checked;
+  const cv=hs.querySelector("canvas"),g=cv.getContext("2d"),names=Object.keys(L);
+  setInterval(()=>{g.drawImage(cv,-4,0);const bh=cv.height/Math.max(1,names.length);
+    names.forEach((n,i)=>{const v=Math.min(1,rate[n]/20);rate[n]=0;g.fillStyle=`hsl(${200-200*v},100%,${10+45*v}%)`;g.fillRect(cv.width-4,i*bh,4,bh)})},1000);
+}
+start();
+</script></html>
