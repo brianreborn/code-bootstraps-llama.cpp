@@ -52,12 +52,12 @@ import urllib.parse
 import urllib.request
 
 from lib import remote as remote_handoff
+from lib.loopback import is_loopback
 from lib import tx as tx_block
 from lib.lockmem import try_lock_process
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEAN_TOOLS = ["read_file", "write_file", "edit_file", "exec_shell_command"]
-LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 # --- language slot -------------------------------------------------------------
 LANGS = {"en": "English", "es": "Spanish", "pt": "Portuguese", "de": "German", "fr": "French", "it": "Italian",
@@ -220,7 +220,7 @@ class Client:
     def __init__(self, url, key, cwd=None):
         self.url, self.key, self.cwd = url.rstrip("/"), key, cwd
         u = urllib.parse.urlparse(self.url)
-        if key and u.scheme == "http" and (u.hostname or "") not in LOOPBACK:
+        if key and u.scheme == "http" and not is_loopback(u.hostname or ""):
             raise SystemExit(f"refusing to send the API key over plain http to {u.hostname}; use https or a loopback URL")
 
     def _open(self, method, path, body, timeout):

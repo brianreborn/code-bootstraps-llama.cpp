@@ -130,8 +130,7 @@ def instance_key(port=None):
     return os.environ.get("LLAMA_API_KEY", "").split(",")[0].strip() or None
 
 
-def is_loopback(host):
-    return host in ("127.0.0.1", "::1", "localhost") or host.startswith("127.")
+from loopback import is_loopback  # noqa: E402  (scripts/lib on sys.path above)
 
 
 class H(BaseHTTPRequestHandler):

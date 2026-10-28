@@ -533,7 +533,7 @@ if ($McpConfig) {
 
 $requestedHost = $BindHost
 if (-not $requestedHost) { $requestedHost = "127.0.0.1" }
-if ($requestedHost -notin @("127.0.0.1", "localhost", "::1")) {
+if (-not (Test-LoopbackList $requestedHost)) {
     Write-Warning "the chosen host is not loopback; keep the API key secret"
 }
 $listenHost = Get-BindHost $requestedHost
