@@ -11,7 +11,7 @@ and `serve.ps1` load `config/mcp-servers.json`. To enable a pick, copy its block
 `config/mcp-servers.json` and set `enabled: true`.
 
 ## Install rule
-All installs are **download-to-named-file**, never `curl | sh`. Example:
+All installs are **download-to-named-file**, never piped into a shell. Example:
 
 ```sh
 curl -fsSLo install-oh-my-hermes.sh https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh
@@ -104,3 +104,12 @@ one-use sign-in link.
 Doc-only picks (`command: "TODO"`) and picks with an unset placeholder (`@FAMILIA_ROOT@` needs
 `FAMILIA_ROOT`) are skipped with a warning; a broken starter file falls back to the base config.
 Loader: `scripts/lib/mcp_load.py`. Override the file with `MCP_STARTER=path` (empty = none).
+
+## PowerShell parity
+- `serve.ps1` builds the effective MCP config with the same `scripts\lib\mcp_load.py` + `mcp_gate.py`
+  as `serve.sh` (needs a working Python 3; without one, only the base config is served and
+  `MCP_PICKS` is ignored with a warning). Same env: `MCP_PICKS`, `MCP_STARTER`,
+  `FAMILIA_GUARD_HEALTHY`, `MCP_ADMIN_OVERRIDE`, `SANDBOX_ALLOWED_SIGNERS`.
+- `scripts\install-addon.ps1 [-Fetch] <pick>` mirrors `install-addon.sh`: pinned
+  `"_installer_ps1": {"url", "sha256"}`, download to `.cache\installers\install-<pick>.ps1`
+  (Get-VerifiedFile: https only, sha256, mismatch kept as `.bad`), then run; never piped into Invoke-Expression.
