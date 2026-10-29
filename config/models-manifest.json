@@ -24,26 +24,15 @@
             "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
             "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ],
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"],
             "smoke": "2026-10-27 b11944 x86_64 CPU, API key on: loads, tool call get_weather({\"city\":\"Paris\"}) OK"
         },
         {
@@ -66,25 +55,14 @@
             "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ]
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"]
         },
         {
             "role": "general",
@@ -104,38 +82,16 @@
             "db_id": "LiquidAI--LFM3-1.7B-GGUF--LFM3-1.7B-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152"
-            },
-            "card_sampling_modes": {
-                "General": {
-                    "temp": 0.1,
-                    "top-k": 50,
-                    "repeat-penalty": 1.1
-                },
-                "Math & STEM": {
-                    "temp": 1.0,
-                    "top-p": 0.95,
-                    "top-k": 20
-                }
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152", "top-k": "LiquidAI/LFM3-1.7B README.md:L152", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152"},
+            "card_sampling_modes": {"General": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1}, "Math & STEM": {"temp": 1.0, "top-p": 0.95, "top-k": 20}},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
             "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ],
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"],
             "alternatives": [
                 {
                     "file": "LFM3-1.7B-QAD-Q4_0.gguf",
@@ -927,7 +883,6 @@
             ],
             "note": "risky specialist (opt-in: --pick whiterabbitneo). Strict gating: fails closed for itself when no guard is healthy, unless an admin override is logged. PARTIAL TESTED: qwen2 arch, load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
         }
-
     ],
     "unplaced_options": [
         {
