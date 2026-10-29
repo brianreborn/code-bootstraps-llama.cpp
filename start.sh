@@ -192,7 +192,7 @@ open_ui() {
   fi
   url="http://127.0.0.1:$port/?model=chat"
   . "$ROOT/scripts/lib/instance-key.sh"
-  _api_key_file=$(instance_key_file "$PORT")
+  _api_key_file=$(instance_key_file "$port")  # the port that went ready (.cache/serve.ready)
   instance_key_ensure "$_api_key_file" "$ROOT/.secrets/api-keys"
   key=$(instance_key_first "$_api_key_file")
   if [ "${COPY_KEY:-0}" = 1 ]; then
