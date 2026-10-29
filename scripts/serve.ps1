@@ -380,6 +380,48 @@ foreach ($l in $presetLines) {
     }
 }
 
+# Fit each role's context to its model's real limit (same rules as serve.sh): a profile ctx-size
+# above the manifest's n_ctx_train (GGUF header, pinned revision) is lowered to it; batch,
+# ubatch and kv-unified-per-slot never exceed the fitted ctx. RoPE/YaRN keys = explicit opt-in, left alone.
+function Get-PresetRaw([string]$section, [string]$key) {
+    $sec = ""
+    foreach ($l in $presetLines) {
+        if ($l -match '^\[(.*)\]') { $sec = $Matches[1]; continue }
+        if ($sec -eq $section -and $l -match "^$key\s*=\s*(.*)$") { return $Matches[1].Trim() }
+    }
+    return ""
+}
+function Get-RoleValue([string]$role, [string]$key) {
+    if ($overlay.Contains("$role.$key")) { return [string]$overlay["$role.$key"] }
+    $v = Get-PresetRaw $role $key; if ($v) { return $v }
+    if ($overlay.Contains("*.$key")) { return [string]$overlay["*.$key"] }
+    return (Get-PresetRaw '*' $key)
+}
+$ctxFit = ""
+$ctxMinSlot = 2048; if ($env:CTX_MIN_SLOT -match '^\d+$') { $ctxMinSlot = [int]$env:CTX_MIN_SLOT }
+foreach ($fitRole in @("general", "coder", "decision", "language")) {
+    if (-not $roleModel.Contains($fitRole) -or -not $roleModel[$fitRole]) { continue }
+    $leaf = Split-Path -Leaf $roleModel[$fitRole]; $train = 0
+    foreach ($c in $manifest) { if ($c.file -eq $leaf -and (Get-Field $c "n_ctx_train")) { $train = [int](Get-Field $c "n_ctx_train"); break } }
+    if ($train -le 0) { continue }
+    $ctx = Get-RoleValue $fitRole "ctx-size"
+    if ($ctx -notmatch '^\d+$') { continue }
+    if ((Get-RoleValue $fitRole "rope-scaling") -or (Get-RoleValue $fitRole "rope-scale") -or (Get-RoleValue $fitRole "yarn-orig-ctx")) { continue }
+    $eff = [int]$ctx
+    if ($eff -gt $train) {
+        $eff = $train; Set-Overlay "$fitRole.ctx-size" "$eff"
+        $ctxFit += " $fitRole=$eff(model max; profile asked $ctx)"
+        Write-Host "serve.ps1: context $fitRole $eff (model max; profile asked $ctx)"
+    }
+    foreach ($k in @("batch-size", "ubatch-size", "kv-unified-per-slot")) {
+        $v = Get-RoleValue $fitRole $k
+        if ($v -match '^\d+$' -and [int]$v -gt $eff) { Set-Overlay "$fitRole.$k" "$eff" }
+    }
+    $par = Get-RoleValue $fitRole "parallel"; if ($par -notmatch '^[1-9]\d*$') { $par = 1 }
+    $slot = $eff; if ((Get-RoleValue $fitRole "kv-unified") -eq "false") { $slot = [int]($eff / [int]$par) }
+    if ($slot -lt $ctxMinSlot) { Write-Warning "the $fitRole role has only $slot tokens of context per slot (ctx $eff / $par slots)" }
+}
+
 # effective preset (same rules and output as the awk filter in serve.sh)
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 $effective = Join-Path $Root ".cache\models-preset.effective.ini"
@@ -599,6 +641,7 @@ Write-Host "serve.ps1: logs: $logFile"
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 $profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder model(s) loaded$(if ($resident) { ' + decision kept loaded' })$(if ($tuned) { "; set:$tuned" })`n" +
+              $(if ($ctxFit) { "  Context: fitted to model limits:$ctxFit`n" }) +
               "  Change:  set PROFILE=lowram|moderate|default (or start.bat -RamProfile moderate), or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README `"Light tuning`")`n"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
