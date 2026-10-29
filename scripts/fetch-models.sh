@@ -8,8 +8,9 @@
 #   scripts/fetch-models.sh
 #   scripts/fetch-models.sh --fallback|--step-up|--language|--language-small
 #   scripts/fetch-models.sh --locale ja
-#   scripts/fetch-models.sh --pick NAME
+#   scripts/fetch-models.sh --pick NAME     (LFM3 family: --pick lfm3-vl|lfm3-omni|lfm3-audio, + mmproj)
 #   scripts/fetch-models.sh --role coder
+#   scripts/fetch-models.sh --set official  (or MODEL_SET=official; default unimpeded, config/model-sets.json)
 #   scripts/fetch-models.sh --ask
 # --ask lists manifest rows that already have a sha256, except the default
 # general and coder files, and reads one name from stdin. It does not open a
@@ -39,6 +40,8 @@ while [ $# -gt 0 ]; do
     --locale) pick=locale-${2:?--locale needs a language code}; shift ;;
     --pick) pick=${2:?--pick needs a name}; shift ;;
     --role) role=${2:?--role needs a name}; shift ;;
+    --set) MODEL_SET=${2:?--set needs official or unimpeded}; shift ;;
+    --set=*) MODEL_SET=${1#--set=} ;;
     --ask) ask=1 ;;
     --dry-run) mode=dry ;;
     --damp-run) mode=damp ;;
@@ -49,6 +52,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 . "$ROOT/scripts/lib/common.sh"
+MS_TAG=fetch-models.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
 # One listed extra. Sets pick and file_only. Exits 0 when nothing is chosen.
 ask_one() {
   ask_all=$(mktemp)
@@ -143,9 +147,23 @@ kv="pick=$pick"
 [ -n "$role" ] && kv="$kv role=$role"
 rows=$(mktemp)
 awk -v match_kv="$kv" \
-  -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license" \
+  -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license mmproj mmproj_sha256" \
   -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$rows"
 [ -s "$rows" ] || { echo "fetch-models.sh: no manifest entries for pick='$pick'" >&2; rm -f "$rows"; exit 1; }
+# MODEL_SET=official: the default download takes each role's official pick instead
+# (config/model-sets.json); unimpeded is the manifest's pick=default, unchanged.
+if [ "$pick" = default ] && [ "$MODEL_SET" = official ]; then
+  set_rows=$(mktemp)
+  for sr in $(cut -f1 "$rows" | awk '!seen[$0]++'); do
+    sp=$(model_set_pick "$sr")
+    [ -n "$sp" ] || { grep "^$sr$tab" "$rows" >> "$set_rows"; continue; }
+    awk -v match_kv="pick=${sp%%"$tab"*} role=${sp#*"$tab"}" \
+      -v fields="role repo revision file sha256 tested dir notice chat_template_repo chat_template_revision chat_template_path chat_template_sha256 bytes license mmproj mmproj_sha256" \
+      -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" >> "$set_rows"
+  done
+  awk '!seen[$0]++' "$set_rows" > "$rows"; rm -f "$set_rows"
+  echo "fetch-models.sh: model set official (config/model-sets.json)" >&2
+fi
 
 # fetch_template GGUF_PATH REPO REV PATH SHA: the repo chat template the model must be served with
 # (its GGUF's differs; familia #51) as <model>.chat-template.jinja, pinned and sha256-checked.
@@ -180,9 +198,32 @@ fetch_template() {
   mkdir -p .cache/verified; stamp_add ".cache/verified/$5" "$ft_dest"
 }
 
+# fetch_mmproj MODEL_PATH REPO REV FILE SHA: the multimodal projector (llama-server --mmproj)
+# of an LFM3 VL/Omni/Audio pick, beside its model, pinned and sha256-checked (cbl #49).
+fetch_mmproj() {
+  mp_dest="$(dirname "$1")/$4"
+  mp_stamp=".cache/verified/$5"
+  if [ -f "$mp_dest" ] && { stamp_ok "$mp_stamp" "$mp_dest" || [ "$(sha256_of "$mp_dest")" = "$5" ]; }; then
+    echo "fetch-models.sh: mmproj $mp_dest OK"
+  else
+    mp_url="https://huggingface.co/$2/resolve/$3/$4"
+    echo "fetch-models.sh: mmproj $mp_url -> $mp_dest"
+    curl -fL $curl_progress --proto '=https' --proto-redir '=https' --retry 3 -C - -o "$mp_dest.part" "$mp_url" ||
+      { echo "fetch-models.sh: could not fetch the mmproj $mp_url" >&2; exit 1; }
+    mp_got=$(sha256_of "$mp_dest.part")
+    if [ "$mp_got" != "$5" ]; then
+      mv -f "$mp_dest.part" "$mp_dest.bad"
+      echo "fetch-models.sh: mmproj sha256 mismatch for $4 (got $mp_got, want $5)" >&2
+      exit 1
+    fi
+    mv -f "$mp_dest.part" "$mp_dest"
+  fi
+  mkdir -p .cache/verified; stamp_add "$mp_stamp" "$mp_dest"
+}
+
 damp_skipped=0
 damp_bytes=0
-while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_path ct_sha bytes lic; do
+while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_path ct_sha bytes lic mmp mmp_sha; do
   [ -n "$file_only" ] && [ "$file" != "$file_only" ] && continue
   [ "$dir" = "-" ] && dir="models/$r"
   rel="$dir/$file"
@@ -198,6 +239,10 @@ while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_p
       case "$bytes" in unknown) ;; *) damp_bytes=$((damp_bytes + bytes)) ;; esac
     fi
     echo "fetch-models.sh: $mode-run: $r $repo@$rev $file bytes=$bytes sha256=$sha license=$lic: $st"
+    if [ "$mmp" != "-" ]; then
+      if [ -f "$(dirname "$path")/$mmp" ]; then mst=present; else mst="would download (full run)"; fi
+      echo "fetch-models.sh: $mode-run:   mmproj $mmp sha256=$mmp_sha: $mst"
+    fi
     [ "$notice" = "-" ] || echo "fetch-models.sh: LICENSE NOTICE: $notice" >&2
     if [ "$ct_sha" != "-" ]; then
       if [ "$mode" = dry ]; then
@@ -306,6 +351,10 @@ while IFS=$tab read -r r repo rev file sha tested dir notice ct_repo ct_rev ct_p
   stamp_add "$stamp" "$path"
   if [ "$ct_sha" != "-" ] && [ -n "$ct_sha" ]; then
     fetch_template "$path" "$ct_repo" "$ct_rev" "$ct_path" "$ct_sha"
+  fi
+  if [ "$mmp" != "-" ]; then
+    case "$mmp_sha" in ""|-) echo "fetch-models.sh: mmproj $mmp has no sha256; not fetched" >&2; exit 1 ;; esac
+    fetch_mmproj "$path" "$repo" "$rev" "$mmp" "$mmp_sha"
   fi
   echo "fetch-models.sh: OK $r = $file"
 done < "$rows"

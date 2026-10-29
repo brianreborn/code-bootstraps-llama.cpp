@@ -1,0 +1,186 @@
+{
+    "_comment": "Two default sets (MODEL_SET=official|unimpeded, start.sh/serve.sh --set, start.bat/serve.ps1 -ModelSet; default unimpeded). One object per set and role: pick names the config/models-manifest.json entry of that role (or of the role in from); file is informational (sha256, revision, license live there). official = the vendor's own GGUF, or ggml-org's conversion when the vendor ships none. unimpeded = the least-restricted variant that passes our functional checks; fallback=official marks a role with no such variant (it serves the official model, or the current default when that is the same weights). Objects without a file are roles not on main yet; serve.sh / serve.ps1 ignore them. Role hierarchy: coder can do everything, general (chat) usually can but may be weak at development, specialists only do their task but are preferred for it. Read by scripts/lib/manifest.awk: keep one key per line and no escaped quotes.",
+    "sets": [
+        {
+            "set": "official",
+            "role": "general",
+            "pick": "lfm3",
+            "file": "LFM3-1.7B-Q4_K_M.gguf",
+            "vendor": "LiquidAI"
+        },
+        {
+            "set": "unimpeded",
+            "role": "general",
+            "pick": "default",
+            "file": "LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf",
+            "vendor": "AtomicChat uncensored finetune of LiquidAI/LFM3-1.7B"
+        },
+        {
+            "set": "official",
+            "role": "coder",
+            "pick": "lfm3",
+            "from": "general",
+            "file": "LFM3-1.7B-Q4_K_M.gguf",
+            "vendor": "LiquidAI (the general role's file with the coder profile)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "coder",
+            "pick": "default",
+            "file": "LFM3-1.7B-Uncensored-AD-Q4_K_M.gguf",
+            "vendor": "AtomicChat uncensored finetune of LiquidAI/LFM3-1.7B"
+        },
+        {
+            "set": "official",
+            "role": "decision",
+            "pick": "default",
+            "file": "Laya-Q8_0.gguf",
+            "vendor": "ggml-org"
+        },
+        {
+            "set": "unimpeded",
+            "role": "decision",
+            "pick": "default",
+            "file": "Laya-Q8_0.gguf",
+            "fallback": "official",
+            "vendor": "ggml-org (no uncensored variant; a classifier has nothing to unlock)"
+        },
+        {
+            "set": "official",
+            "role": "embed",
+            "pick": "official",
+            "file": "embeddinggemma-2-Q8_0.gguf",
+            "repo": "ggml-org/embeddinggemma-2-GGUF",
+            "vendor": "ggml-org conversion of google/embeddinggemma-2 (Google ships no GGUF)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "embed",
+            "pick": "default",
+            "file": "embeddinggemma-2-Q8_0.gguf",
+            "repo": "unsloth/embeddinggemma-2-GGUF",
+            "fallback": "official",
+            "vendor": "unsloth requant of google/embeddinggemma-2 (the current default; no uncensored embedding model exists, embeddings refuse nothing)"
+        },
+        {
+            "set": "official",
+            "role": "language",
+            "pick": "language",
+            "file": "HY-MT1.5-1.8B-Q4_K_M.gguf",
+            "vendor": "tencent"
+        },
+        {
+            "set": "unimpeded",
+            "role": "language",
+            "pick": "language",
+            "file": "HY-MT1.5-1.8B-Q4_K_M.gguf",
+            "fallback": "official",
+            "vendor": "tencent (no uncensored translation model)"
+        },
+        {
+            "set": "official",
+            "role": "media",
+            "pick": "lfm3-vl",
+            "file": "LFM3-VL-2B-Q4_K_M.gguf",
+            "vendor": "LiquidAI"
+        },
+        {
+            "set": "unimpeded",
+            "role": "media",
+            "pick": "lfm3-vl",
+            "file": "LFM3-VL-2B-Q4_K_M.gguf",
+            "fallback": "official",
+            "vendor": "LiquidAI (no uncensored LFM3-VL GGUF)"
+        },
+        {
+            "set": "official",
+            "role": "jev",
+            "pick": "jev",
+            "file": "Qwen3-0.6B-Q8_0.gguf",
+            "vendor": "Qwen"
+        },
+        {
+            "set": "unimpeded",
+            "role": "jev",
+            "pick": "jev",
+            "file": "Qwen3-0.6B-Q8_0.gguf",
+            "fallback": "official",
+            "vendor": "Qwen (JEV runs its own fixed prompts)"
+        },
+        {
+            "set": "official",
+            "role": "automation",
+            "pick": "nemotron-nano",
+            "from": "general",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+            "vendor": "NVIDIA's own GGUF (opt-in --pick nemotron-nano; serve.sh does not start an automation role yet)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "automation",
+            "pick": "nemotron-nano",
+            "from": "general",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+            "fallback": "official",
+            "vendor": "NVIDIA (no tested uncensored Nemotron)"
+        },
+        {
+            "set": "official",
+            "role": "guard",
+            "pick": "nemotron-guard",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
+            "guard": "enforce",
+            "vendor": "NVIDIA Nemotron-3.5-Content-Safety weights; community GGUF (mradermacher): neither NVIDIA nor ggml-org ships one"
+        },
+        {
+            "set": "unimpeded",
+            "role": "guard",
+            "pick": "nemotron-guard",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
+            "fallback": "official",
+            "guard": "advisory",
+            "vendor": "same model as official, advisory only (it labels, never blocks); never removed silently"
+        },
+        {
+            "set": "official",
+            "role": "rerank",
+            "status": "not shipped: no llama-nemotron-rerank-1b-v2 GGUF loads on llama.cpp (tensor-count error)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "rerank",
+            "fallback": "official",
+            "status": "not shipped: same as official"
+        },
+        {
+            "set": "official",
+            "role": "audit",
+            "pick": "foundation-sec",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "vendor": "fdtn-ai (Cisco Foundation AI) own GGUF; opt-in, partial tested (#65)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "audit",
+            "pick": "foundation-sec",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "fallback": "official",
+            "vendor": "same as official: a defensive reviewer, nothing to unlock"
+        },
+        {
+            "set": "official",
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "vendor": "WhiteRabbitNeo weights; community GGUF (bartowski): neither the vendor nor ggml-org ships one. Opt-in, guard-gated (config/security-gating.json), partial tested (#65)"
+        },
+        {
+            "set": "unimpeded",
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "fallback": "official",
+            "vendor": "same as official (already the least-restricted pentest model); still guard-gated"
+        }
+    ]
+}

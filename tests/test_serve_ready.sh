@@ -41,7 +41,7 @@ tab=$(printf '\t')
 sandbox() {
   d=$1
   mkdir -p "$d/.cache/verified"
-  cp -R "$ROOT/scripts" "$ROOT/config" "$d/"
+  cp -R "$ROOT/scripts" "$ROOT/config" "$ROOT/lib" "$d/"
   awk -v match_kv="pick=default" -v fields="role file sha256 dir" -f "$ROOT/scripts/lib/manifest.awk" \
     "$ROOT/config/models-manifest.json" > "$d/.cache/default-rows"
   while IFS=$tab read -r role f sha dir; do

@@ -18,7 +18,7 @@ h=$("$PWSH" -NoProfile -File "$here/test-ps1-helpers.ps1" -Scripts "$root/script
 echo "check-ps1: OK helpers run under strict mode (test-ps1-helpers.ps1)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-cp -R "$root/scripts" "$root/config" "$tmp/"
+cp -R "$root/scripts" "$root/config" "$root/lib" "$tmp/"
 python3 "$here/ps51_emulation.py" "$tmp/scripts"
 out=$(
   unset PROCESSOR_ARCHITECTURE || true

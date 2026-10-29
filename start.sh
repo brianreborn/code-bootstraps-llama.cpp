@@ -1,6 +1,7 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=0 (upstream prebuilt binary, without patches/; default: build the pinned source with patches/),
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1 (build the pinned source with patches/; default: reuse an existing local build, else the sha256-checked b11969 release binary for this OS/arch, else build from source),
+# MODEL_SET=official|unimpeded (or --set NAME; default unimpeded, config/model-sets.json),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
 # On Linux this also asks once for memlock (scripts/raise.sh). One command.
@@ -14,12 +15,22 @@ cd "$ROOT"
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
 . "$ROOT/scripts/lib/i18n.sh"
 . "$ROOT/scripts/lib/raise-once.sh"
+# --set NAME / --set=NAME: the model set for fetch-models.sh too (serve.sh reads the flag itself)
+ms_prev=""
+for a in "$@"; do
+  [ "$ms_prev" = --set ] && MODEL_SET=$a
+  case "$a" in --set=*) MODEL_SET=${a#--set=} ;; esac
+  ms_prev=$a
+done
+MS_TAG=start.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
+export MODEL_SET
 . "$ROOT/scripts/lib/bindhost.sh"
 LANG_CODE=$(lang_code_of "${LOCALE:-auto}")
 export PORT="${PORT:-9931}"
-say() { printf '%s\n' "start: $*" >&2; }
+MK_TAG=start; . "$ROOT/lib/msg.mk"   # say
+. "$ROOT/lib/os.mk"                    # mk_is_termux
 TERMUX=0
-case "${PREFIX:-}" in *com.termux*) TERMUX=1 ;; esac
+if mk_is_termux; then TERMUX=1; fi
 
 missing=""
 for tool in curl tar awk; do
@@ -51,15 +62,19 @@ maybe_raise
 VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then
   say "$(t "using the binary you named")"
-elif [ "${BUILD:-1}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
-  :
+elif [ "${BUILD:-0}" != 1 ] && existing=$(ls -td "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1) && [ -x "$existing" ]; then
+  # prebuilt-first never forces a rebuild: an earlier (patched) source build is reused as-is
+  LLAMA_SERVER=$existing
+  say "using the existing build $LLAMA_SERVER (BUILD=1 rebuilds)"
+elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
+  say "using the sha256-checked release binary $LLAMA_SERVER (upstream, without patches/: tools/MCP stay off; BUILD=1 builds the patched source)"
 else
   rc=$?
-  if [ "${BUILD:-1}" != 1 ] && [ "$rc" != 3 ]; then
+  if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then
     say "$(t "downloading llama.cpp failed; check the network and run start.sh again")"
     exit 1
   fi
-  [ "${BUILD:-1}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
+  [ "${BUILD:-0}" = 1 ] || say "$(t "no release binary for this machine; building from source")"
   case "$(uname -s)" in
     Darwin) script=scripts/build-macos.sh ;;
     FreeBSD) script=scripts/build-linux.sh; BUILD_DIR=${BUILD_DIR:-build-freebsd} ;;
@@ -70,8 +85,11 @@ else
   esac
   command -v cmake >/dev/null 2>&1 || { say "$(t "cmake was not found")"; exit 1; }
   if [ ! -f llama.cpp/CMakeLists.txt ] && [ ! -e .git ]; then
-    say "$(t "llama.cpp sources are missing from this download")"
-    exit 1
+    # archive install (install.sh / install-code-bootstraps-llama.cpp.sh): no submodule, so fetch the pinned, sha256-checked source tarball
+    if ! SKIP_PACKAGES=1 SKIP_MODELS=1 scripts/predownload.sh; then
+      say "$(t "llama.cpp sources are missing from this download")"
+      exit 1
+    fi
   fi
   if [ ! -f llama.cpp/CMakeLists.txt ]; then
     if ! git submodule update --init --recursive llama.cpp; then
@@ -98,6 +116,8 @@ else
   [ -x "${LLAMA_SERVER:-}" ] || { say "$(t "build finished but llama-server was not found")"; exit 1; }
 fi
 export LLAMA_SERVER
+# tests: stop once the llama-server choice is made
+if [ "${START_RESOLVE_ONLY:-0}" = 1 ]; then printf '%s\n' "$LLAMA_SERVER"; exit 0; fi
 
 rc=0
 # MODELS_BG=1 (default): download the general model first (chat starts with it), then the other
@@ -172,7 +192,9 @@ open_ui() {
   fi
   url="http://127.0.0.1:$port/?model=chat"
   . "$ROOT/scripts/lib/instance-key.sh"
-  key=$(instance_key_first "$(instance_key_file "$port")" || true)
+  _api_key_file=$(instance_key_file "$PORT")
+  instance_key_ensure "$_api_key_file" "$ROOT/.secrets/api-keys"
+  key=$(instance_key_first "$_api_key_file")
   if [ "${COPY_KEY:-0}" = 1 ]; then
     if command -v pbcopy >/dev/null 2>&1; then printf %s "$key" | pbcopy || true
     elif command -v termux-clipboard-set >/dev/null 2>&1; then printf %s "$key" | termux-clipboard-set || true

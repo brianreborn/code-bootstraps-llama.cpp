@@ -295,3 +295,19 @@ function Assert-NoDoubleDashParam([string[]]$Names, [string]$Tag, [string]$Scrip
         }
     }
 }
+
+# MODEL_SET / -ModelSet (config\model-sets.json, same as scripts/lib/modelset.sh): unimpeded (default)
+# or official. Get-ModelSetPick returns @(pick, fromRole) for a role, or $null when the set does not name it.
+function Assert-ModelSet([string]$set) {
+    if (@("official", "unimpeded") -notcontains $set) { throw "unknown MODEL_SET / -ModelSet '$set' (official|unimpeded)" }
+}
+function Get-ModelSetPick([string]$root, [string]$set, [string]$role) {
+    $msPath = if ($env:MODEL_SETS_FILE) { $env:MODEL_SETS_FILE } else { Join-Path $root "config\model-sets.json" }
+    foreach ($row in @((Get-Content -Raw -LiteralPath $msPath | ConvertFrom-Json).sets)) {
+        $names = @($row.PSObject.Properties.Name)
+        if ($row.set -ne $set -or $row.role -ne $role -or ($names -notcontains "pick") -or ($names -notcontains "file")) { continue }
+        $from = if ($names -contains "from") { [string]$row.from } else { $role }
+        return @([string]$row.pick, $from)
+    }
+    return $null
+}

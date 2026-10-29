@@ -13,7 +13,7 @@ cd "$ROOT"
 . scripts/lib/common.sh
 . scripts/lib/prereqs.sh
 D=$ROOT/.cache/predownload; mkdir -p "$D"
-say() { echo "predownload: $*" >&2; }
+MK_TAG=predownload; . "$ROOT/lib/msg.mk"   # say
 
 if [ "${SKIP_PACKAGES:-0}" != 1 ]; then
   pk=$(prereqs_packages)

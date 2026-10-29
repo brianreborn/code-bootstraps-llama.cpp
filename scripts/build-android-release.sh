@@ -24,7 +24,7 @@ cd "$ROOT"
 . config/llama-pin.env
 . scripts/lib/common.sh
 . scripts/lib/ui-assets.sh
-die() { echo "build-android-release.sh: $*" >&2; exit 1; }
+MK_TAG=build-android-release.sh; MK_ERR=""; . "$ROOT/lib/msg.mk"   # die
 sha1_of() {
   if command -v sha1sum >/dev/null 2>&1; then sha1sum "$1" | cut -d' ' -f1
   else shasum -a 1 "$1" | cut -d' ' -f1; fi

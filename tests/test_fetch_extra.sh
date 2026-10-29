@@ -41,7 +41,7 @@ sb() {
   d=$1
   rm -rf "$d"
   mkdir -p "$d"
-  cp -R "$ROOT/scripts" "$d/"
+  cp -R "$ROOT/scripts" "$ROOT/lib" "$d/"
 }
 
 cat > "$T/fake.json" <<'EOF'

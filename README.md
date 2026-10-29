@@ -2,7 +2,7 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
-**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b11944`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b11969`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
 
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
@@ -13,13 +13,39 @@ Two steps. Run the command, then tap through the donation notice. You do not hav
 Linux, macOS, and Termux:
 
 ```sh
-curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh
+p=code-bootstraps-llama.cpp        && \
+o=brianreborn                      && \
+h=raw.githubusercontent.com        && \
+u=https://$h/$o/$p/main/install.sh && \
+curl -fsSLo install-$p.sh $u       && \
+sh        ./install-$p.sh
+```
+
+```sh
+p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
+```
+
+```sh
+# Env options (read by install.sh):
+#   INSTALL_PREFIX=DIR   (default ~/code-bootstraps-llama.cpp)
+#   EXPECTED_SHA256=HEX  archive must match or it is not unpacked
+#   INSTALL_NO_START=1   unpack only, do not run start.sh
+# Already downloaded? Rerun, no new download:
+INSTALL_NO_START=1 sh ./install-code-bootstraps-llama.cpp.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
+$p="code-bootstraps-llama.cpp"
+$o="brianreborn"
+$h="raw.githubusercontent.com"
+$u="https://$h/$o/$p/main/install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -OutFile "install-$p.ps1" -Uri $u
+if ($?) { powershell `
+  -ExecutionPolicy Bypass `
+  -File ".\install-$p.ps1" }
 ```
 
 The page opens on chat: [http://127.0.0.1:9931/?model=chat](http://127.0.0.1:9931/?model=chat). The first visit asks for the key printed in the terminal. Paste it once.
@@ -52,7 +78,7 @@ Everything after this is the detail: the pinned llama.cpp, the models, what was 
 
 ## Pinned llama.cpp
 
-The current pin is llama.cpp release **`b11944`**, built **from source** with our patches
+The current pin is llama.cpp release **`b11969`**, built **from source** with our patches
 (`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). It was picked on
 2026-10-27 as the newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent
 upstream tags are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
@@ -60,15 +86,19 @@ ggml-org/llama.cpp#31252) needs.
 
 | | |
 |---|---|
-| Tag | `b11944` |
-| Commit | `1b4554eff124a8f0033bc09b3f708a5e51cbda15` |
-| Build number | `11944` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11944`) |
+| Tag | `b11969` |
+| Commit | `c3df4b7e22a1ac38da663552d19e649dd97ca936` |
+| Build number | `11969` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b11969`) |
 | Source tarball sha256 | `e404ef4b7dcb9c791d130543d4dc0cdcb79b1fc18b4fd68faa7e2fff97002dad` |
 | Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`) |
 
-The pin is recorded in `config/llama-pin.env`, which the build scripts read. `BUILD=0 start.sh`
-(`start.bat -Prebuilt`) still uses the upstream prebuilt binary from `config/llama-release.json`,
-which is older and has **none** of the patches; it is no longer the default.
+The pin is recorded in `config/llama-pin.env`, which the build scripts read. **The launchers are
+prebuilt-first:** `start.sh` / `start.bat` reuse an existing `build-*` llama-server, else download the
+sha256-checked b11969 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
+macOS, Windows), and build the pinned source with `patches/` only when no release binary fits
+(FreeBSD, Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces the patched
+source build. The upstream binary has none of `patches/`, so `serve.sh` keeps TOOLS/MCP off with it
+(see the patches table); build when you need them.
 
 ### Build prerequisites
 
@@ -137,7 +167,7 @@ That is enough for the launchers below, which use release binaries. Without git,
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher builds the pinned llama.cpp from source with `patches/` (see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
+The launcher uses the sha256-checked b11969 release binary for this machine (or an existing build; it builds the pinned source with `patches/` only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
 
 **API key.** The server only answers with the API key. There is **one stable key per instance (port)**, kept in **`${XDG_CONFIG_HOME:-~/.config}/familia/instances/<port>/api-keys`** (`%APPDATA%\familia\instances\<port>\api-keys` on Windows; one key per line, directory 700, file 600). `serve.sh` / `serve.ps1` create it atomically on the very first start (adopting an older `.secrets/api-keys`) and never rotate it; every client (familia, `snap.py`, `agent.py`, the launchers) reads the same file. See [docs/api-key-design.md](docs/api-key-design.md). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
@@ -160,16 +190,42 @@ Prerequisites:
 - Windows: before unpacking, right-click the ZIP > Properties > tick **Unblock** > OK (or `Unblock-File .\code-bootstraps-llama.cpp-main.zip` in PowerShell). Otherwise SmartScreen shows "Windows protected your PC" for `start.bat`: click "More info" > "Run anyway". The launcher runs its `.ps1` files with `-ExecutionPolicy Bypass` and unblocks the llama.cpp files it downloads.
 - A `git clone` does not set these marks. The llama.cpp binaries the launchers download with `curl` are not marked either. None of these prompts were tested here.
 
-No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1`, `COPY_KEY=1`, `RAISE=0|1`, `DETACH_MODE=foreground|nohup|tmux|screen|screen-attached` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`; `RAISE` is an environment variable there too), plus everything `serve.sh` reads. `screen` detaches into the `familia-server` session; `screen-attached` starts there without detaching, with 10,000 lines of scrollback. Detach using `Ctrl-A`, then `D`; resume with `screen -r familia-server`; review history with `Ctrl-A`, then `[`. Foreground is the default. On Linux, `VARIANT=auto` fetches `cuda-12` when `nvidia-smi -L` works, otherwise `vulkan` when `/dev/dri/renderD128` exists, otherwise `cpu`. A CPU-only binary with a GPU present prints a warning; `--fit` does not invent a GPU backend. macOS stays on the `cpu` asset (Metal is built into it). Android stays on `cpu`.
+No Python is needed otherwise. Settings: `PORT`, `VARIANT=auto|cpu|vulkan|cuda-12|cuda-13`, `NO_BROWSER=1`, `BUILD=1` (force the patched source build), `COPY_KEY=1`, `RAISE=0|1`, `DETACH_MODE=foreground|nohup|tmux|screen|screen-attached` (Windows: `-Port`, `-Variant`, `-NoBrowser`, `-Build`, `-CopyKey`; `RAISE` is an environment variable there too), plus everything `serve.sh` reads. `screen` detaches into the `familia-server` session; `screen-attached` starts there without detaching, with 10,000 lines of scrollback. Detach using `Ctrl-A`, then `D`; resume with `screen -r familia-server`; review history with `Ctrl-A`, then `[`. Foreground is the default. On Linux, `VARIANT=auto` fetches `cuda-12` when `nvidia-smi -L` works, otherwise `vulkan` when `/dev/dri/renderD128` exists, otherwise `cpu`. A CPU-only binary with a GPU present prints a warning; `--fit` does not invent a GPU backend. macOS stays on the `cpu` asset (Metal is built into it). Android stays on `cpu`.
 
 One-line install:
 
 ```sh
-curl -fsSLo install-cbl.sh https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.sh; sh ./install-cbl.sh
+p=code-bootstraps-llama.cpp        && \
+o=brianreborn                      && \
+h=raw.githubusercontent.com        && \
+u=https://$h/$o/$p/main/install.sh && \
+curl -fsSLo install-$p.sh $u       && \
+sh        ./install-$p.sh
+```
+
+```sh
+p=code-bootstraps-llama.cpp && o=brianreborn && h=raw.githubusercontent.com && u=https://$h/$o/$p/main/install.sh && curl -fsSLo install-$p.sh $u && sh ./install-$p.sh
+```
+
+```sh
+# Env options (read by install.sh):
+#   INSTALL_PREFIX=DIR   (default ~/code-bootstraps-llama.cpp)
+#   EXPECTED_SHA256=HEX  archive must match or it is not unpacked
+#   INSTALL_NO_START=1   unpack only, do not run start.sh
+# Already downloaded? Rerun, no new download:
+INSTALL_NO_START=1 sh ./install-code-bootstraps-llama.cpp.sh
 ```
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing -OutFile install-cbl.ps1 https://raw.githubusercontent.com/brianreborn/code-bootstraps-llama.cpp/main/install.ps1; powershell -ExecutionPolicy Bypass -File .\install-cbl.ps1
+$p="code-bootstraps-llama.cpp"
+$o="brianreborn"
+$h="raw.githubusercontent.com"
+$u="https://$h/$o/$p/main/install.ps1"
+Invoke-WebRequest -UseBasicParsing `
+  -OutFile "install-$p.ps1" -Uri $u
+if ($?) { powershell `
+  -ExecutionPolicy Bypass `
+  -File ".\install-$p.ps1" }
 ```
 
 The default directory is `~/code-bootstraps-llama.cpp` (`PREFIX` elsewhere; on Termux, `PREFIX` is the Termux usr tree, so the installer uses `INSTALL_PREFIX` or the home default and does not unpack over it). A second run downloads the archive again and unpacks only when its digest changes. `INSTALL_SHA256` or `EXPECTED_SHA256`, when set, refuses a different archive. `INSTALL_NO_START=1` stops before `start.sh`.
@@ -296,9 +352,19 @@ models/decision/  decision model for POST /v1/systemone
 |---|---|---|---|
 | `lfm3` | LiquidAI LFM3-1.7B Q4_K_M (official) | 1.10 GB | yes (tool call) |
 | `lfm3-qad` | LiquidAI LFM3-1.7B QAD Q4_0 | 1.05 GB | yes (tool call, ~20% faster prompt eval on CPU) |
-| `nemotron` | unsloth NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL | 5.06 GB | not yet |
+| `lfm3-vl` | LiquidAI LFM3-VL-2B Q4_K_M + mmproj Q8_0 (images) | 1.10 + 0.20 GB | yes (image prompt via router) |
+| `lfm3-omni` | LiquidAI LFM3-Omni-2B Q4_K_M + mmproj Q8_0 (images + audio) | 1.10 + 0.54 GB | partial (image yes; audio loads, reply untested) |
+| `lfm3-audio` | LiquidAI LFM3-Audio-2B Q4_K_M + mmproj Q8_0 (audio) | 1.10 + 0.34 GB | partial (loads; audio reply untested) |
+| `nemotron` | unsloth NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL (automation; NVIDIA's own GGUF is 6.18 GB, ggml-org has only Q8_0+) | 5.06 GB | yes (tool call; ~6.9 GB RSS at 4k ctx, too big for 7-8 GB devices) |
+| `nemotron-nano` | NVIDIA Nemotron-3-Nano-4B Q4_K_M (official NVIDIA GGUF; automation) | 2.84 GB | yes (tool call; ~4.3 GB RSS at 4k ctx) |
+| `nemotron-embed` | Nemotron-3.5-Embed-1B Q8_0 (embed specialist; community GGUF by mradermacher, text only) | 1.22 GB | yes (related vs unrelated cosine 0.63 vs -0.02) |
+| `nemotron-guard` | Nemotron-3.5-Content-Safety Q4_K_M (guard: `User Safety: safe/unsafe`; community GGUF by mradermacher, text only) | 2.49 GB | yes (safe/unsafe sanity pair) |
 | `saluki` | Kujira Underdog-Saluki-27B-1.0 IQ2-mix MTP | 8.35 GB | not yet |
 | `coder-qwen` | unsloth Qwen3.5-2B Q4_K_M (previous coder default) | 1.28 GB | yes (earlier pins) |
+
+**NVIDIA Nemotron.** Official NVIDIA models only; NVIDIA's own GGUF when it ships one, else a labelled community GGUF. They are opt-in downloads into `models-optional/<pick>/`; serve.sh does not start them as roles yet (use `MODEL_GENERAL=...`, or run `llama-server` by hand with `--embeddings --pooling mean` for embed, `--jinja` for guard). Licenses: Bolt-E4B, Embed and Content-Safety are OpenMDW-1.1 (Content-Safety also carries the Gemma Terms of Use); Nano-4B is the NVIDIA Nemotron Open Model License. Not shipped: `llama-nemotron-rerank-1b-v2` (no GGUF loads on b11944: tensor-count error), Nemotron-Labs-Dory1.0-4B (`dory` architecture not in llama.cpp), and NVIDIA's speech models (Nemotron-3-Diarization `sortformer`, Nemotron 3.5 ASR / speech-streaming / Parakeet `asr`, multitalker Parakeet, unified ASR, Canary): llama.cpp cannot load them, so they are listed with repo, revision, sha256 and license under `unplaced_options` in the manifest as *tracked, needs a non-llama.cpp runtime*.
+
+**LFM3 family (vision / omni / audio).** Try them: `scripts/fetch-models.sh --pick lfm3-vl` (or `lfm3-omni`, `lfm3-audio`) downloads the model and its `mmproj` projector, both sha256-pinned, next to each other in `models-optional/<pick>/`. They are never fetched by default. On the next `scripts/serve.sh` start, each installed pick is served as its own model alias (`lfm3-vl`, …) with `--mmproj`, so OpenAI-style `image_url` / `input_audio` messages work; `MEDIA_MODELS=0` turns this off. The b11944 prebuilt and source builds both load them (libmtmd). License: LFM Open License v1.0 (lfm1.0), commercial use only below US$10M annual revenue. **Linux/macOS only for now**: `fetch-models.ps1` / `serve.ps1` do not fetch or pass the mmproj yet (TODO, familia #190).
 
 LFM2.5-1.2B stays as `--fallback`. Any role can share another role's file with `"dir": "models/<role>"` in the manifest (no second download).
 
@@ -385,6 +451,7 @@ The banner prints the profile it chose and why. Change it, or one of a few setti
 | `STARTUP_LOG` | `live` (default), `quiet`, `follow` | `live` streams every llama-server log line (and background download progress) to the terminal while it starts, prefixed `  \| `; `quiet` keeps only the "still starting" lines; `follow` keeps streaming after it is ready. The cockpit streams the same logs | `STARTUP_LOG=quiet ./start.sh` |
 | `STARTUP_RECOVER` | `1` (default), `0` | when the start is slow (READY_TIMEOUT) or llama-server exits before it is ready, a terminal gets a menu: keep waiting, model (`MODEL_GENERAL`), `SIZING`, `CTX`, `REASONING`, `PROFILE`, backend (`LLAMA_SERVER` / `GPU_LAYERS=0`), `READY_TIMEOUT`; retry restarts only llama-server (downloads, launcher and cockpit keep running). The cockpit has the same controls (POST `/recover`, local or cockpit token only, whitelisted keys). Without a terminal it stays automatic | `STARTUP_RECOVER=0 ./start.sh` |
 | `MODELS_BG` | `1` (default), `0` | `start.sh` downloads the general model first and starts chat with it; the other roles download in the background (`.cache/fetch-models.log`, shown live) and hot-add when their file lands (the router opens a model file only when it loads it). `0` = download everything before starting | `MODELS_BG=0 ./start.sh` |
+| `MODEL_SET` (also `--set NAME`, Windows `-ModelSet NAME`) | `unimpeded` (default) \| `official` | which of the two default model sets `fetch-models` downloads and `serve` pins, per role (`config/model-sets.json`, shown in the banner as `model set: …`). `official` = each vendor's own GGUF (or ggml-org's conversion when the vendor ships none) and never falls back to an uncensored file: a missing one stops `serve`. `unimpeded` = the least-restricted variant that passes our checks; a role with none serves the official model, marked `fallback` in that file. An unknown value stops every launcher. See "Model sets" | `MODEL_SET=official ./start.sh` |
 | `MODEL_GENERAL`, `MODEL_CODER`, `MODEL_DECISION` | a GGUF path | serve that file for the role instead of the preset / manifest choice (sha256 checked when the manifest knows it) | `MODEL_GENERAL=~/m.gguf ./start.sh` |
 | `THREADS` | number (auto: big/physical cores) | generation threads | `THREADS=4 ./start.sh` |
 | `TOOLS` | `auto` \| `full` \| `lean` \| list \| `""` | tools offered to the model; lean = 4 tools, half the prompt (auto: lean in lowram) | `TOOLS=lean ./start.sh` |
@@ -393,7 +460,26 @@ Reasoning is a per-role toggle (`on`, `off`, `auto`). `config/models-preset.ini`
 
 Sizing is a per-host choice, available on every local host (`start.sh`/`serve.sh` on Linux, macOS and Termux, `start.bat`/`serve.ps1` on Windows). `monolithic` (the default) gives general and coder one long pool each (131072 tokens; lowram coder 65536) with one session, and keeps more models resident. `distributed` is the older small-slot layout: unified KV split into per-session slots (general 16384, coder 32768 with 4 sessions, decision 8192, smaller in moderate/lowram) and at most 2 models loaded, for hosts that serve several clients at once or have little RAM. The minimum for `CODER_CTX` is 32768 (`GENERAL_CTX` 16384) in monolithic and 2048 in distributed. Set it once per host in the cockpit's settings panel (saved in `.cache/panel.env`) or in the environment; the banner and the cockpit header (`SIZING …`) show the one in use. An unknown value stops the launcher.
 
-Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Model choice and role pinning are not tunable here (see Models and Security).
+**Model sets.** `unimpeded` is the default because it is today's behaviour: LFM3-1.7B-Uncensored stays the promoted general and coder model, and it passed the same checks as the official file (2+3, a tool call, a small Python function). Switch with `MODEL_SET=official`; files of the other set are parked in `models-inactive/`, not deleted, so switching back does not download again. Role hierarchy: the coder can do everything, the general (chat) model usually can but may be weak at development, and a specialist (decision, embed, language, media, automation, guard, audit, pentest) only does its own task but is preferred for it.
+
+| Role | `official` | `unimpeded` |
+|---|---|---|
+| general | LiquidAI/LFM3-1.7B-GGUF `LFM3-1.7B-Q4_K_M` | AtomicChat/LFM3-1.7B-Uncensored-GGUF `AD-Q4_K_M` |
+| coder | the official general file, coder profile | the unimpeded general file, coder profile |
+| decision | ggml-org/Laya-GGUF `Q8_0` | fallback: official |
+| embed | ggml-org/embeddinggemma-2-GGUF `Q8_0` (`models/embed-official/`) | unsloth/embeddinggemma-2-GGUF `Q8_0` (fallback: same Google weights, the current default) |
+| language | tencent/HY-MT1.5-1.8B-GGUF | fallback: official |
+| media | LiquidAI/LFM3-VL-2B-GGUF | fallback: official |
+| jev | Qwen/Qwen3-0.6B-GGUF | fallback: official |
+| automation | nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF (opt-in `--pick nemotron-nano`) | fallback: official |
+| guard | Nemotron-3.5-Content-Safety `Q4_K_M` (community GGUF; NVIDIA and ggml-org ship none), enforcing | the same model, advisory only |
+| rerank | none: no Nemotron rerank GGUF loads in llama.cpp | none |
+| audit | fdtn-ai Foundation-Sec-8B-Reasoning `Q4_K_M` (opt-in, partial tested) | fallback: official |
+| pentest | WhiteRabbitNeo-V3-7B `Q4_K_M` (community GGUF; opt-in, guard-gated, partial tested) | fallback: official |
+
+Guard: in `official` the guard model enforces; in `unimpeded` it stays in the set and runs **advisory only**: it labels prompts and replies but blocks nothing. It is never removed silently. The Nemotron picks (automation, guard) are opt-in downloads that `serve.sh` does not start as roles yet, so today this column records the intent (`guard` key in `config/model-sets.json`); the guard mode takes effect when the guard role is wired in.
+
+Less RAM: `PROFILE=lowram` or `MODELS_MAX=1`. Out-of-memory or the phone kills Termux: go one profile down. Long files: `CODER_CTX=32768` (more RAM). Beyond `MODEL_SET`, model choice and role pinning are not tunable here (see Models and Security).
 
 ### Hardware use
 

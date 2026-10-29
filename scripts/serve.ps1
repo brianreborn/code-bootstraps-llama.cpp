@@ -31,7 +31,9 @@ param(
     # swap (locale model as general), interpret (opt-in HY-MT, license not valid in EU/UK/South Korea), off
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
     [string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
-    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),   # swap mode: also replace the coder with the locale model
+    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),
+    [switch]$Turbo = ($env:FAMILIA_TURBO -and $env:FAMILIA_TURBO -ne "0"),   # metrics turbo button: no telemetry at all (config\metrics.json)   # swap mode: also replace the coder with the locale model
+    [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
     [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
 )
@@ -93,6 +95,8 @@ function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p
 
 # parameters that may come from the environment are checked here (ValidateSet skips defaults)
 if ($RamProfile -notin @("auto", "lowram", "moderate", "default")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|lowram|moderate|default)" }
+Assert-ModelSet $ModelSet
+$env:MODEL_SET = $ModelSet
 if ($Repack -notin @("on", "off")) { throw "unknown REPACK / -Repack '$Repack' (on|off)" }
 $mode = $LanguageMode.ToLowerInvariant()
 if ($mode -eq "auto") { $mode = "native" }
@@ -283,6 +287,18 @@ function Get-RoleModel([string]$role) {
     if ($f) {
         if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "[$role] model = $f in ${presetPath}: file not found" }
         Test-Model $f "[$role] model"; return $f
+    }
+    # MODEL_SET pick first (sha256-checked); official never falls back to the uncensored default.
+    $sp = Get-ModelSetPick $Root $ModelSet $role
+    if ($sp) {
+        foreach ($c in $manifest) {
+            if ($c.pick -ne $sp[0] -or $c.role -ne $sp[1]) { continue }
+            $d = Get-Field $c "dir"; if (-not $d) { $d = "models/" + $sp[1] }
+            $p = Resolve-GgufPath ($d + "/" + $c.file)
+            if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+            if ($ModelSet -eq "official") { throw "MODEL_SET=official: the $role role's model $($c.file) is not installed: run scripts\fetch-models.ps1 -ModelSet official" }
+            break
+        }
     }
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
@@ -564,7 +580,22 @@ if ($McpConfig) {
     # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
     $McpConfig = Get-RepoPath $McpConfig
     $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
-    $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd()
+    $rootFwd = $Root -replace '\\', '/'
+    $json = $null
+    if ($pyCmd) {
+        # Base config + enabled starter picks, gated by config\security-gating.json (fail-closed):
+        # scripts\lib\mcp_load.py + mcp_gate.py, the same code serve.sh runs. MCP_PICKS=a,b enables picks.
+        $starter = if ($null -ne $env:MCP_STARTER) { $env:MCP_STARTER } else { Join-Path $Root "config\mcp-servers.starter.json" }
+        if ($starter) { $starter = Get-RepoPath $starter }
+        $pre = @($pyCmd | Select-Object -Skip 1)
+        $picks = if ($env:MCP_PICKS) { $env:MCP_PICKS } else { "" }
+        & $pyCmd[0] @pre (Join-Path $Root "scripts\lib\mcp_load.py") --root $rootFwd --base $McpConfig --starter "$starter" --picks "$picks" --out $mcpEff
+        if ($LASTEXITCODE -ne 0) { throw "serve.ps1: the MCP config could not be built (scripts\lib\mcp_load.py)" }
+        $json = (Get-Content -Raw $mcpEff).TrimEnd()
+    } else {
+        if ($env:MCP_PICKS) { Write-Warning "serve.ps1: no working Python 3: MCP_PICKS ($env:MCP_PICKS) ignored" }
+        $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", $rootFwd).TrimEnd()
+    }
     if ($pyCmd -and $pyCmd[0] -ne "python3") {   # the example config says "python3"
         $json = $json.Replace('"command": "python3"', '"command": "' + $pyCmd[0] + '"')
         if ($pyCmd.Count -gt 1) { $json = $json.Replace('"args": ["scripts/', '"args": ["' + $pyCmd[1] + '", "scripts/') }
@@ -572,6 +603,21 @@ if ($McpConfig) {
     Write-TextFile $mcpEff $json
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
+
+# Metrics / telemetry gate (config\metrics.json, default ON; scripts\lib\metrics.py, same as
+# serve.sh). -Turbo / FAMILIA_TURBO=1 / turbo_button.turbo:true turn ALL collection off.
+$metricsOn = $false
+$metricsPy = $pyCmd
+if (-not $metricsPy -and (Get-Command python -ErrorAction SilentlyContinue)) { $metricsPy = @("python") }
+if ($metricsPy) {
+    $mPre = @($metricsPy | Select-Object -Skip 1)
+    $mArgs = @((Join-Path $Root "scripts\lib\metrics.py"), "status")
+    if ($Turbo) { $mArgs += "--turbo" }
+    $metricsState = (& $metricsPy[0] @mPre @mArgs) -join ""
+    $metricsOn = ($LASTEXITCODE -eq 0)
+} else { $metricsState = "off (no Python)" }
+Write-Host "serve.ps1: metrics $metricsState"
+if ($metricsOn) { $env:LLAMA_ARG_ENDPOINT_METRICS = "1" }
 
 $requestedHost = $BindHost
 if (-not $requestedHost) { $requestedHost = "127.0.0.1" }
@@ -601,6 +647,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 Write-TextFile (Join-Path $Root ".cache\sizing") $sizing   # shown by the cockpit
+Write-Host "serve.ps1: model set: $ModelSet (MODEL_SET / -ModelSet official|unimpeded; config\model-sets.json)"
 Write-Host "serve.ps1: sizing=$sizing profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
@@ -717,6 +764,13 @@ if ($pyRecover) {
     $recLog = Join-Path $Root ".cache\recover.log"
     $recover = Start-Process -FilePath $pyRecover[0] -ArgumentList $recArgs -PassThru -WindowStyle Hidden -RedirectStandardError $recLog -WorkingDirectory $Root
 }
+$metricsProc = $null
+if ($metricsOn) {
+    $msArgs = @()
+    if ($metricsPy.Count -gt 1) { $msArgs += $metricsPy[1..($metricsPy.Count - 1)] }
+    $msArgs += @("`"$(Join-Path $Root "scripts\lib\metrics.py")`"", "sample", "--url", "http://${probeHost}:$Port", "--key-file", "`"$keyFile`"")
+    $metricsProc = Start-Process -FilePath $metricsPy[0] -ArgumentList $msArgs -PassThru -WindowStyle Hidden -WorkingDirectory $Root
+}
 $publicHosts = @(Get-PublicHosts $requestedHost)
 foreach ($h in $publicHosts) {
     Write-Host "serve.ps1: also on http://$(Format-UrlHost $h):$Port"
@@ -732,6 +786,7 @@ try {
     & $LlamaServer @srvArgs
 } finally {
     if ($recover -and -not $recover.HasExited) { Stop-Process -Id $recover.Id -Force -ErrorAction SilentlyContinue }
+    if ($metricsProc -and -not $metricsProc.HasExited) { Stop-Process -Id $metricsProc.Id -Force -ErrorAction SilentlyContinue }
     $sync.Stop = $true
     try { $watch.Stop(); $watch.Dispose() } catch { }
     Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue

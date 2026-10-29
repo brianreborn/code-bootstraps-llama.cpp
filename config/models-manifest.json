@@ -526,6 +526,44 @@
             "required": ["--embeddings", "--pooling mean", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}", "@prompt task: search result | query: ", "@prompt task: classification | query: ", "@prompt task: clustering | query: ", "@prompt task: code retrieval | query: ", "@prompt title: none | text: ", "@prompt task: fact checking | query: ", "@prompt task: sentence similarity | query: ", "@prompt task: question answering | query: ", "@normalize euclidean", "@prompt title: {title} | text: {content}"]
         },
         {
+            "role": "embed",
+            "pick": "official",
+            "repo": "ggml-org/embeddinggemma-2-GGUF",
+            "revision": "58faf90940886df2d62be555c8765d00dac362c5",
+            "file": "embeddinggemma-2-Q8_0.gguf",
+            "quant": "Q8_0",
+            "sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135",
+            "license": "apache-2.0",
+            "ctx": 262144,
+            "tested": false,
+            "db_id": "ggml-org--embeddinggemma-2-GGUF--embeddinggemma-2-Q8_0",
+            "base_model": "google/embeddinggemma-2",
+            "base_revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+            "card_ctx": 8192,
+            "card_ctx_source": "google/embeddinggemma-2 README.md:L45",
+            "bytes": 309855456,
+            "native_ctx": 8192,
+            "native_ctx_source": "card: google/embeddinggemma-2 README.md:L45",
+            "required": [
+                "--embeddings",
+                "--pooling mean",
+                "--ubatch-size ${slot_ctx}",
+                "--batch-size ${slot_ctx}",
+                "@prompt task: search result | query: ",
+                "@prompt task: classification | query: ",
+                "@prompt task: clustering | query: ",
+                "@prompt task: code retrieval | query: ",
+                "@prompt title: none | text: ",
+                "@prompt task: fact checking | query: ",
+                "@prompt task: sentence similarity | query: ",
+                "@prompt task: question answering | query: ",
+                "@normalize euclidean",
+                "@prompt title: {title} | text: {content}"
+            ],
+            "dir": "models/embed-official",
+            "note": "MODEL_SET=official embed pick: ggml-org's own conversion of google/embeddinggemma-2 (Google ships no GGUF). Own folder because the file name equals the unsloth default's. GGUF header gemma-embedding2.context_length 262144; card 8192. Loaded on b11944 and passed a retrieval check (relevant 0.79 vs irrelevant 0.53 cosine) but not end to end through serve.sh."
+        },
+        {
             "role": "general",
             "pick": "candidate-gev",
             "repo": "mradermacher/GEV-26B-Decide-GGUF",
@@ -628,12 +666,83 @@
             "quant": "UD-Q4_K_XL",
             "bytes": 5060482240,
             "sha256": "84ff34f5834b929043f5ae74799e8d562d4056998f6a5923ceb44831e8ad84d6",
-            "n_ctx_train": 131072,
-            "n_ctx_train_source": "GGUF gemma4.context_length @ b738967d6da3 (scripts/lib/gguf_ctx.py)",
-            "license": "other (NVIDIA open model license, see repo)",
-            "tested": false,
+            "license": "OpenMDW-1.1 (per nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16 card; post-trained on Gemma 4, Apache-2.0)",
+            "ctx": 65536,
+            "native_ctx": 131072,
+            "native_ctx_source": "GGUF gemma4.context_length; card: up to 64K input",
+            "specialty": "automation",
+            "base_model": "nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16",
+            "tested": true,
             "dir": "models-optional/nemotron",
-            "note": "optional chat model (opt-in: --pick nemotron). Repo + file verified on Hugging Face 2026-10-27; not loaded yet on b11944"
+            "note": "optional automation model (opt-in: --pick nemotron). Kept the unsloth UD-Q4_K_XL: NVIDIA's own GGUF (nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB Q4_K_M) is 6.18 GB and ggml-org only has Q8_0/BF16. Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~6.9 GB RSS at -c 4096, so not for 7-8 GB devices. Re-tested 2026-10-28 on b11969 (--jinja -c 4096 -np 1): text, tool call get_weather({\"city\":\"Paris\"}) and response_format json_object all OK; tested for text + tool calls (no image/audio)."
+        },
+        {
+            "role": "general",
+            "pick": "nemotron-nano",
+            "repo": "nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF",
+            "revision": "ba223d14e45525f7fae81db77ea8cabeb2fc6c25",
+            "file": "NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2837072864,
+            "sha256": "be5d9a656a51922f24f1f09a759cebb694e1f5d9728bf0ef9f8c972c5a0b5ef2",
+            "license": "NVIDIA Nemotron Open Model License (other; commercial use allowed, see https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/)",
+            "ctx": 262144,
+            "native_ctx": 1048576,
+            "native_ctx_source": "GGUF nemotron_h.context_length (card: up to 262K)",
+            "specialty": "automation",
+            "tested": true,
+            "dir": "models-optional/nemotron-nano",
+            "publisher": "nvidia (official GGUF)",
+            "note": "optional automation/agent model (opt-in: --pick nemotron-nano). NVIDIA's own GGUF (arch nemotron_h). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: loads, --jinja tool call returns get_weather({\"city\":\"Paris\"}); ~4.3 GB RSS at -c 4096."
+        },
+        {
+            "role": "embed",
+            "pick": "nemotron-embed",
+            "repo": "mradermacher/Nemotron-3.5-Embed-1B-BF16-GGUF",
+            "revision": "dc4621c8f95eb53116301f4cf146909143e1675b",
+            "file": "Nemotron-3.5-Embed-1B-BF16.Q8_0.gguf",
+            "quant": "Q8_0",
+            "bytes": 1220297280,
+            "sha256": "ae7f850f571a0b1e4468027a46129f12bd6a38f38ab91e025f9a2eebc15dd513",
+            "license": "OpenMDW-1.1 (permissive model license: use, modify, redistribute incl. commercial; keep the license and notices) https://openmdw.ai/license/1-1/",
+            "base_model": "nvidia/Nemotron-3.5-Embed-1B-BF16",
+            "base_revision": "e24ca1e346bcc53572bd7bdc02b3e8ebf66c197c",
+            "ctx": 32768,
+            "native_ctx": 262144,
+            "native_ctx_source": "GGUF mistral3.context_length; card caps input at 32768 tokens",
+            "tested": true,
+            "dir": "models-optional/nemotron-embed",
+            "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
+            "required": [
+                "--embeddings",
+                "--pooling mean",
+                "@prompt query: ",
+                "@prompt passage: "
+            ],
+            "note": "optional embed specialist (opt-in: --pick nemotron-embed; serve.sh keeps the default embed model). Text only (the image mmproj is not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: 2048-dim, query/related passage cosine 0.63 vs unrelated -0.02. The card's model is bidirectional (is_causal false); whether llama.cpp's mistral3 path matches the reference embeddings is unverified."
+        },
+        {
+            "role": "guard",
+            "pick": "nemotron-guard",
+            "repo": "mradermacher/Nemotron-3.5-Content-Safety-GGUF",
+            "revision": "4fcb2495f250aa0dba62d7a3b1a18bc6fb5f002a",
+            "file": "Nemotron-3.5-Content-Safety.Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2489899936,
+            "sha256": "c8a65e9ef2f8d7a20b0ffe9df6d5cd73767ae0bc9a6953acc8239dd0c929e52d",
+            "license": "OpenMDW-1.1 plus Gemma Terms of Use and Gemma Prohibited Use Policy (base Gemma-3-4B-it) per the NVIDIA card",
+            "base_model": "nvidia/Nemotron-3.5-Content-Safety",
+            "base_revision": "35645ed3543b7e7ffaed2e788699e57a5051497c",
+            "ctx": 131072,
+            "native_ctx": 131072,
+            "native_ctx_source": "GGUF gemma3.context_length; card: up to 128K",
+            "tested": true,
+            "dir": "models-optional/nemotron-guard",
+            "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
+            "required": [
+                "--jinja"
+            ],
+            "note": "optional guard specialist (opt-in: --pick nemotron-guard), replies 'User Safety: safe|unsafe' (+ 'Response Safety'). Text only (image mmproj not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: sourdough question -> safe, pipe-bomb request -> unsafe."
         },
         {
             "role": "general",
@@ -650,6 +759,334 @@
             "tested": false,
             "dir": "models-optional/saluki",
             "note": "big opt-in model (--pick saluki, ~8.3 GB, 27B). Repo + file verified on Hugging Face 2026-10-27; not loaded yet on b11944"
+        },
+        {
+            "role": "media",
+            "pick": "lfm3-vl",
+            "repo": "LiquidAI/LFM3-VL-2B-GGUF",
+            "revision": "017b19da2dcffadb41d67745941f3d785f0d162f",
+            "file": "LFM3-VL-2B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1099627808,
+            "sha256": "56dac2e192ff0d9ab8507f4f1aeb4aed0463449bbbefaac79497f041c95f21eb",
+            "mmproj": "mmproj-LFM3-VL-2B-Q8_0.gguf",
+            "mmproj_bytes": 203031872,
+            "mmproj_sha256": "c5c5b58d544a18da919172d2d0368090ea1a4a351b6feb7f8a326a264a5918ab",
+            "media": "image",
+            "license": "lfm1.0 (LiquidAI custom)",
+            "tested": true,
+            "dir": "models-optional/lfm3-vl",
+            "notice": "LFM3 VL (LFM3-VL-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-VL-2B-GGUF/blob/017b19da2dcffadb41d67745941f3d785f0d162f/LICENSE",
+            "note": "opt-in (--pick lfm3-vl): LFM3 family image model, never fetched by default; served as model alias lfm3-vl with --mmproj when installed",
+            "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: loads; red-circle PNG -> 'The image shows a red circle.'"
+        },
+        {
+            "role": "media",
+            "pick": "lfm3-omni",
+            "repo": "LiquidAI/LFM3-Omni-2B-GGUF",
+            "revision": "5e850dad8e109c728e99d24660fed65bb3c2c362",
+            "file": "LFM3-Omni-2B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1099630080,
+            "sha256": "9f8d30e9d4fd7a9349d586e077988229b3ca0a0e4ad730897563d1eccc9893e2",
+            "mmproj": "mmproj-LFM3-Omni-2B-Q8_0.gguf",
+            "mmproj_bytes": 540892768,
+            "mmproj_sha256": "720ff4fc09df0e026c4ec641d0c698bf27b5bcd50561944c88eda5e3dffe1839",
+            "media": "image+audio",
+            "output": "text",
+            "ctx": 8192,
+            "reasoning": "off",
+            "system_prompt": "Answer questions about the provided audio clip. Base every answer only on what can be heard.",
+            "license": "lfm1.0 (LiquidAI custom)",
+            "tested": false,
+            "dir": "models-optional/lfm3-omni",
+            "notice": "LFM3 Omni (LFM3-Omni-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/blob/5e850dad8e109c728e99d24660fed65bb3c2c362/LICENSE",
+            "note": "opt-in (--pick lfm3-omni): LFM3 family image+audio model, never fetched by default; served as model alias lfm3-omni with --mmproj when installed. Text output only (no speech out via /v1/chat/completions). Clients send system_prompt as the system message for audio QA; served with --reasoning off and -c 8192.",
+            "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: loads; image answer correct (A red circle); audio input (440 Hz tone) loads but replies only text_end tokens: PARTIAL TESTED. Re-checked 2026-10-28 on b11944/b11969: with the system_prompt above and --reasoning off audio QA answers correctly; the text_end loop was from a missing system prompt."
+        },
+        {
+            "role": "media",
+            "pick": "lfm3-audio",
+            "repo": "LiquidAI/LFM3-Audio-2B-GGUF",
+            "revision": "642697a5597a675cb819ed236ac415c1e60a4f6f",
+            "file": "LFM3-Audio-2B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 1099626016,
+            "sha256": "9a773289bd321ed879cd3a76545f6aca506e403851a45fb315420aee45625be2",
+            "mmproj": "mmproj-LFM3-Audio-2B-Q8_0.gguf",
+            "mmproj_bytes": 337862080,
+            "mmproj_sha256": "26601e904245a85bd8f3cf320a629e897cfc01c1d09369e8b4fd951f13024d3e",
+            "media": "audio",
+            "output": "text",
+            "ctx": 8192,
+            "reasoning": "off",
+            "n_predict": 512,
+            "system_prompt": "Perform ASR in English.",
+            "license": "lfm1.0 (LiquidAI custom)",
+            "tested": false,
+            "dir": "models-optional/lfm3-audio",
+            "notice": "LFM3 Audio (LFM3-Audio-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF/blob/642697a5597a675cb819ed236ac415c1e60a4f6f/LICENSE",
+            "note": "opt-in (--pick lfm3-audio): LFM3 family audio model, never fetched by default; served as model alias lfm3-audio with --mmproj when installed. Text output only (ASR / audio QA; no speech out via /v1/chat/completions). Clients send system_prompt ('Perform ASR in English.', temperature 0) as the system message; served with --reasoning off, -c 8192 and -n 512 so reasoning cannot eat a short max_tokens. An empty <think></think> assistant prefill was tested on b11969 and made output worse (duplicated text), so it is not used.",
+            "smoke": "2026-10-28 b11969 prebuilt x86_64 CPU llama-server --jinja --reasoning off -c 8192, system 'Perform ASR in English.', temp 0, real speech clip: 'The quick brown fox jumps over the lazy dog.' (14 tokens, fits max_tokens 40). Earlier text_end-only replies were from a missing system prompt (mtmd-cli interleaved mode), not upstream."
+        },
+        {
+            "role": "guard",
+            "pick": "qwen3guard",
+            "repo": "mradermacher/Qwen3Guard-Gen-4B-GGUF",
+            "revision": "b3b010b37c75197c5e887fa7dce9ff907d0be6ff",
+            "file": "Qwen3Guard-Gen-4B.Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 2716068928,
+            "sha256": "c81d88da8e1f90a80d1b892a29fb3deac592fc5f321b35fc964a568398c1dbfb",
+            "license": "Apache-2.0",
+            "base_model": "Qwen/Qwen3Guard-Gen-4B",
+            "base_revision": "6ec42827da0c1ff11e7a49dc269d2e810d27e108",
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "guard",
+            "dir": "models-optional/qwen3guard",
+            "publisher": "community GGUF (mradermacher) of the official Qwen model",
+            "required": [
+                "--jinja"
+            ],
+            "note": "second, independent guard (different vendor from nemotron-guard) (opt-in: --pick qwen3guard). PARTIAL TESTED: architecture qwen3 is supported by stock llama.cpp; load and verdict test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "audit",
+            "pick": "foundation-sec",
+            "repo": "fdtn-ai/Foundation-Sec-8B-Reasoning-Q4_K_M-GGUF",
+            "revision": "4a04f7b19513ff9f672169b8fe4288000ab87b07",
+            "file": "foundation-sec-8b-reasoning-q4_k_m.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 4920851232,
+            "sha256": "7a61e41b1ca1b339d41caf3001ea7832469d866e7c52a23980a1e95cbf5cd58b",
+            "license": "Foundation-Sec model license (HF tag: other; Llama 3.1 based, keep Llama 3.1 Community License terms)",
+            "license_flags": [
+                "restrictive"
+            ],
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "audit",
+            "guard_gated": true,
+            "dir": "models-optional/foundation-sec",
+            "publisher": "official Cisco Foundation AI GGUF",
+            "required": [
+                "--jinja"
+            ],
+            "note": "defensive code/security review of our own components (opt-in: --pick foundation-sec). PARTIAL TESTED: llama arch, load and review test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "audit",
+            "pick": "antares",
+            "repo": "Skipti/antares-gguf-community",
+            "revision": "f2b46072eae3ac827aa8410741cd1abe06569799",
+            "file": "antraes-1b-f16.gguf",
+            "quant": "F16",
+            "bytes": 3678443424,
+            "sha256": "96fdf8acebb95d55b24d5f6b5c52cf35d3f86c3e63cb71882eb9675463861b98",
+            "license": "Apache-2.0",
+            "base_model": "fdtn-ai/antares-1b",
+            "base_revision": "10417eb35641b32e7141157db19c76eb545193b6",
+            "ctx": 8192,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "audit",
+            "guard_gated": true,
+            "specialty": "vuln-locator",
+            "dir": "models-optional/antares",
+            "publisher": "community F16 GGUF (Skipti) of Cisco Antares-1B; Cisco ships no GGUF",
+            "note": "tiny locator: given a CWE, points at the files of OUR repo that likely contain it (opt-in: --pick antares). PARTIAL TESTED: community F16 conversion, granite arch; load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "pentest",
+            "pick": "whiterabbitneo",
+            "repo": "bartowski/WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-GGUF",
+            "revision": "5cc667f09d00b213c07530c716a0f900dd59f5aa",
+            "file": "WhiteRabbitNeo_WhiteRabbitNeo-V3-7B-Q4_K_M.gguf",
+            "quant": "Q4_K_M",
+            "bytes": 4683074752,
+            "sha256": "584bfc1f4c160928842866c566129f9789c4671af8e51a9e36ba0ebf10f24f41",
+            "license": "Apache-2.0 (HF tag) plus WhiteRabbitNeo usage restrictions per the upstream card",
+            "license_flags": [
+                "usage-restrictions"
+            ],
+            "base_model": "WhiteRabbitNeo/WhiteRabbitNeo-V3-7B",
+            "ctx": 32768,
+            "tested": false,
+            "never_default": true,
+            "security_tier": "risky",
+            "guard_gated": true,
+            "gating": "strict",
+            "banner": "RISKY SPECIALIST: WhiteRabbitNeo is trained not to refuse. Opt-in, guard-gated, read/analyze our own swarm only; never act, attack or exploit. Upstream usage restrictions apply.",
+            "dir": "models-optional/whiterabbitneo",
+            "publisher": "community GGUF (bartowski) of WhiteRabbitNeo-V3-7B",
+            "required": [
+                "--jinja"
+            ],
+            "note": "risky specialist (opt-in: --pick whiterabbitneo). Strict gating: fails closed for itself when no guard is healthy, unless an admin override is logged. PARTIAL TESTED: qwen2 arch, load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        }
+
+    ],
+    "unplaced_options": [
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/Nemotron-3-Diarization",
+            "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+            "role": "diarization",
+            "weights_file": "Nemotron-3-Diarization.q8_0.gguf",
+            "bytes": 107012128,
+            "sha256": "08456d9e22cd9a323c0364d98375f3746d6e68507ebb705cd46438c534c7a3a1",
+            "license": "openmdw-1.1",
+            "arch": "sortformer",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: b11944 loaded it: unknown model architecture 'sortformer'"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+            "revision": "ea30d66debe3740a08b573244286791d423d6b3e",
+            "role": "asr",
+            "weights_file": "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+            "bytes": 742090464,
+            "sha256": "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1",
+            "license": "openmdw-1.1",
+            "arch": "asr (FastConformer cache-aware RNNT)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944 src/llama-arch.cpp"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-speech-streaming-en-0.6b",
+            "revision": "ebe59e5a817142986528bbbee5dba8db7b38ed50",
+            "role": "asr",
+            "weights_file": "nemotron-speech-streaming-en-0.6b.q8_0.gguf",
+            "bytes": 699872960,
+            "sha256": "d9a01898d2a611c8764e23a1c2f45e70bbd5a425dc4de93692ac951dd603812d",
+            "license": "NVIDIA Open Model License (other; commercial use allowed)",
+            "arch": "asr (FastConformer RNNT, English)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/parakeet-tdt-0.6b-v3",
+            "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+            "role": "asr",
+            "weights_file": "parakeet-tdt-0.6b-v3.q8_0.gguf",
+            "bytes": 713975456,
+            "sha256": "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e",
+            "license": "cc-by-4.0",
+            "arch": "asr (FastConformer TDT)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no 'asr' arch in b11944 (mtmd's parakeet projector is an audio encoder for LLMs, not this standalone transducer)"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
+            "revision": "8749fc71fd6e2d88ef230159bbf2aea69b524ee1",
+            "role": "asr-multitalker",
+            "weights_file": "multitalker-parakeet-streaming-0.6b-v1.nemo",
+            "bytes": 2489825280,
+            "sha256": "afaefe89829e201a0ee22c67a715eb5a467bd06c0704cc1579fbfb370fb5be73",
+            "license": "NVIDIA Open Model License (other; commercial use allowed)",
+            "arch": "NeMo .nemo only",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/nemotron-labs-unified-asr-0.6b",
+            "revision": "023ce907267a09a308a5cb69239447cb3d0c1597",
+            "role": "asr",
+            "weights_file": "nemotron-labs-unified-asr-0.6b.nemo",
+            "bytes": 2507735040,
+            "sha256": "1718cc1b44fb8597b2356328d706a8d89f31c389ca6f2256c2e3f743c0246936",
+            "license": "openmdw-1.1",
+            "arch": "NeMo .nemo only",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Tracked, needs a non-llama.cpp runtime (project rule: llama.cpp only). Not a candidate: fetch-models and serve never read this key.",
+            "id": "nvidia/canary-1b-v2",
+            "revision": "d455706339a6b32e1aa40f82c713a482a0c938e2",
+            "role": "asr",
+            "weights_file": "canary-1b-v2.nemo",
+            "bytes": 6358958080,
+            "sha256": "ae5ef1bf06812a95a1594a8f5f0ee9c51f35418e5ba96939fa6b98ab00431094",
+            "license": "cc-by-4.0",
+            "arch": "CanaryForConditionalGeneration (.nemo)",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: no GGUF"
+            },
+            "needs_runtime": "non-llama.cpp (e.g. NeMo, or the audio runtime the GGUF was made for)",
+            "tested": false
+        },
+        {
+            "_comment": "Official NVIDIA reranker; skipped: no GGUF loads on stock llama.cpp.",
+            "id": "nvidia/llama-nemotron-rerank-1b-v2",
+            "revision": "828765652b05bd439c9789d2a6d093db1caa1443",
+            "role": "rerank",
+            "license": "openmdw-1.1",
+            "arch": "LlamaBidirectionalForSequenceClassification",
+            "runtime": {
+                "llama_cpp_b11944": "unsupported: memoryco-ai Q8_0 (af4bc6d4) and kread f16 (a1b4ca67) GGUFs (arch llama-embed) both fail: wrong number of tensors; expected 148, got 147"
+            },
+            "tested": false
+        },
+        {
+            "_comment": "Listed for consideration only. Not a candidate: fetch-models.sh and serve.sh never read this key. Move into candidates only after a GGUF exists and a runtime branch is verified end to end.",
+            "id": "tencent/Youtu-Parsing-Omni",
+            "revision": "01f7e3e4916898c30bf9593735a9b3bd328492fa",
+            "role": "vision",
+            "roles": [
+                "vision",
+                "parsing"
+            ],
+            "arch": "YoutuVITAForCausalLM (model_type youtu_vita, custom_code)",
+            "params": "~5B",
+            "weights": "safetensors bf16, ~10.7 GB",
+            "license": "other (youtu-parsing, see repo LICENSE)",
+            "ctx": null,
+            "ctx_note": "max_position_embeddings=1048576 in config; practical context unverified",
+            "modalities": [
+                "document",
+                "image",
+                "chart",
+                "flowchart",
+                "geometry",
+                "audio",
+                "video"
+            ],
+            "output": "structured JSON",
+            "runtime": {
+                "llama_cpp_b11374": "unsupported (no youtu converter in convert_hf_to_gguf.py)",
+                "llama_cpp_upstream_master": "unsupported as of 2026-10-09 (no youtu converter)",
+                "llama_cpp_forks": "none known",
+                "gguf": "none for Omni (wangjazz/youtu-parsing-gguf is the earlier non-omni Youtu-Parsing, youtu_vl)",
+                "supported": "transformers (trust_remote_code) or vLLM with Tencent's plugin (github.com/TencentCloudADP/youtu-parsing)"
+            },
+            "tested": false
         }
     ]
 }
