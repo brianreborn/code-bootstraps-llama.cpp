@@ -31,7 +31,9 @@ param(
     # swap (locale model as general), interpret (opt-in HY-MT, license not valid in EU/UK/South Korea), off
     [string]$Locale = $(if ($env:LOCALE) { $env:LOCALE } else { "auto" }),
     [string]$LanguageMode = $(if ($env:LANGUAGE_MODE) { $env:LANGUAGE_MODE } else { "native" }),
-    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),   # swap mode: also replace the coder with the locale model
+    [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),
+    [switch]$Turbo = ($env:FAMILIA_TURBO -and $env:FAMILIA_TURBO -ne "0"),   # metrics turbo button: no telemetry at all (config\metrics.json)   # swap mode: also replace the coder with the locale model
+    [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
     [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
 )
@@ -93,6 +95,8 @@ function Get-RepoPath([string]$p) { if ([System.IO.Path]::IsPathRooted($p)) { $p
 
 # parameters that may come from the environment are checked here (ValidateSet skips defaults)
 if ($RamProfile -notin @("auto", "lowram", "moderate", "default")) { throw "unknown PROFILE / -RamProfile '$RamProfile' (auto|lowram|moderate|default)" }
+Assert-ModelSet $ModelSet
+$env:MODEL_SET = $ModelSet
 if ($Repack -notin @("on", "off")) { throw "unknown REPACK / -Repack '$Repack' (on|off)" }
 $mode = $LanguageMode.ToLowerInvariant()
 if ($mode -eq "auto") { $mode = "native" }
@@ -284,6 +288,18 @@ function Get-RoleModel([string]$role) {
         if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { throw "[$role] model = $f in ${presetPath}: file not found" }
         Test-Model $f "[$role] model"; return $f
     }
+    # MODEL_SET pick first (sha256-checked); official never falls back to the uncensored default.
+    $sp = Get-ModelSetPick $Root $ModelSet $role
+    if ($sp) {
+        foreach ($c in $manifest) {
+            if ($c.pick -ne $sp[0] -or $c.role -ne $sp[1]) { continue }
+            $d = Get-Field $c "dir"; if (-not $d) { $d = "models/" + $sp[1] }
+            $p = Resolve-GgufPath ($d + "/" + $c.file)
+            if (Test-Path -LiteralPath $p -PathType Leaf) { Assert-Model $p $c.sha256; return $p }
+            if ($ModelSet -eq "official") { throw "MODEL_SET=official: the $role role's model $($c.file) is not installed: run scripts\fetch-models.ps1 -ModelSet official" }
+            break
+        }
+    }
     foreach ($c in $manifest) {
         if ($c.role -ne $role -or (Get-Field $c "dir")) { continue }
         $p = Resolve-GgufPath ("models/" + $role + "/" + $c.file)
@@ -362,6 +378,48 @@ foreach ($l in $presetLines) {
         if (-not $localeOrder.ContainsKey($p[2])) { $localeOrder[$p[2]] = New-Object System.Collections.Generic.List[string] }
         $localeOrder[$p[2]].Add($k)
     }
+}
+
+# Fit each role's context to its model's real limit (same rules as serve.sh): a profile ctx-size
+# above the manifest's n_ctx_train (GGUF header, pinned revision) is lowered to it; batch,
+# ubatch and kv-unified-per-slot never exceed the fitted ctx. RoPE/YaRN keys = explicit opt-in, left alone.
+function Get-PresetRaw([string]$section, [string]$key) {
+    $sec = ""
+    foreach ($l in $presetLines) {
+        if ($l -match '^\[(.*)\]') { $sec = $Matches[1]; continue }
+        if ($sec -eq $section -and $l -match "^$key\s*=\s*(.*)$") { return $Matches[1].Trim() }
+    }
+    return ""
+}
+function Get-RoleValue([string]$role, [string]$key) {
+    if ($overlay.Contains("$role.$key")) { return [string]$overlay["$role.$key"] }
+    $v = Get-PresetRaw $role $key; if ($v) { return $v }
+    if ($overlay.Contains("*.$key")) { return [string]$overlay["*.$key"] }
+    return (Get-PresetRaw '*' $key)
+}
+$ctxFit = ""
+$ctxMinSlot = 2048; if ($env:CTX_MIN_SLOT -match '^\d+$') { $ctxMinSlot = [int]$env:CTX_MIN_SLOT }
+foreach ($fitRole in @("general", "coder", "decision", "language")) {
+    if (-not $roleModel.Contains($fitRole) -or -not $roleModel[$fitRole]) { continue }
+    $leaf = Split-Path -Leaf $roleModel[$fitRole]; $train = 0
+    foreach ($c in $manifest) { if ($c.file -eq $leaf -and (Get-Field $c "n_ctx_train")) { $train = [int](Get-Field $c "n_ctx_train"); break } }
+    if ($train -le 0) { continue }
+    $ctx = Get-RoleValue $fitRole "ctx-size"
+    if ($ctx -notmatch '^\d+$') { continue }
+    if ((Get-RoleValue $fitRole "rope-scaling") -or (Get-RoleValue $fitRole "rope-scale") -or (Get-RoleValue $fitRole "yarn-orig-ctx")) { continue }
+    $eff = [int]$ctx
+    if ($eff -gt $train) {
+        $eff = $train; Set-Overlay "$fitRole.ctx-size" "$eff"
+        $ctxFit += " $fitRole=$eff(model max; profile asked $ctx)"
+        Write-Host "serve.ps1: context $fitRole $eff (model max; profile asked $ctx)"
+    }
+    foreach ($k in @("batch-size", "ubatch-size", "kv-unified-per-slot")) {
+        $v = Get-RoleValue $fitRole $k
+        if ($v -match '^\d+$' -and [int]$v -gt $eff) { Set-Overlay "$fitRole.$k" "$eff" }
+    }
+    $par = Get-RoleValue $fitRole "parallel"; if ($par -notmatch '^[1-9]\d*$') { $par = 1 }
+    $slot = $eff; if ((Get-RoleValue $fitRole "kv-unified") -eq "false") { $slot = [int]($eff / [int]$par) }
+    if ($slot -lt $ctxMinSlot) { Write-Warning "the $fitRole role has only $slot tokens of context per slot (ctx $eff / $par slots)" }
 }
 
 # effective preset (same rules and output as the awk filter in serve.sh)
@@ -522,7 +580,22 @@ if ($McpConfig) {
     # @ROOT@ in the MCP config = this repository (the server itself runs in WorkDir)
     $McpConfig = Get-RepoPath $McpConfig
     $mcpEff = Join-Path $Root ".cache\mcp-servers.effective.json"
-    $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", ($Root -replace '\\', '/')).TrimEnd()
+    $rootFwd = $Root -replace '\\', '/'
+    $json = $null
+    if ($pyCmd) {
+        # Base config + enabled starter picks, gated by config\security-gating.json (fail-closed):
+        # scripts\lib\mcp_load.py + mcp_gate.py, the same code serve.sh runs. MCP_PICKS=a,b enables picks.
+        $starter = if ($null -ne $env:MCP_STARTER) { $env:MCP_STARTER } else { Join-Path $Root "config\mcp-servers.starter.json" }
+        if ($starter) { $starter = Get-RepoPath $starter }
+        $pre = @($pyCmd | Select-Object -Skip 1)
+        $picks = if ($env:MCP_PICKS) { $env:MCP_PICKS } else { "" }
+        & $pyCmd[0] @pre (Join-Path $Root "scripts\lib\mcp_load.py") --root $rootFwd --base $McpConfig --starter "$starter" --picks "$picks" --out $mcpEff
+        if ($LASTEXITCODE -ne 0) { throw "serve.ps1: the MCP config could not be built (scripts\lib\mcp_load.py)" }
+        $json = (Get-Content -Raw $mcpEff).TrimEnd()
+    } else {
+        if ($env:MCP_PICKS) { Write-Warning "serve.ps1: no working Python 3: MCP_PICKS ($env:MCP_PICKS) ignored" }
+        $json = (Get-Content -Raw $McpConfig).Replace("@ROOT@", $rootFwd).TrimEnd()
+    }
     if ($pyCmd -and $pyCmd[0] -ne "python3") {   # the example config says "python3"
         $json = $json.Replace('"command": "python3"', '"command": "' + $pyCmd[0] + '"')
         if ($pyCmd.Count -gt 1) { $json = $json.Replace('"args": ["scripts/', '"args": ["' + $pyCmd[1] + '", "scripts/') }
@@ -531,9 +604,24 @@ if ($McpConfig) {
     $env:LLAMA_ARG_MCP_SERVERS_CONFIG = $mcpEff
 }
 
+# Metrics / telemetry gate (config\metrics.json, default ON; scripts\lib\metrics.py, same as
+# serve.sh). -Turbo / FAMILIA_TURBO=1 / turbo_button.turbo:true turn ALL collection off.
+$metricsOn = $false
+$metricsPy = $pyCmd
+if (-not $metricsPy -and (Get-Command python -ErrorAction SilentlyContinue)) { $metricsPy = @("python") }
+if ($metricsPy) {
+    $mPre = @($metricsPy | Select-Object -Skip 1)
+    $mArgs = @((Join-Path $Root "scripts\lib\metrics.py"), "status")
+    if ($Turbo) { $mArgs += "--turbo" }
+    $metricsState = (& $metricsPy[0] @mPre @mArgs) -join ""
+    $metricsOn = ($LASTEXITCODE -eq 0)
+} else { $metricsState = "off (no Python)" }
+Write-Host "serve.ps1: metrics $metricsState"
+if ($metricsOn) { $env:LLAMA_ARG_ENDPOINT_METRICS = "1" }
+
 $requestedHost = $BindHost
 if (-not $requestedHost) { $requestedHost = "127.0.0.1" }
-if ($requestedHost -notin @("127.0.0.1", "localhost", "::1")) {
+if (-not (Test-LoopbackList $requestedHost)) {
     Write-Warning "the chosen host is not loopback; keep the API key secret"
 }
 $listenHost = Get-BindHost $requestedHost
@@ -553,11 +641,13 @@ Write-Host "serve.ps1: logs: $logFile"
 $srvArgs += $Extra
 Write-Host "serve.ps1: $LlamaServer $($srvArgs -join ' ')"
 $profileTxt = "  Profile: $RamProfile ($profileWhy): $ModelsMax general/coder model(s) loaded$(if ($resident) { ' + decision kept loaded' })$(if ($tuned) { "; set:$tuned" })`n" +
+              $(if ($ctxFit) { "  Context: fitted to model limits:$ctxFit`n" }) +
               "  Change:  set PROFILE=lowram|moderate|default (or start.bat -RamProfile moderate), or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README `"Light tuning`")`n"
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 [IO.File]::WriteAllText((Join-Path (Join-Path $Root ".cache") "profile.txt"), $profileTxt, (New-Object Text.UTF8Encoding $false))
 New-Item -ItemType Directory -Force -Path (Join-Path $Root ".cache") | Out-Null
 Write-TextFile (Join-Path $Root ".cache\sizing") $sizing   # shown by the cockpit
+Write-Host "serve.ps1: model set: $ModelSet (MODEL_SET / -ModelSet official|unimpeded; config\model-sets.json)"
 Write-Host "serve.ps1: sizing=$sizing profile=$RamProfile ($profileWhy; RAM $memMB MB, $availMB MB free) models-max=$routerMax (ModelsMax $ModelsMax + $resident resident)$(if ($tuned) { " tuned:$tuned" }) models: general=$($roleModel['general']) coder=$($roleModel['coder']) decision=$($roleModel['decision'])"
 Write-Host "serve.ps1: language: locale=$langCode mode=$mode swapped=[$($swapRoles -join ' ')] language-slot=$(if ($langModel) { $langModel } else { '-' })"
 
@@ -674,6 +764,13 @@ if ($pyRecover) {
     $recLog = Join-Path $Root ".cache\recover.log"
     $recover = Start-Process -FilePath $pyRecover[0] -ArgumentList $recArgs -PassThru -WindowStyle Hidden -RedirectStandardError $recLog -WorkingDirectory $Root
 }
+$metricsProc = $null
+if ($metricsOn) {
+    $msArgs = @()
+    if ($metricsPy.Count -gt 1) { $msArgs += $metricsPy[1..($metricsPy.Count - 1)] }
+    $msArgs += @("`"$(Join-Path $Root "scripts\lib\metrics.py")`"", "sample", "--url", "http://${probeHost}:$Port", "--key-file", "`"$keyFile`"")
+    $metricsProc = Start-Process -FilePath $metricsPy[0] -ArgumentList $msArgs -PassThru -WindowStyle Hidden -WorkingDirectory $Root
+}
 $publicHosts = @(Get-PublicHosts $requestedHost)
 foreach ($h in $publicHosts) {
     Write-Host "serve.ps1: also on http://$(Format-UrlHost $h):$Port"
@@ -689,6 +786,7 @@ try {
     & $LlamaServer @srvArgs
 } finally {
     if ($recover -and -not $recover.HasExited) { Stop-Process -Id $recover.Id -Force -ErrorAction SilentlyContinue }
+    if ($metricsProc -and -not $metricsProc.HasExited) { Stop-Process -Id $metricsProc.Id -Force -ErrorAction SilentlyContinue }
     $sync.Stop = $true
     try { $watch.Stop(); $watch.Dispose() } catch { }
     Remove-Item -Force -LiteralPath $readyFile -ErrorAction SilentlyContinue

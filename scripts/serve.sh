@@ -29,6 +29,9 @@ PARALLEL=${PARALLEL:-}
 . "$ROOT/scripts/lib/instance-key.sh"
 API_KEY_FILE=$(instance_key_file "$PORT")
 MCP_CONFIG=${MCP_CONFIG-$ROOT/config/mcp-servers.json}
+# Starter MCP pack: picks with enabled:true there, or named in MCP_PICKS, are merged in.
+MCP_STARTER=${MCP_STARTER-$ROOT/config/mcp-servers.starter.json}
+MCP_PICKS=${MCP_PICKS-}
 TOOLS=${TOOLS-auto}
 TOOLS_FULL="read_file,file_glob_search,grep_search,exec_shell_command,write_file,edit_file,get_info"
 TOOLS_LEAN="read_file,write_file,edit_file,exec_shell_command"
@@ -58,7 +61,13 @@ MK_TAG=serve.sh; MK_ERR=""; . "$ROOT/lib/msg.mk"   # die, warn
 ua_dir=$(mktemp -d)
 UA_CACHE_RAM=""
 ua_n=0
+ms_next=0
 for a in "$@"; do
+  # --set official|unimpeded (= MODEL_SET): the launcher's model set, not a llama-server flag
+  if [ "$ms_next" = 1 ]; then MODEL_SET=$a; ms_next=0; continue; fi
+  case "$a" in --set) ms_next=1; continue ;; --set=*) MODEL_SET=${a#--set=}; continue ;; esac
+  # --turbo (= FAMILIA_TURBO=1): the metrics turbo button, not a llama-server flag
+  case "$a" in --turbo) FAMILIA_TURBO=1; continue ;; --metrics) die "--metrics is set from config/metrics.json; use --turbo to turn metrics off" ;; esac
   case "$(arg_name "$a")" in --cache-ram|-cram) UA_CACHE_RAM=1 ;; esac
   case "$(arg_name "$a")" in
     --tools|--tools-runtime|-ag|--agent|--no-agent|--mcp-*|--ui-mcp-proxy|--webui-mcp-proxy|\
@@ -84,6 +93,8 @@ for a in "$@"; do
   ua_n=$((ua_n + 1))
   printf '%s' "$a" > "$ua_dir/$ua_n"
 done
+[ "$ms_next" = 0 ] || die "--set needs official or unimpeded"
+MS_TAG=serve.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
 if [ "$ua_n" -gt 0 ]; then
   echo "serve.sh: extra llama-server arguments apply to EVERY role (general, coder, decision)" >&2
 fi
@@ -376,6 +387,29 @@ section_value() {
   esac
   printf '%s' "$ROOT/$sv"
 }
+# model_set_path ROLE: the MODEL_SET pick for ROLE (config/model-sets.json) when it is installed,
+# sha256-checked. unimpeded falls through to the manifest order (its picks are the defaults);
+# official must not fall back to an uncensored default, so a missing file is pending or an error.
+model_set_path() {
+  ms_sp=$(model_set_pick "$1"); [ -n "$ms_sp" ] || return 1
+  ms_row=$(awk -v match_kv="pick=${ms_sp%%"$tab"*} role=${ms_sp#*"$tab"}" -v fields="file sha256 dir" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" | head -n 1)
+  [ -n "$ms_row" ] || return 1
+  IFS=$tab read -r ms_f ms_sha ms_dir <<MSROW
+$ms_row
+MSROW
+  [ "$ms_dir" = "-" ] && ms_dir="models/${ms_sp#*"$tab"}"
+  ms_path=$(gguf_resolve "$ms_dir/$ms_f")
+  if [ -f "$ms_path" ]; then verify_model "$ms_path" "$ms_sha"; printf '%s' "$ms_path"; return 0; fi
+  [ "$MODEL_SET" = official ] || return 1
+  if [ "${MODELS_PENDING_OK:-0}" = 1 ] && [ "$1" != general ] && [ "$1" != embed ]; then
+    mkdir -p "$ROOT/.cache"
+    printf '%s\t%s\t%s\n' "$1" "$ms_path" "$ms_sha" >> "$ROOT/.cache/pending-models"
+    echo "serve.sh: the $1 role's model $ms_f is still downloading; it hot-adds when done" >&2
+    printf '%s' "$ms_path"; return 0
+  fi
+  [ "$1" = embed ] && { warn "MODEL_SET=official: $ms_f (embed) is not installed: scripts/fetch-models.sh --set official"; printf ''; return 0; }
+  die "MODEL_SET=official: the $1 role's model $ms_f is not installed: run scripts/fetch-models.sh --set official" 3
+}
 role_model() {
   # MODEL_GENERAL / MODEL_CODER / MODEL_DECISION: a GGUF path for that role (startup recovery
   # menu, cockpit, or by hand). It wins over the preset and manifest.
@@ -395,6 +429,8 @@ role_model() {
     rm -f "$rm_rows"
     return 0
   fi
+  set_path=$(model_set_path "$1") || [ $? = 1 ] || exit 1   # 1 = no set pick here; other = died
+  if [ -n "$set_path" ]; then printf '%s' "$set_path"; rm -f "$rm_rows"; return 0; fi
   # dir "-" = models/<role>/; dir "models/<other role>" = share that role's file (one download
   # serves two roles with different parameter profiles, e.g. chat + coder on one model).
   # The role's own folder wins: a model the user installed there (fetch-models --fallback,
@@ -458,6 +494,9 @@ embed_model() {
     rm -f "$em_rows"
     return 0
   fi
+  em_path=""; em_set=0
+  em_path=$(model_set_path embed) && em_set=1 || [ $? = 1 ] || exit 1
+  if [ "$em_set" = 1 ]; then printf '%s' "$em_path"; rm -f "$em_rows"; return 0; fi
   while IFS=$tab read -r ef esha edir; do
     [ "$edir" = "-" ] || continue
     em_path=$(gguf_resolve "models/embed/$ef")
@@ -531,6 +570,52 @@ T_CODER=$(chat_template_for "$( case " $SWAP_ROLES " in *" coder "*) locale_mode
 T_DECISION=$(chat_template_for "$M_DECISION")
 T_LANGUAGE=""
 [ -n "$LANG_MODEL" ] && T_LANGUAGE=$(chat_template_for "$LANG_MODEL")
+# >>> ctx-fit (tests/test_ctx_fit.sh runs this block)
+# Fit each role's context to its model's real limit (issue: ctx vs n_ctx_train). The manifest
+# records n_ctx_train per file (read from the GGUF header at the pinned revision). A profile
+# ctx-size above it is lowered to it (llama-server would cap the slot anyway, with a warning);
+# batch / ubatch / kv-unified-per-slot never exceed the fitted ctx. No RoPE/YaRN stretching
+# here: going past n_ctx_train stays an explicit opt-in (rope-scaling keys in the preset).
+CTX_FIT=""
+preset_raw() { # SECTION KEY: the raw value in $MODELS_PRESET, else empty
+  awk -v want="$1" -v key="$2" '/^\[/ { sec = substr($0, 2, index($0, "]") - 2); next }
+    sec == want && $0 ~ ("^" key "[ \t]*=") { sub(/^[^=]*=[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$MODELS_PRESET"
+}
+ov_get() { for og_x in $OVERLAY; do [ "${og_x%%=*}" = "$1" ] && og_v=${og_x#*=}; done; printf '%s' "${og_v:-}"; og_v=""; }
+role_value() { # ROLE KEY: overlay, then [ROLE], then [*]
+  rv=$(ov_get "$1.$2"); [ -n "$rv" ] || rv=$(preset_raw "$1" "$2")
+  [ -n "$rv" ] || rv=$(ov_get "*.$2"); [ -n "$rv" ] || rv=$(preset_raw '*' "$2"); printf '%s' "$rv"
+}
+n_ctx_train_of() {
+  awk -v match_kv="" -v fields="file n_ctx_train" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
+    awk -F '\t' -v f="$(basename "$1")" '$1 == f && $2 ~ /^[0-9]+$/ { print $2; exit }'
+}
+CTX_MIN_SLOT=${CTX_MIN_SLOT:-2048}
+for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "language:$LANG_MODEL"; do
+  fit_role=${fit_pair%%:*}; fit_model=${fit_pair#*:}
+  [ -n "$fit_model" ] || continue
+  fit_train=$(n_ctx_train_of "$fit_model"); [ -n "$fit_train" ] || continue
+  fit_ctx=$(role_value "$fit_role" ctx-size)
+  case "$fit_ctx" in ''|*[!0-9]*) continue ;; esac
+  [ -n "$(role_value "$fit_role" rope-scaling)$(role_value "$fit_role" rope-scale)$(role_value "$fit_role" yarn-orig-ctx)" ] && continue
+  fit_eff=$fit_ctx
+  if [ "$fit_ctx" -gt "$fit_train" ]; then
+    fit_eff=$fit_train; ov_set "$fit_role.ctx-size" "$fit_eff"
+    CTX_FIT="$CTX_FIT $fit_role=$fit_eff(model max; profile asked $fit_ctx)"
+    echo "serve.sh: context $fit_role $fit_eff (model max; profile asked $fit_ctx)" >&2
+  fi
+  for fit_k in batch-size ubatch-size kv-unified-per-slot; do
+    fit_v=$(role_value "$fit_role" "$fit_k")
+    case "$fit_v" in ''|*[!0-9]*) continue ;; esac
+    [ "$fit_v" -gt "$fit_eff" ] && ov_set "$fit_role.$fit_k" "$fit_eff"
+  done
+  fit_par=$(role_value "$fit_role" parallel)
+  case "$fit_par" in ''|*[!0-9]*|0) fit_par=1 ;; esac   # kv-unified (llama-server default): every slot may use the whole pool
+  fit_kvu=$(role_value "$fit_role" kv-unified)
+  fit_slot=$fit_eff; [ "$fit_kvu" = false ] && fit_slot=$((fit_eff / fit_par))
+  [ "$fit_slot" -lt "$CTX_MIN_SLOT" ] && warn "the $fit_role role has only $fit_slot tokens of context per slot (ctx $fit_eff / $fit_par slots)"
+done
+# <<< ctx-fit
 mkdir -p "$ROOT/.cache"
 EFFECTIVE_PRESET=$ROOT/.cache/models-preset.effective.ini
 echo "$SIZING" > "$ROOT/.cache/sizing"   # shown by the cockpit
@@ -591,11 +676,11 @@ awk -v overlay="$OVERLAY" -v lang="$LANG_CODE" -v swap="$SWAP_ROLES" -v root="$R
 ' "$MODELS_PRESET" "$MODELS_PRESET" > "$EFFECTIVE_PRESET"
 # LFM3 family multimodal picks (cbl #49): each installed role=media row (model + mmproj, from
 # fetch-models.sh --pick lfm3-vl|lfm3-omni|lfm3-audio) is served as model alias <pick> with
-# --mmproj. MEDIA_MODELS=0 turns this off. Nothing is served when none is installed.
+# --mmproj, plus the row's ctx/reasoning/n_predict. MEDIA_MODELS=0 turns this off. Nothing is served when none is installed.
 if [ "${MEDIA_MODELS:-1}" != 0 ]; then
   md_rows=$(mktemp)
-  awk -v match_kv="role=media" -v fields="pick file sha256 dir mmproj mmproj_sha256" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$md_rows"
-  while IFS=$tab read -r md_pick md_file md_sha md_dir md_mp md_mpsha; do
+  awk -v match_kv="role=media" -v fields="pick file sha256 dir mmproj mmproj_sha256 ctx reasoning n_predict" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" > "$md_rows"
+  while IFS=$tab read -r md_pick md_file md_sha md_dir md_mp md_mpsha md_ctx md_rea md_np; do
     case "$md_mp" in ""|-) continue ;; esac
     [ "$md_dir" = "-" ] && md_dir="models-optional/$md_pick"
     md_path=$(gguf_resolve "$md_dir/$md_file")
@@ -605,16 +690,17 @@ if [ "${MEDIA_MODELS:-1}" != 0 ]; then
     verify_model "$md_path" "$md_sha"
     verify_model "$md_mpath" "$md_mpsha"
     printf '\n[%s]\nmodel = %s\nmmproj = %s\nalias = %s\n' "$md_pick" "$md_path" "$md_mpath" "$md_pick" >> "$EFFECTIVE_PRESET"
+    # Per-pick params from the manifest (LFM3 audio: small media ctx, reasoning off, larger n-predict).
+    case "$md_ctx" in ""|-) ;; *) printf 'ctx-size = %s\n' "$md_ctx" >> "$EFFECTIVE_PRESET" ;; esac
+    case "$md_rea" in ""|-) ;; *) printf 'reasoning = %s\n' "$md_rea" >> "$EFFECTIVE_PRESET" ;; esac
+    case "$md_np" in ""|-) ;; *) printf 'n-predict = %s\n' "$md_np" >> "$EFFECTIVE_PRESET" ;; esac
     echo "serve.sh: serving $md_pick ($md_file + --mmproj $md_mp)" >&2
   done < "$md_rows"
   rm -f "$md_rows"
 fi
 printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" "$SWAP_ROLES" > "$ROOT/.cache/language.json"
 
-case "$HOST" in
-  127.0.0.1|localhost|::1) ;;
-  *) warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")" ;;
-esac
+is_loopback_list "$HOST" || warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")"
 
 # One stable key per instance (docs/api-key-design.md): load it; create it atomically ONLY
 # when missing (adopting a legacy .secrets/api-keys); never rotate it on startup.
@@ -659,6 +745,7 @@ start_container() {
 }
 cleanup() {
   if [ -n "${RECOVER_PID:-}" ]; then kill "$RECOVER_PID" 2>/dev/null || true; fi
+  if [ -n "${METRICS_PID:-}" ]; then kill "$METRICS_PID" 2>/dev/null || true; fi
   if [ -n "$CONTAINER_ID" ]; then "$ENGINE" rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true; fi
   # router and embed run in their own process groups (setsid): stop them with serve.sh, whatever
   # ended serve.sh, so no llama-server is left holding the port (a restart would move to another
@@ -761,10 +848,30 @@ if [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
   [ -n "$RUNTIME_ARG" ] && export LLAMA_ARG_TOOLS_RUNTIME="$RUNTIME_ARG"
 fi
 if [ -n "$MCP_CONFIG" ] && [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
-  root_json=$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g')
-  sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
+  # Base config + enabled starter picks (config/mcp-servers.starter.json, MCP_PICKS=a,b).
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$ROOT/scripts/lib/mcp_load.py" --root "$ROOT" --base "$(abspath "$MCP_CONFIG")" \
+      --starter "$(abspath "$MCP_STARTER")" --picks "$MCP_PICKS" \
+      --out "$ROOT/.cache/mcp-servers.effective.json" || die "MCP config could not be built"
+  else
+    [ -z "$MCP_PICKS" ] || warn "python3 is missing: MCP_PICKS ($MCP_PICKS) ignored"
+    root_json=$(printf '%s' "$ROOT" | sed -e 's/[\\"]/\\&/g')
+    sed "s|@ROOT@|$root_json|g" "$(abspath "$MCP_CONFIG")" > "$ROOT/.cache/mcp-servers.effective.json"
+  fi
   export LLAMA_ARG_MCP_SERVERS_CONFIG="$ROOT/.cache/mcp-servers.effective.json"
 fi
+
+# Metrics / telemetry gate (config/metrics.json, default ON). The turbo button (--turbo,
+# FAMILIA_TURBO=1, or turbo_button.turbo:true) turns ALL collection off: no /metrics endpoint,
+# no sampler. Without python3 the gate cannot be read, so nothing is collected.
+METRICS_ON=0
+if command -v python3 >/dev/null 2>&1; then
+  if METRICS_STATE=$(FAMILIA_TURBO=${FAMILIA_TURBO:-} python3 "$ROOT/scripts/lib/metrics.py" status); then METRICS_ON=1; fi
+else
+  METRICS_STATE="off (python3 missing)"
+fi
+echo "serve.sh: metrics $METRICS_STATE" >&2
+[ "$METRICS_ON" = 1 ] && export LLAMA_ARG_ENDPOINT_METRICS=1
 
 LISTEN_HOST=$(bind_hosts "$HOST")
 PROBE_HOST=$(probe_host_of "$HOST")
@@ -820,8 +927,10 @@ resident_note=""
   printf '  Sizing:  %s (SIZING=monolithic|distributed, per host in .cache/panel.env)\n' "$SIZING"
   printf '  Profile: %s (%s): %s general/coder model(s) loaded%s%s\n' \
     "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$resident_note" "${TUNED:+; set:$TUNED}"
+  [ -n "$CTX_FIT" ] && printf '  Context: fitted to model limits:%s\n' "$CTX_FIT"
   echo '  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")'
 } > "$ROOT/.cache/profile.txt"
+echo "serve.sh: model set: $MODEL_SET (MODEL_SET / --set official|unimpeded; config/model-sets.json)" >&2
 echo "serve.sh: sizing=$SIZING profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
 echo "serve.sh: models: general=$M_GENERAL coder=$M_CODER decision=$M_DECISION" >&2
 echo "serve.sh: language: locale=$LANG_CODE ($LOCALE_SRC) mode=$MODE${SWAP_ROLES:+ swapped=[$SWAP_ROLES]}${LANG_MODEL:+ language-slot=$LANG_MODEL}" >&2
@@ -869,6 +978,12 @@ if command -v python3 >/dev/null 2>&1; then
   RECOVER_URL="http://$PROBE_URL_HOST:$PORT" API_KEY_FILE="$API_KEY_FILE" \
     python3 "$ROOT/scripts/recover.py" >>"$ROOT/.cache/recover.log" 2>&1 &
   RECOVER_PID=$!
+fi
+METRICS_PID=""
+if [ "$METRICS_ON" = 1 ]; then
+  python3 "$ROOT/scripts/lib/metrics.py" sample --url "http://$PROBE_URL_HOST:$PORT" \
+    --key-file "$API_KEY_FILE" --engine "$engine_tag" >/dev/null 2>&1 &
+  METRICS_PID=$!
 fi
 
 said_listening() {

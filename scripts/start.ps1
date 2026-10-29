@@ -105,6 +105,9 @@ if (-not $server) {
 }
 
 # --- 2. models ---------------------------------------------------------------
+# -ModelSet NAME among the serve.ps1 arguments also picks what fetch-models.ps1 downloads
+for ($msI = 0; $msI -lt $ServeArgs.Count - 1; $msI++) { if ($ServeArgs[$msI] -ieq "-ModelSet") { $env:MODEL_SET = $ServeArgs[$msI + 1] } }
+if ($env:MODEL_SET) { Assert-ModelSet $env:MODEL_SET }
 try { & (Join-Path $PSScriptRoot "fetch-models.ps1") } catch {
     $e = $_.ToString()
     if ($e -match 'curl exit (6|7)\b|could not be resolved|Unable to connect|No such host') {
