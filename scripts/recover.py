@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +51,10 @@ def main():
     try_lock_process("recover.py")
     url = os.environ.get("RECOVER_URL", "http://127.0.0.1:9931").rstrip("/")
     key_file = os.environ.get("API_KEY_FILE", "")
+    if not key_file:
+        # run by hand: the same per-port instance key serve.sh uses (created if missing)
+        from lib.snap import key_file_candidates
+        key_file = key_file_candidates(urllib.parse.urlparse(url).port or 9931)[0]
     key = ""
     if key_file and os.path.isfile(key_file):
         for line in open(key_file, encoding="utf-8"):

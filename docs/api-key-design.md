@@ -7,13 +7,20 @@
    (Windows: `%APPDATA%\familia\instances\<port>\api-keys`). `API_KEY_FILE` overrides the path.
 2. **Private.** The directory is 0700 and the file 0600 (created under `umask 077`).
 3. **Atomic create, first writer wins.** The key is written to a private temp file in the same
-   directory and published with `ln` (POSIX) or a no-overwrite `File.Move` (PowerShell). A loser
-   of the race deletes its temp file and reads the winner's key. A key file is never rewritten.
+   directory and published with `ln` (POSIX) or a no-overwrite `File.Move` (PowerShell). Where
+   hard links are refused (Android/Termux: SELinux denies `link(2)`), it is published with a
+   no-clobber `O_EXCL` create instead. A loser of the race deletes its temp file and reads the
+   winner's key. A key file is never rewritten.
 4. **Legacy adoption.** An old `.secrets/api-keys` in the checkout is adopted (copied once) so
    existing clients keep working.
-5. **One resolver.** `scripts/lib/instance-key.sh` (serve.sh, start.sh), `scripts/serve.ps1` /
-   `scripts/lib/open-ui.ps1`, `scripts/lib/snap.py` and familia's `scripts/familia_auth.py`
-   all compute the same path: `API_KEY_FILE`, then the instance file, then the legacy file.
+5. **One resolver, and every path creates.** `scripts/lib/instance-key.sh` (serve.sh, start.sh),
+   `scripts/lib/instance-key.ps1` (serve.ps1, open-ui.ps1), `scripts/lib/snap.py`
+   (`ensure_instance_key`, `key_file_candidates`: cockpit.py, agent.py, recover.py) and
+   familia's `scripts/familia_auth.py` all compute the same path: `API_KEY_FILE`, then the
+   instance file, then the legacy file. Each creates the per-port instance file the same way
+   when it is missing (invariants 2-4); an explicit `API_KEY_FILE` is created only by the
+   launchers (serve.sh, start.sh, serve.ps1, open-ui.ps1), never by a client.
+   `tests/test_instance_key_paths.py` checks that all three implementations agree.
 6. **Probes are authenticated, and 401 is never "no server".** serve.sh's ready watcher calls
    `/v1/models` with the key after `/health`; on 401/403 it prints an ERROR ("key
    misconfiguration, not a missing server... do not start another one") and writes no ready file.

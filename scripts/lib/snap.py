@@ -231,10 +231,77 @@ def instance_key_file(port=None):
     return os.path.join(base, "familia", "instances", port, "api-keys")
 
 
+def _key_lines(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [l.strip() for l in f if l.strip() and not l.strip().startswith("#")]
+    except OSError:
+        return []
+
+
+def ensure_instance_key(path, legacy=None):
+    """Python twin of instance_key_ensure (scripts/lib/instance-key.sh, docs/api-key-design.md):
+    create <path> only when missing or empty (dir 700, file 600), adopting the legacy checkout
+    key when it has one, else a fresh random key. Atomic, first writer wins: a private temp file
+    is published with link(), or an O_EXCL create where hard links are refused (Android/Termux,
+    some Windows volumes). Never overwrites or rotates a key and never prints it."""
+    d = os.path.dirname(os.path.abspath(path))
+    old = os.umask(0o077)
+    try:
+        os.makedirs(d, exist_ok=True)
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+        if not (os.path.isfile(path) and os.path.getsize(path) > 0):
+            import secrets
+            import tempfile
+            if legacy and _key_lines(legacy):
+                with open(legacy, encoding="utf-8") as f:
+                    body = f.read()
+            else:
+                body = "# llama-server API key(s), one per line\n" + secrets.token_hex(24) + "\n"
+            fd, tmp = tempfile.mkstemp(prefix=".api-keys.", suffix=".tmp", dir=d)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(body)
+                try:
+                    os.link(tmp, path)
+                except FileExistsError:
+                    pass  # another starter won the race: everyone reads its key
+                except (OSError, AttributeError, NotImplementedError):
+                    try:
+                        out = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                        with os.fdopen(out, "w", encoding="utf-8", newline="\n") as f:
+                            f.write(body)
+                    except FileExistsError:
+                        pass
+            finally:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    finally:
+        os.umask(old)
+    return path
+
+
 def key_file_candidates(port=None):
+    """API_KEY_FILE as given (an explicit override is never created here), else the per-port
+    instance file, created when missing (adopting the legacy key), then the legacy file."""
     if os.environ.get("API_KEY_FILE"):
         return [os.environ["API_KEY_FILE"]]
-    return [instance_key_file(port), os.path.join(_root(), ".secrets", "api-keys")]
+    legacy = os.path.join(_root(), ".secrets", "api-keys")
+    kf = instance_key_file(port)
+    try:
+        ensure_instance_key(kf, legacy)
+    except OSError:
+        pass  # unwritable config dir: fall back to reading what exists
+    return [kf, legacy]
 
 def _http(url, method, path, key, body=None):
     data = None if body is None else json.dumps(body).encode()
