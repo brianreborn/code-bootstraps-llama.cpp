@@ -52,7 +52,7 @@ footer{text-align:center;color:var(--dim);font-size:10px;letter-spacing:.3em;pad
 <select id="r_REASONING"><option value="">reasoning</option><option>off</option><option>on</option><option>auto</option></select>
 <select id="r_PROFILE"><option value="">profile</option><option>lowram</option><option>moderate</option><option>default</option></select>
 <input id="r_CTX" placeholder="ctx" size=6> <input id="r_READY_TIMEOUT" placeholder="timeout s" size=7> <input id="r_GPU_LAYERS" placeholder="gpu layers" size=6>
-<input id="r_MODEL_GENERAL" placeholder="general .gguf path" size=28> <input id="r_LLAMA_SERVER" placeholder="llama-server path" size=24>
+<select id="r_MODEL_PICK" style="display:none" onchange="$('r_MODEL_GENERAL').value=this.value"><option value="">general model</option></select> <input id="r_MODEL_GENERAL" placeholder="general .gguf path" size=28> <input id="r_LLAMA_SERVER" placeholder="llama-server path" size=24>
 <button id="r_retry">retry</button> <button id="r_wait">keep waiting</button></div></div>
 <main id="m"></main>
 <footer>ALL LOG DISPLAYS ON BY DEFAULT · TAP A SWITCH TO POWER A SCREEN DOWN · HEAT MAP IS SYNTHETIC (OPT-IN)</footer>
@@ -92,7 +92,9 @@ async function start(){
 }
 async function srv(){try{const r=await fetch("/api/models",{headers:H()});const j=await r.json();
   if(j.need_key){$("mk").style.display="";$("srv").textContent="no instance key file: "+j.error;return}$("mk").style.display="none";
-  $("srv").textContent=r.ok?(j.data||[]).filter(m=>(m.status||{}).value=="loaded").length+"/"+(j.data||[]).length:(j.error||r.status)}catch(e){$("srv").textContent="?"}}
+  pick(r.ok?j.data:[]);$("srv").textContent=r.ok?(j.data||[]).filter(m=>(m.status||{}).value=="loaded").length+"/"+(j.data||[]).length:(j.error||r.status)}catch(e){$("srv").textContent="?"}}
+function pick(d){const p=$("r_MODEL_PICK"),g=[...new Set((d||[]).map(m=>m.path||m.id).filter(v=>/\.gguf$/i.test(v||"")))];
+  if(!g.length){p.style.display="none";return}const cur=p.value;p.length=1;g.forEach(v=>p.add(new Option(v.split(/[\\/]/).pop(),v)));p.value=g.includes(cur)?cur:"";p.style.display=""}
 function setKey(){mkey=$("mki").value.trim();sessionStorage.mk=mkey;srv()}
 async function rec(action){const b={ACTION:action};for(const k of ["SIZING","REASONING","PROFILE","CTX","READY_TIMEOUT","GPU_LAYERS","MODEL_GENERAL","LLAMA_SERVER"]){const v=$("r_"+k).value.trim();if(v)b[k]=v}
   const r=await fetch("/recover",{method:"POST",headers:Object.assign(H(),{"Content-Type":"application/json"}),body:JSON.stringify(b)});$("sud").textContent=r.ok?"sent: "+action:"refused: "+await r.text()}
