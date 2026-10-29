@@ -654,10 +654,7 @@ if [ "${MEDIA_MODELS:-1}" != 0 ]; then
 fi
 printf '{"locale": "%s", "mode": "%s", "swapped": "%s"}\n' "$LANG_CODE" "$MODE" "$SWAP_ROLES" > "$ROOT/.cache/language.json"
 
-case "$HOST" in
-  127.0.0.1|localhost|::1) ;;
-  *) warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")" ;;
-esac
+is_loopback_list "$HOST" || warn "$(t "the chosen host '$HOST' is not loopback; keep the API key secret")"
 
 # One stable key per instance (docs/api-key-design.md): load it; create it atomically ONLY
 # when missing (adopting a legacy .secrets/api-keys); never rotate it on startup.

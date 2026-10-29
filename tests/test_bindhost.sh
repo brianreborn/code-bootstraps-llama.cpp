@@ -53,6 +53,11 @@ eq "$(probe_host_of fe80::1)" "127.0.0.1" "link-local probes loopback"
 eq "$(pubs fe80::1)" "fe80::1" "link-local is public"
 eq "$(url_host fe80::1)" "[fe80::1]" "link-local url brackets"
 
+# same per-entry loopback rule as is_loopback_list (127.0.0.0/8, [::1], spaces trimmed)
+eq "$(bind_hosts 127.0.0.2)" "127.0.0.2" "other 127/8 address binds as given"
+eq "$(pubs '127.0.0.1, 192.168.1.20')" "192.168.1.20" "public list keeps only the lan entry, trimmed"
+eq "$(pubs '[::1],127.0.0.5')" "" "loopback-only list has no public address"
+eq "$(pubs 127.0.0.1,0.0.0.0)" "" "wildcard is not a public address"
 eq "$(bind_hosts '')" "127.0.0.1" "empty host is loopback"
 eq "$(bind_hosts '0.0.0.0,192.168.1.20')" "0.0.0.0,192.168.1.20" "wildcard list is not doubled"
 eq "$(pubs '0.0.0.0,192.168.1.20')" "192.168.1.20" "wildcard list still names the lan address"

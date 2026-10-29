@@ -10,6 +10,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $Scripts "lib/common.ps1")
 $fails = 0
+. (Join-Path $Scripts "lib/bindhost.ps1")
+
 $onRealWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT   # (not renamed by the 5.1 emulation)
 function Check([string]$Name, [bool]$Ok, [string]$Detail = "") {
     if ($Ok) { Write-Output "ok   $Name" } else { Write-Output "FAIL $Name $Detail"; $script:fails++ }
@@ -17,6 +19,22 @@ function Check([string]$Name, [bool]$Ok, [string]$Detail = "") {
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("ps1-helpers-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
+    # --- Test-LoopbackList (bindhost.ps1; same table as tests/test_loopback.sh / .py) ---
+    $casesFile = Join-Path (Split-Path -Parent $PSCommandPath) "loopback-cases.txt"
+    $nCases = 0
+    foreach ($line in [IO.File]::ReadAllLines($casesFile)) {
+        if ($line.StartsWith("#")) { continue }
+        $cut = $line.LastIndexOf("|")
+        $v = $line.Substring(0, $cut); $want = $line.Substring($cut + 1) -eq "1"
+        $nCases++
+        Check "loopback list '$v' = $want" ((Test-LoopbackList $v) -eq $want)
+    }
+    Check "loopback: table has cases" ($nCases -gt 20)
+    Check "bind: 127.0.0.2 binds as given" ((Get-BindHost "127.0.0.2") -eq "127.0.0.2")
+    $ph = @(Get-PublicHosts "127.0.0.1, 192.168.1.20")
+    Check "public: list keeps only the lan entry, trimmed" ($ph.Count -eq 1 -and $ph[0] -eq "192.168.1.20")
+    Check "public: 127.0.0.1 has none (Count 0, not one empty array)" (@(Get-PublicHosts "127.0.0.1").Count -eq 0)
+    Check "public: loopback-only list has none" (@(Get-PublicHosts "[::1],127.0.0.5").Count -eq 0)
     # --- Test-ServerSaidListening (serve.ps1's readiness check) ---
     $log = Join-Path $tmp "server.log"
     Check "listening: no log file -> false" (-not (Test-ServerSaidListening -LogFile $log -Port 9931))
