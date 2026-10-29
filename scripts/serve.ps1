@@ -418,36 +418,9 @@ Write-TextFile (Join-Path $Root ".cache\language.json") ('{{"locale": "{0}", "mo
 # One stable API key per instance (docs/api-key-design.md): %APPDATA%\familia\instances\<port>\api-keys
 # (XDG_CONFIG_HOME or ~/.config off Windows), readable by this user only, created atomically ONLY when
 # missing (adopting a legacy .secrets\api-keys), never rotated on startup. $env:API_KEY_FILE overrides.
-$cfgBase = if (Test-Windows) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
-$keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path (Join-Path (Join-Path (Join-Path $cfgBase "familia") "instances") "$Port") "api-keys" }
-$keyDir = Split-Path -Parent $keyFile
-$legacyKeyFile = Join-Path (Join-Path $Root ".secrets") "api-keys"
-New-Item -ItemType Directory -Force -Path $keyDir | Out-Null
-function Set-Private([string]$path, [bool]$dir) {
-    if (Test-Windows) {
-        $grant = if ($dir) { "$($env:USERNAME):(OI)(CI)F" } else { "$($env:USERNAME):F" }
-        icacls $path /inheritance:r /grant:r $grant | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "icacls could not restrict $path (exit $LASTEXITCODE); the API key would be readable by others" }
-    } else { chmod $(if ($dir) { "700" } else { "600" }) $path }
-}
-Set-Private $keyDir $true
-if (-not (Test-Path -LiteralPath $keyFile) -or (Get-Item -LiteralPath $keyFile).Length -eq 0) {
-    # private temp file in the same dir, then an atomic no-overwrite Move: if another starter won
-    # the bootstrap race the Move throws and everyone reads the winner's key
-    $tmp = Join-Path $keyDir (".api-keys.{0}.tmp" -f $PID)
-    New-Item -ItemType File -Force -Path $tmp | Out-Null
-    Set-Private $tmp $false
-    $legacy = if (Test-Path -LiteralPath $legacyKeyFile) { @(Get-Content -LiteralPath $legacyKeyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") }) } else { @() }
-    if ($legacy.Count -gt 0) {
-        Write-TextFile $tmp (@("# llama-server API key(s), one per line (adopted from $legacyKeyFile)") + $legacy)
-    } else {
-        $bytes = New-Object byte[] 24; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-        Write-TextFile $tmp @("# llama-server API key(s), one per line", (($bytes | ForEach-Object { $_.ToString("x2") }) -join ""))
-    }
-    try { [System.IO.File]::Move($tmp, $keyFile); Write-Host "serve.ps1: created instance API key in $keyFile" }
-    catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
-}
-Set-Private $keyFile $false
+. (Join-Path $PSScriptRoot "lib\instance-key.ps1")
+$keyFile = Get-InstanceKeyFile $Port
+Initialize-InstanceKey $keyFile (Join-Path (Join-Path $Root ".secrets") "api-keys")
 $keys = (Get-Content $keyFile | Where-Object { $_.Trim() -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() }) -join ","
 if (-not $keys) { throw "no key in $keyFile" }
 

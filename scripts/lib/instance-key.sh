@@ -26,8 +26,11 @@ instance_key_ensure() {
       else
         echo "# llama-server API key(s), one per line"; od -An -tx1 -N24 /dev/urandom | tr -d ' \n'; echo
       fi > "$_tmp" )
-    # ln fails when another starter won the race: both then read the winner's key
-    if ln "$_tmp" "$_kf" 2>/dev/null; then
+    # ln fails when another starter won the race: both then read the winner's key.
+    # Android (Termux) forbids hard links (SELinux denies link(2)), so ln always fails there:
+    # then publish with a no-clobber (O_EXCL) create, which still never overwrites a key.
+    if ln "$_tmp" "$_kf" 2>/dev/null ||
+       { [ ! -e "$_kf" ] && ( umask 077; set -C; cat "$_tmp" > "$_kf" ) 2>/dev/null; }; then
       echo "instance-key: created $_kf" >&2
     fi
     rm -f "$_tmp"

@@ -22,8 +22,9 @@ while ($cap -le 0 -or $sw.Elapsed.TotalSeconds -lt $cap) {
 }
 if (-not $ready) { Write-Host "start: the server was not ready after $([int]$sw.Elapsed.TotalSeconds)s (OPEN_UI_TIMEOUT=$cap); the web UI was not opened"; exit 0 }
 # the instance key of the port that went ready (same resolution as serve.ps1)
-$cfgBase = if ($env:APPDATA) { $env:APPDATA } elseif ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { Join-Path $HOME ".config" }
-$keyFile = if ($env:API_KEY_FILE) { $env:API_KEY_FILE } else { Join-Path $cfgBase "familia\instances\$Port\api-keys" }
+. (Join-Path $PSScriptRoot "instance-key.ps1")
+$keyFile = Get-InstanceKeyFile $Port
+Initialize-InstanceKey $keyFile (Join-Path (Join-Path $Root ".secrets") "api-keys")
 $url = "http://127.0.0.1:$Port/?model=chat"
 . (Join-Path $PSScriptRoot "bindhost.ps1")
 $lanHost = if ($env:HOST) { $env:HOST } else { "127.0.0.1" }
