@@ -22,26 +22,15 @@
             "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
             "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ],
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"],
             "smoke": "2026-10-27 b11944 x86_64 CPU, API key on: loads, tool call get_weather({\"city\":\"Paris\"}) OK"
         },
         {
@@ -62,25 +51,14 @@
             "db_id": "AtomicChat--LFM3-1.7B-Uncensored-GGUF--LFM3-1.7B-Uncensored-AD-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "top-k": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152 (base model card)"},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ]
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"]
         },
         {
             "role": "general",
@@ -98,38 +76,16 @@
             "db_id": "LiquidAI--LFM3-1.7B-GGUF--LFM3-1.7B-Q4_K_M",
             "base_model": "LiquidAI/LFM3-1.7B",
             "base_revision": "40ebe0aa6662c9d40389c2f5d565b6a2c6aebacd",
-            "card_defaults": {
-                "temp": 0.1,
-                "top-k": 50,
-                "repeat-penalty": 1.1
-            },
+            "card_defaults": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1},
             "card_default_set": "General",
-            "card_defaults_source": {
-                "temp": "LiquidAI/LFM3-1.7B README.md:L152",
-                "top-k": "LiquidAI/LFM3-1.7B README.md:L152",
-                "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152"
-            },
-            "card_sampling_modes": {
-                "General": {
-                    "temp": 0.1,
-                    "top-k": 50,
-                    "repeat-penalty": 1.1
-                },
-                "Math & STEM": {
-                    "temp": 1.0,
-                    "top-p": 0.95,
-                    "top-k": 20
-                }
-            },
+            "card_defaults_source": {"temp": "LiquidAI/LFM3-1.7B README.md:L152", "top-k": "LiquidAI/LFM3-1.7B README.md:L152", "repeat-penalty": "LiquidAI/LFM3-1.7B README.md:L152"},
+            "card_sampling_modes": {"General": {"temp": 0.1, "top-k": 50, "repeat-penalty": 1.1}, "Math & STEM": {"temp": 1.0, "top-p": 0.95, "top-k": 20}},
             "card_ctx": 262144,
             "card_ctx_source": "LiquidAI/LFM3-1.7B README.md:L51",
             "native_ctx": 262144,
             "native_ctx_source": "card: LiquidAI/LFM3-1.7B README.md:L51",
             "requires_llama_cpp": "b11938 (arch lfm3, ggml-org/llama.cpp#31252)",
-            "required": [
-                "--jinja",
-                "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"
-            ],
+            "required": ["--jinja", "@tools calls come back as XML <tool_call>...</tool_call>, parsed by the GGUF's chat template"],
             "alternatives": [
                 {
                     "file": "LFM3-1.7B-QAD-Q4_0.gguf",
@@ -666,8 +622,29 @@
             "notice": "LFM3 Audio (LFM3-Audio-2B) is LiquidAI's under the LFM Open License v1.0 (lfm1.0): commercial use is licensed only for organisations below US$10 million annual revenue. Read https://huggingface.co/LiquidAI/LFM3-Audio-2B-GGUF/blob/642697a5597a675cb819ed236ac415c1e60a4f6f/LICENSE",
             "note": "opt-in (--pick lfm3-audio): LFM3 family audio model, never fetched by default; served as model alias lfm3-audio with --mmproj when installed",
             "smoke": "2026-10-28 b11944 prebuilt x86_64 CPU llama-mtmd-cli: model+mmproj load; 440 Hz tone replies only text_end tokens (needs a real speech clip and chat-template check): PARTIAL TESTED"
+        },
+        {
+            "role": "chat",
+            "pick": "local",
+            "repo": "bartowski/SmolLM2-135M-Instruct-GGUF",
+            "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+            "file": "SmolLM2-135M-Instruct-Q4_0.gguf",
+            "quant": "Q4_0",
+            "bytes": 91893088,
+            "sha256": "bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03",
+            "license": "apache-2.0",
+            "ctx": 8192,
+            "tested": false,
+            "arch": "llama",
+            "base_model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+            "card_commands": [{"tool": "huggingface-cli", "command": "huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF --include \"SmolLM2-135M-Instruct-Q4_K_M.gguf\" --local-dir ./", "source": "README.md:L77"}, {"tool": "huggingface-cli", "command": "huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF --include \"SmolLM2-135M-Instruct-Q8_0/*\" --local-dir ./", "source": "README.md:L83"}],
+            "chat_template": {"gguf_sha256": "872be49dbb638044ad01b60388f48d469ff2980e5f0dccdc22ec907db54d0788"},
+            "stop": {"eos_token_id": 2, "eos_token_id_source": "GGUF tokenizer.ggml.eos_token_id"},
+            "rope": {"rope.freq_base": 100000.0, "source": "GGUF metadata"},
+            "files": {"README.md": "09b1f05942d11f5c47aac9789dde6fa8e431cdd541028532a7fb6f1c0e63d939"},
+            "inferred": {"role": "--role", "quant": "filename", "license": "card front matter", "ctx": "GGUF llama.context_length", "by": "scripts/add_model.py"},
+            "unknown": ["card_defaults: the card and generation_config.json state no sampling values", "config.json"]
         }
-
     ],
     "unplaced_options": [
         {
