@@ -2,7 +2,7 @@
 # PROFILE ctx consistency and explicit --ctx-size/--parallel beating the profile (#15).
 # Stub llama-server exits at once; no model is loaded.
 set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/scripts/lib/common.sh"
 T=$(mktemp -d)
 fails=0

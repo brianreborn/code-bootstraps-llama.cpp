@@ -3,7 +3,7 @@
 # (the same table tests/test_loopback.py and tests/test-ps1-helpers.ps1 check).
 #   sh tests/test_loopback.sh
 set -eu
-ROOT_REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT_REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT_REPO/scripts/lib/bindhost.sh"
 fails=0 n=0
 while IFS= read -r line; do
