@@ -19,7 +19,12 @@ set -u
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 REPO=${E2E_REPO:-$(git -C "$HERE" remote get-url origin)}
 BRANCH=${E2E_BRANCH:-$(git -C "$HERE" rev-parse --abbrev-ref HEAD)}
-W=${E2E_WORK:-$(mktemp -d /tmp/e2e-journey.XXXXXX)}
+umask 077
+W_OWN=0; if [ -n "${E2E_WORK:-}" ]; then W=$E2E_WORK
+else W=$(mktemp -d "${TMPDIR:-/tmp}/e2e-journey.XXXXXX") || { echo "mktemp failed" >&2; exit 1; }; W_OWN=1; fi
+E2E_OK=0
+# Our own temp dir goes on success or interrupt; kept on failure for debugging (as documented).
+cleanup_w() { [ "$W_OWN" = 1 ] && [ "${E2E_OK:-0}" = 1 ] && rm -rf "$W"; return 0; }
 READY_MAX=${E2E_READY_TIMEOUT:-3600}; DL_MAX=${E2E_DL_TIMEOUT:-1800}
 FAM=${FAMILIA_DIR:-$HERE/../familia}
 mkdir -p "$W"; R=$W/repo; LOG=$W/start.log; RES=$W/results.txt; : > "$RES"
@@ -39,7 +44,8 @@ stop_app() { # like Ctrl-C in the terminal: INT to the launcher, then everything
   STOP_LEFT=$(left_procs | head -n 3)
   [ -n "$STOP_LEFT" ] && { left_procs | awk '{print $1}' | xargs -r kill -KILL 2>/dev/null; }
   SPID=""; }
-trap 'stop_app' EXIT INT TERM
+trap 'stop_app; cleanup_w' EXIT
+trap 'E2E_OK=1; exit 130' INT TERM
 wait_log() { # PATTERN SECONDS [FROM_LINE]: 0 when the start output shows PATTERN
   i=0; while [ "$i" -lt "$2" ]; do
     tail -n +"${3:-1}" "$LOG" 2>/dev/null | grep -qE "$1" && return 0
@@ -173,4 +179,4 @@ p=$(grep -c '	pass	' "$RES"); f=$(grep -c '	fail	' "$RES"); s=$(grep -c '	skip	'
 echo; echo "================ USER JOURNEY: $p passed, $f failed, $s skipped ================"
 awk -F '\t' '{ printf "  %-5s %-15s %s%s\n", toupper($2), $1, $3, ($4 != "" ? "\n        " $4 : "") }' "$RES"
 echo "  details: $LOG, $RES"
-[ "$f" = 0 ] && { [ -n "${E2E_WORK:-}" ] || rm -rf "$W"; exit 0; } || exit 1
+[ "$f" = 0 ] && { E2E_OK=1; exit 0; } || exit 1
