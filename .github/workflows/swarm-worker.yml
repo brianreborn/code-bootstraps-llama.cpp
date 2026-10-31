@@ -70,6 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           ref: ${{ needs.dispatch.outputs.ref }}
       - id: run
         run: |
