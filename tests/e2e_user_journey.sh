@@ -24,7 +24,7 @@ W_OWN=0; if [ -n "${E2E_WORK:-}" ]; then W=$E2E_WORK
 else W=$(mktemp -d "${TMPDIR:-/tmp}/e2e-journey.XXXXXX") || { echo "mktemp failed" >&2; exit 1; }; W_OWN=1; fi
 E2E_OK=0
 # Our own temp dir goes on success or interrupt; kept on failure for debugging (as documented).
-cleanup_w() { [ "$W_OWN" = 1 ] && [ "${E2E_OK:-0}" = 1 ] && rm -rf "$W"; return 0; }
+cleanup_w() { [ "$W_OWN" = 1 ] && [ "${E2E_OK:-0}" = 1 ] && rm -rf -- "$W"; return 0; }
 READY_MAX=${E2E_READY_TIMEOUT:-3600}; DL_MAX=${E2E_DL_TIMEOUT:-1800}
 FAM=${FAMILIA_DIR:-$HERE/../familia}
 mkdir -p "$W"; R=$W/repo; LOG=$W/start.log; RES=$W/results.txt; : > "$RES"
