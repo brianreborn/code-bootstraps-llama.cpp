@@ -2,7 +2,7 @@
 # Context fitting (n_ctx_train): runs serve.sh's ctx-fit block with a stub manifest and preset,
 # and gguf_ctx.py on a synthetic GGUF header. No model, no server.
 set -eu
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd); root=$(dirname "$here")
+here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd); root=$(dirname "$here")
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail() { echo "test_ctx_fit: FAIL $*" >&2; exit 1; }
 # 1) gguf_ctx.py reads <arch>.context_length from the header
@@ -37,6 +37,7 @@ printf '[*]\nctx-size = 131072\n[general]\ntemp = 0.4\n[decision]\nctx-size = 32
 sed -n '/^# >>> ctx-fit/,/^# <<< ctx-fit/p' "$root/scripts/serve.sh" > "$tmp/fit.sh"
 [ -s "$tmp/fit.sh" ] || fail "ctx-fit markers missing in serve.sh"
 run() { # OVERLAY -> prints OVERLAY and CTX_FIT after the block
+  # shellcheck disable=SC2034  # read by the sourced ctx-fit block
   ( ROOT=$root MANIFEST=$tmp/m.json MODELS_PRESET=$tmp/p.ini OVERLAY=$1
     M_GENERAL=/x/big.gguf M_CODER=/x/big.gguf M_DECISION=/x/small.gguf LANG_MODEL=""
     warn() { echo "WARN $*"; }
