@@ -237,7 +237,7 @@ start_cockpit() {
   cp_port=${COCKPIT_PORT:-9933}
   i=0
   while [ "$i" -le 20 ]; do
-    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/session" 2>/dev/null | grep -q '"auth"'; then
+    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/" 2>/dev/null | grep -q 'name="cockpit-token"'; then
       say "cockpit (live logs): http://127.0.0.1:$cp_port/ (already running)"; return 0
     fi
     port_busy "$cp_port" || break
