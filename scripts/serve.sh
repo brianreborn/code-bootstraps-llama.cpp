@@ -1016,13 +1016,15 @@ rm -f "$STUCK_FILE"
 # STARTUP_LOG=live (default) streams every llama-server line to this terminal while it starts
 # (the cockpit streams the same file); quiet = progress lines only.
 LIVE_TAIL_PID=""
+# issue #38: mask instance keys in everything streamed to the start log/terminal
+KEY_SED=$(key_redact_sed "$API_KEYS"); [ -n "$KEY_SED" ] || KEY_SED="s/^//"
 if [ "${STARTUP_LOG:-live}" = live ] && command -v tail >/dev/null 2>&1; then
   : >> "$LOG_FILE"
   # background model downloads (start.sh MODELS_BG) show their progress here too
   if [ -f "$ROOT/.cache/fetch-models.log" ] && [ -s "$ROOT/.cache/pending-models" ]; then
-    ( tail -n 0 -F "$LOG_FILE" "$ROOT/.cache/fetch-models.log" 2>/dev/null | { if command -v stdbuf >/dev/null 2>&1; then stdbuf -o0 tr '\r' '\n'; else cat; fi; } | sed -u -e '/^==> .* <==$/d' -e '/^$/d' -e 's/^/  | /' >&2 ) &
+    ( tail -n 0 -F "$LOG_FILE" "$ROOT/.cache/fetch-models.log" 2>/dev/null | { if command -v stdbuf >/dev/null 2>&1; then stdbuf -o0 tr '\r' '\n'; else cat; fi; } | sed -u -e '/^==> .* <==$/d' -e '/^$/d' -e "$KEY_SED" -e 's/^/  | /' >&2 ) &
   else
-    ( tail -n +1 -F "$LOG_FILE" 2>/dev/null | sed -u 's/^/  | /' >&2 ) &
+    ( tail -n +1 -F "$LOG_FILE" 2>/dev/null | sed -u -e "$KEY_SED" -e 's/^/  | /' >&2 ) &
   fi
   LIVE_TAIL_PID=$!
 fi

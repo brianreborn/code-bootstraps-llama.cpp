@@ -38,3 +38,12 @@ instance_key_ensure() {
 instance_key_first() { # <file>
   grep -v -e '^#' -e '^[[:space:]]*$' "$1" 2>/dev/null | tr -d ' \r' | head -n 1
 }
+
+# issue #38: never log a full key. key_mask <key> -> ****<last4>
+key_mask() { _k=$1; [ ${#_k} -gt 4 ] && printf '****%s\n' "${_k#"${_k%????}"}" || printf '****\n'; }
+# key_redact_sed <comma-list>: prints a sed script that masks every listed key
+key_redact_sed() {
+  _out=""; _old=$IFS; IFS=,
+  for _k in $1; do [ -n "$_k" ] || continue; _out="$_out;s/$(printf '%s' "$_k" | sed 's/[^A-Za-z0-9]/\\&/g')/$(key_mask "$_k")/g"; done
+  IFS=$_old; printf '%s\n' "${_out#;}"
+}
