@@ -71,7 +71,15 @@ else bad "patched llama-server lost TOOLS: $(tail -n 3 "$T/patched/out.txt")"; f
 REAL=${REAL_LLAMA_SERVER:-}
 [ -n "$REAL" ] || for c in "$ROOT"/build-*/bin/llama-server; do [ -x "$c" ] && { REAL=$c; break; }; done
 GG=${TEST_GGUF:-}
-[ -n "$GG" ] || for g in /tmp/smoke/tiny.gguf /tmp/smoke/lfm3.gguf; do [ -f "$g" ] && { GG=$g; break; }; done
+# No /tmp fallback: a GGUF planted in a shared dir could be loaded. Only an explicit
+# TEST_GGUF or a file under the user's own cache dir is used, and only if it is ours and not a symlink.
+SMOKE=${XDG_CACHE_HOME:-$HOME/.cache}/code-bootstraps-llama.cpp/smoke
+[ -n "$GG" ] || for g in "$SMOKE/tiny.gguf" "$SMOKE/lfm3.gguf"; do [ -f "$g" ] && { GG=$g; break; }; done
+if [ -n "$GG" ]; then
+  if [ -L "$GG" ] || [ ! -f "$GG" ] || [ ! -O "$GG" ]; then
+    echo "SKIP live check: refusing $GG (missing, a symlink, or not owned by $(id -un))"; GG=""
+  fi
+fi
 if [ -z "$REAL" ] || [ -z "$GG" ] || ! command -v curl >/dev/null 2>&1; then
   echo "SKIP live check (set REAL_LLAMA_SERVER and TEST_GGUF)"
 elif ! grep -aqs router-child-no-tools "$REAL" "$(dirname "$REAL")"/*.so* "$(dirname "$REAL")"/*.dll; then
