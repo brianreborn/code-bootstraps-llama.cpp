@@ -76,6 +76,157 @@ The names of those choices, and what they refuse, are under "Light tuning" below
 
 Everything after this is the detail: the pinned llama.cpp, the models, what was run, and what the server will not do.
 
+## Diagrams
+
+Mermaid diagrams of `main` (`542d5e3`, llama.cpp pin `b11969`), rendered by GitHub.
+
+### Components
+
+```mermaid
+flowchart TB
+  inst["install.sh / install.ps1<br/>download, EXPECTED_SHA256, notice"]
+  start["start.sh / start.bat / start.command"]
+  fl["scripts/fetch-llama.sh / .ps1<br/>config/llama-pin.env, llama-release.json"]
+  build["scripts/build-*.sh / build-windows.ps1<br/>pinned source + patches/<br/>(FreeBSD: build-linux.sh, BUILD_DIR=build-freebsd)"]
+  fm["scripts/fetch-models.sh / .ps1<br/>config/models-manifest.json"]
+  store[("GGUF store<br/>GGUF_HOME or the model directory<br/>models/role/")]
+  serve["scripts/serve.sh / .ps1<br/>llama-server router mode<br/>(local gateway)"]
+  preset["config/models-preset.ini<br/>-> .cache/models-preset.effective.ini"]
+  kids["model children (local model servers)<br/>general, coder, decision"]
+  embed["embed server<br/>(local model server)"]
+  cockpit["scripts/cockpit.py<br/>logs, recovery"]
+  panel["scripts/panel.py<br/>settings"]
+  key[("per-instance API key<br/>in the instance config directory")]
+
+  inst --> start
+  start --> fl
+  fl -->|"no release binary fits<br/>(FreeBSD, Termux) or BUILD=1"| build
+  start --> fm --> store
+  start --> serve
+  preset --> serve
+  store --> serve
+  serve -->|spawns| kids
+  serve --> embed
+  key --> serve
+  start -->|"COCKPIT=1 and python3,<br/>before serve"| cockpit
+  panel -.->|.cache/panel.env| start
+```
+
+### Request routing
+
+```mermaid
+sequenceDiagram
+  participant C as Client (familia, Hermes desktop frontend, curl)
+  participant R as llama-server router (local gateway)
+  participant K as Child for "general" / "coder" / "decision"
+  C->>R: POST /v1/chat/completions, Bearer API key, model = coder
+  R->>R: check API key
+  opt child for that model not loaded
+    R->>K: spawn the child and wait for it,<br/>evicting the LRU child beyond --models-max
+  end
+  R->>K: forward to the child (children inherit LLAMA_API_KEY,<br/>patch 0001 adds the key to the router's own stream calls)
+  Note over R,K: tools and MCP belong to the router only. The router-child-no-tools<br/>patch is not in patches/ yet, so serve.sh turns tools and MCP off<br/>when the binary lacks that marker
+  K-->>R: completion (stream)
+  R-->>C: completion
+```
+
+### Launcher flow (`start.sh`)
+
+`install.sh` / `install.ps1` show the contribution notice first (`INSTALL_ACK=yes`, or a person types yes; `INSTALL_ACK=no` refuses). `start.sh` itself has no notice. On Windows, `start.bat` runs `scripts/start.ps1`, which uses the `.ps1` twins of these scripts.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Tools: curl, tar, awk, sha256 tool present
+  Tools --> Failed: missing, install refused or failed
+  Tools --> Runtime: AUTO_DEPS=1 + terminal, install confirmed and done
+  Tools --> Runtime
+  Runtime --> Named: LLAMA_SERVER= set by the user
+  Runtime --> Reuse: existing build-*/bin/llama-server (unless BUILD=1)
+  Runtime --> Release: sha256-checked b11969 release binary
+  Runtime --> Build: no release binary fits (exit 3), or BUILD=1
+  Runtime --> Failed: release download failed (not exit 3)
+  Build --> Failed: cmake or sources missing, or no llama-server built
+  Named --> Models
+  Reuse --> Models
+  Release --> Models
+  Build --> Models
+  Models --> PortPick: general present + sha256-checked (others download in background unless MODELS_BG=0)
+  Models --> Failed: model fetch failed (exit 1 when the model host is unreachable)
+  PortPick --> Cockpit: PORT free, or the next free port up to +20
+  PortPick --> Failed: no free port
+  Cockpit --> Serve: cockpit in background (COCKPIT=1 and python3), UI opener waits for serve.ready
+  Serve --> Ready: serve.ready written (router /health + key probe ok)
+  Serve --> Recovery: READY_TIMEOUT, or router exits before ready
+  Recovery --> Serve: retry (menu or cockpit) re-execs serve.sh, stopping router and embed, or wait re-probes
+  Recovery --> Recovery: no terminal, or leave running chosen: router kept, readiness not re-probed, serve.ready never written
+  Recovery --> Failed: router exited and no retry chosen (or no terminal), exit with its status
+  Ready --> Stopping: Ctrl-C / TERM forwarded to router and embed process groups
+  Ready --> Stopping: router exited (serve.sh exits with its status)
+  Stopping --> Stopped: TERM, wait up to 10 s, then KILL
+  Failed --> [*]
+  Stopped --> [*]
+  note right of Ready
+    Children are not checked here: general and coder
+    load on demand, decision loads on startup only in
+    PROFILE=default (and moderate with SIZING=distributed),
+    and only after its download finishes,
+    capped by --models-max (MODELS_MAX + resident).
+  end note
+```
+
+By default (`DETACH_MODE=foreground`) the launcher execs `scripts/serve.sh` and lives as it until stopped; the `tmux`, `screen`, `screen-attached` and `nohup` modes detach it instead.
+
+### Model download (`scripts/fetch-models.sh`)
+
+```mermaid
+stateDiagram-v2
+  [*] --> Present: file exists in the store
+  [*] --> Restore: file in models-inactive/ (or a checkout copy, used in place)
+  [*] --> Download: missing
+  Download --> Part: curl -C - into DEST.part (pinned revision URL)
+  Download --> Failed: curl error, exit (set -e), .part kept for a later resume
+  Part --> Check: transfer done
+  Check --> Live: sha256 matches manifest, mv .part to DEST, stamp in .cache/verified
+  Check --> Bad: mismatch, mv .part to DEST.bad, exit 1
+  Present --> Verify: verified stamp skips the re-hash, else sha256 again
+  Restore --> Verify
+  Verify --> Live: sha256 matches
+  Verify --> Bad: mismatch, mv to .bad, exit 1
+  Live --> [*]
+  Bad --> [*]
+  Failed --> [*]
+```
+
+The resume uses `curl -C -` against a revision-pinned URL and relies on the final sha256 check. familia's cache-coherent fetch with `If-Range` validators is tracked in [familia#278](https://github.com/brianreborn/familia/issues/278).
+
+### Manifest model
+
+```mermaid
+erDiagram
+  MODEL_SET ||--o{ MANIFEST_ROW : "picks"
+  MANIFEST_ROW ||--|| PRESET_SECTION : "role -> [general] / [coder] / [decision]"
+  MANIFEST_ROW ||--o| CHAT_TEMPLATE : "pinned template"
+  MANIFEST_ROW ||--o| MMPROJ : "LFM3 VL / Omni / Audio"
+  LLAMA_PIN ||--o{ RELEASE_BINARY : "per OS/arch"
+  MANIFEST_ROW {
+    string role
+    string repo
+    string revision
+    string file
+    string sha256
+    int bytes
+    string license
+  }
+  LLAMA_PIN {
+    string tag
+    string source_sha256
+  }
+  RELEASE_BINARY {
+    string os_arch
+    string sha256
+  }
+```
+
 ## Pinned llama.cpp
 
 The current pin is llama.cpp release **`b11969`**, built **from source** with our patches
