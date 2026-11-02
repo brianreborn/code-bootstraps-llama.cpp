@@ -89,14 +89,14 @@ flowchart TB
   fl["scripts/fetch-llama.sh<br/>config/llama-pin.env, llama-release.json"]
   build["scripts/build-*.sh<br/>pinned source + patches/"]
   fm["scripts/fetch-models.sh<br/>config/models-manifest.json"]
-  store[("GGUF store<br/>GGUF_HOME or ~/.local/share/gguf<br/>models/role/")]
-  serve["scripts/serve.sh<br/>llama-server router mode :9931"]
+  store[("GGUF store<br/>GGUF_HOME or the model directory<br/>models/role/")]
+  serve["scripts/serve.sh<br/>llama-server router mode<br/>(local gateway)"]
   preset["config/models-preset.ini<br/>-> .cache/models-preset.effective.ini"]
-  kids["model children on 127.0.0.1<br/>general, coder, decision"]
-  embed["embed server<br/>(PORT+1 by default)"]
-  cockpit["scripts/cockpit.py :9933<br/>logs, recovery"]
-  panel["scripts/panel.py :9932<br/>settings"]
-  key[("per-instance API key<br/>~/.config/familia/instances/PORT/api-keys")]
+  kids["model children (local model servers)<br/>general, coder, decision"]
+  embed["embed server<br/>(local model server)"]
+  cockpit["scripts/cockpit.py<br/>logs, recovery"]
+  panel["scripts/panel.py<br/>settings"]
+  key[("per-instance API key<br/>in the instance config directory")]
 
   inst --> start
   start --> fl
@@ -117,7 +117,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
   participant C as Client (familia, Hermes desktop frontend, curl)
-  participant R as llama-server router :9931
+  participant R as llama-server router (local gateway)
   participant K as Child for "general" / "coder" / "decision"
   C->>R: POST /v1/chat/completions, Bearer API key, model = coder
   R->>R: check API key
