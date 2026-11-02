@@ -76,6 +76,123 @@ The names of those choices, and what they refuse, are under "Light tuning" below
 
 Everything after this is the detail: the pinned llama.cpp, the models, what was run, and what the server will not do.
 
+## Diagrams
+
+Mermaid diagrams of `main` (`542d5e3`, llama.cpp pin `b11969`), rendered by GitHub.
+
+### Components
+
+```mermaid
+flowchart TB
+  inst["install.sh / install.ps1<br/>download, EXPECTED_SHA256, notice"]
+  start["start.sh / start.bat / start.command"]
+  fl["scripts/fetch-llama.sh<br/>config/llama-pin.env, llama-release.json"]
+  build["scripts/build-*.sh<br/>pinned source + patches/"]
+  fm["scripts/fetch-models.sh<br/>config/models-manifest.json"]
+  store[("GGUF store<br/>GGUF_HOME or ~/.local/share/gguf<br/>models/role/")]
+  serve["scripts/serve.sh<br/>llama-server router mode :9931"]
+  preset["config/models-preset.ini<br/>-> .cache/models-preset.effective.ini"]
+  kids["model children on 127.0.0.1<br/>general, coder, decision"]
+  embed["embed server<br/>(PORT+1 by default)"]
+  cockpit["scripts/cockpit.py :9933<br/>logs, recovery"]
+  panel["scripts/panel.py :9932<br/>settings"]
+  key[("per-instance API key<br/>~/.config/familia/instances/PORT/api-keys")]
+
+  inst --> start
+  start --> fl
+  fl -->|"no release binary fits<br/>(FreeBSD, Termux) or BUILD=1"| build
+  start --> fm --> store
+  start --> serve
+  preset --> serve
+  store --> serve
+  serve -->|spawns| kids
+  serve --> embed
+  key --> serve
+  start --> cockpit
+  panel -.->|.cache/panel.env| start
+```
+
+### Request routing
+
+```mermaid
+sequenceDiagram
+  participant C as Client (familia, Hermes desktop frontend, curl)
+  participant R as llama-server router :9931
+  participant K as Child for "general" / "coder" / "decision"
+  C->>R: POST /v1/chat/completions, Bearer API key, model = coder
+  R->>R: check API key
+  R->>K: forward to the child (children inherit LLAMA_API_KEY;<br/>patch 0001 adds the key to the router's own stream calls)
+  Note over R,K: tools and MCP belong to the router only. The router-child-no-tools<br/>patch is not in patches/ yet, so serve.sh turns tools and MCP off<br/>when the binary lacks that marker
+  K-->>R: completion (stream)
+  R-->>C: completion
+```
+
+### Launcher flow (`start.sh`)
+
+```mermaid
+stateDiagram-v2
+  [*] --> Notice: INSTALL_ACK=yes or person types yes
+  Notice --> Refused: INSTALL_ACK=no or no answer
+  Notice --> Runtime
+  Runtime --> Reuse: existing build-os-arch-backend-tag
+  Runtime --> Release: sha256-checked b11969 release binary
+  Runtime --> Build: no release binary fits, or BUILD=1
+  Reuse --> Models
+  Release --> Models
+  Build --> Models
+  Models --> Serve: general + coder present and sha256-checked
+  Serve --> Cockpit: router + children healthy
+  Cockpit --> [*]
+  Refused --> [*]
+```
+
+### Model download (`scripts/fetch-models.sh`)
+
+```mermaid
+stateDiagram-v2
+  [*] --> Present: file in store with a verified stamp
+  [*] --> Restore: file in models-inactive/
+  [*] --> Download: missing
+  Download --> Part: curl -C - into DEST.part (pinned revision URL)
+  Part --> Check: transfer done
+  Check --> Live: sha256 matches manifest, mv .part to DEST, stamp in .cache/verified
+  Check --> Bad: mismatch, mv .part to DEST.bad, exit 1
+  Restore --> Live
+  Present --> Live
+  Live --> [*]
+  Bad --> [*]
+```
+
+The resume uses `curl -C -` against a revision-pinned URL and relies on the final sha256 check. familia's cache-coherent fetch with `If-Range` validators is tracked in [familia#278](https://github.com/brianreborn/familia/issues/278).
+
+### Manifest model
+
+```mermaid
+erDiagram
+  MODEL_SET ||--o{ MANIFEST_ROW : "picks"
+  MANIFEST_ROW ||--|| PRESET_SECTION : "role -> [general] / [coder] / [decision]"
+  MANIFEST_ROW ||--o| CHAT_TEMPLATE : "pinned template"
+  MANIFEST_ROW ||--o| MMPROJ : "LFM3 VL / Omni / Audio"
+  LLAMA_PIN ||--o{ RELEASE_BINARY : "per OS/arch"
+  MANIFEST_ROW {
+    string role
+    string repo
+    string revision
+    string file
+    string sha256
+    int bytes
+    string license
+  }
+  LLAMA_PIN {
+    string tag
+    string source_sha256
+  }
+  RELEASE_BINARY {
+    string os_arch
+    string sha256
+  }
+```
+
 ## Pinned llama.cpp
 
 The current pin is llama.cpp release **`b11969`**, built **from source** with our patches
