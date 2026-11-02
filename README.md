@@ -121,7 +121,7 @@ sequenceDiagram
   participant K as Child for "general" / "coder" / "decision"
   C->>R: POST /v1/chat/completions, Bearer API key, model = coder
   R->>R: check API key
-  R->>K: forward to the child (children inherit LLAMA_API_KEY;<br/>patch 0001 adds the key to the router's own stream calls)
+  R->>K: forward to the child (children inherit LLAMA_API_KEY,<br/>patch 0001 adds the key to the router's own stream calls)
   Note over R,K: tools and MCP belong to the router only. The router-child-no-tools<br/>patch is not in patches/ yet, so serve.sh turns tools and MCP off<br/>when the binary lacks that marker
   K-->>R: completion (stream)
   R-->>C: completion
