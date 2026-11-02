@@ -1,7 +1,7 @@
 #!/bin/sh
 # Single detach / one log when familia already detached (#18).
 set -eu
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 T=$(mktemp -d)
 fails=0
 cleanup() { rm -rf "$T"; }
