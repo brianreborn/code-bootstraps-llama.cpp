@@ -24,4 +24,17 @@ g=$(instance_key_file 9932); instance_key_ensure "$g" "" 2>/dev/null
 mkdir -p "$d/legacy"; printf '# x\nlegacykey\n' > "$d/legacy/api-keys"
 h=$(instance_key_file 9933); instance_key_ensure "$h" "$d/legacy/api-keys" 2>/dev/null
 [ "$(instance_key_first "$h")" = legacykey ] || die "FAIL: legacy not adopted"
+# Android: hard links are forbidden under /data, so ln always fails. Simulate with a shim.
+mkdir -p "$d/shim"; printf '#!/bin/sh\nexit 1\n' > "$d/shim/ln"; chmod +x "$d/shim/ln"
+a=$(instance_key_file 9941)
+runa() { ( PATH="$d/shim:$PATH"; instance_key_ensure "$a" ""; instance_key_first "$a" ) ; }
+for i in 1 2 3 4 5 6; do runa > "$d/aout.$i" 2>/dev/null & done; wait
+n=$(cat "$d"/aout.* | sort -u | grep -c .) || true; [ "$n" -eq 1 ] || die "FAIL(no-ln): $n different keys"
+ka=$(cat "$d/aout.1"); [ "$(runa 2>/dev/null)" = "$ka" ] || die "FAIL(no-ln): key regenerated"
+[ "$(stat -c %a "$a")" = 600 ] || die "FAIL(no-ln): file mode"
+ls -a "$(dirname "$a")" | grep -q -e tmp -e lock && die "FAIL(no-ln): temp/lock left"
+# key dir cannot be created: must fail loudly (nonzero), never print a key
+: > "$d/notadir"; b=$d/notadir/9951/api-keys
+if ( instance_key_ensure "$b" "" ) >"$d/err.out" 2>&1; then die "FAIL: uncreatable dir returned 0"; fi
+grep -q "ERROR" "$d/err.out" || die "FAIL: no loud error"
 echo "test_api_key_persist: ok"
