@@ -137,7 +137,8 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Tools: curl, tar, awk, sha256 tool present
-  Tools --> Failed: missing (AUTO_DEPS=1 offers the install after one confirmation)
+  Tools --> Failed: missing, install refused or failed
+  Tools --> Runtime: AUTO_DEPS=1 + terminal, install confirmed and done
   Tools --> Runtime
   Runtime --> Named: LLAMA_SERVER= set by the user
   Runtime --> Reuse: existing build-*/bin/llama-server (unless BUILD=1)
@@ -156,15 +157,19 @@ stateDiagram-v2
   Cockpit --> Serve: cockpit in background (COCKPIT=1 and python3), UI opener waits for serve.ready
   Serve --> Ready: serve.ready written (router /health + key probe ok)
   Serve --> Recovery: READY_TIMEOUT, or router exits before ready
-  Recovery --> Serve: menu or cockpit choice restarts llama-server only, or keep waiting
+  Recovery --> Serve: retry (menu or cockpit) re-execs serve.sh, stopping router and embed, or wait re-probes
+  Recovery --> Recovery: no terminal, or leave running chosen: router kept, readiness not re-probed, serve.ready never written
   Recovery --> Failed: router exited and no retry chosen (or no terminal), exit with its status
   Ready --> Stopping: Ctrl-C / TERM forwarded to router and embed process groups
+  Ready --> Stopping: router exited (serve.sh exits with its status)
   Stopping --> Stopped: TERM, wait up to 10 s, then KILL
   Failed --> [*]
   Stopped --> [*]
   note right of Ready
     Children are not checked here: general and coder
-    load on demand, decision loads on startup,
+    load on demand, decision loads on startup only in
+    PROFILE=default (and moderate with SIZING=distributed),
+    and only after its download finishes,
     capped by --models-max (MODELS_MAX + resident).
   end note
 ```
