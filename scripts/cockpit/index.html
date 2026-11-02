@@ -57,7 +57,7 @@ footer{text-align:center;color:var(--dim);font-size:10px;letter-spacing:.3em;pad
 <main id="m"></main>
 <footer>ALL LOG DISPLAYS ON BY DEFAULT · TAP A SWITCH TO POWER A SCREEN DOWN · HEAT MAP IS SYNTHETIC (OPT-IN)</footer>
 <script>
-const MAX=2000,CUT=400;const qs=new URLSearchParams(location.search);if(qs.get("token")){sessionStorage.t=qs.get("token");history.replaceState(null,"",location.pathname)}const tok=sessionStorage.t||"";let mkey=sessionStorage.mk||"";const H=()=>{const h={};if(tok)h.Authorization="Bearer "+tok;if(mkey)h["X-Llama-Key"]=mkey;return h};const rate={},$=i=>document.getElementById(i);let T={l:0,e:0,w:0};
+const MAX=2000,CUT=400;const qs=new URLSearchParams(location.search);if(qs.get("token")){sessionStorage.t=qs.get("token");history.replaceState(null,"",location.pathname)}const mt=document.querySelector('meta[name="cockpit-token"]');if(mt&&mt.content&&!sessionStorage.t)sessionStorage.t=mt.content;const tok=sessionStorage.t||"";let mkey=sessionStorage.mk||"";const H=()=>{const h={};if(tok)h.Authorization="Bearer "+tok;if(mkey)h["X-Llama-Key"]=mkey;return h};const rate={},$=i=>document.getElementById(i);let T={l:0,e:0,w:0};
 setInterval(()=>{$("clk").textContent=new Date().toLocaleTimeString()},1000);
 function sw(name,on,syn){const c=document.createElement("label");c.className=(syn?"syn ":"")+(on?"on":"");c.innerHTML=`<input type=checkbox ${on?"checked":""}>${name}`;
   $("sw").append(c);c.firstChild.addEventListener("change",e=>c.classList.toggle("on",e.target.checked));return c.firstChild}
