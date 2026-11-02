@@ -5,6 +5,7 @@
 # MODELS_DIR, when set, replaces the models root. A file already in this
 # checkout is used in place and is not moved. A sha256 mismatch is renamed
 # to *.bad and is not left as the live GGUF. Stamps stay in .cache/verified.
+# Usage:
 #   scripts/fetch-models.sh
 #   scripts/fetch-models.sh --fallback|--step-up|--language|--language-small
 #   scripts/fetch-models.sh --locale ja
@@ -46,7 +47,7 @@ while [ $# -gt 0 ]; do
     --dry-run) mode=dry ;;
     --damp-run) mode=damp ;;
     --max-file-mb) max_mb=${2:?--max-file-mb needs a number}; shift ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "fetch-models.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
