@@ -15,9 +15,13 @@ REASONING / REASONING_GENERAL / REASONING_CODER and restart serve).
 No key entry in the browser. The cockpit reads the instance API key itself (the same files as
 serve.sh: API_KEY_FILE, the per-instance api-keys file, .secrets/api-keys) and attaches it server-side
 when it proxies to llama-server (/api/...). The key never reaches the page and is never printed.
-Binds 127.0.0.1 by default (no browser auth: only this machine can connect). With --host on a
-non-loopback address it generates a cockpit session token (not the API key), prints the URL with
-?token= once, and requires it on every request.
+Every request except GET / needs the cockpit's own session token (never the API key), generated
+at startup. Bound to loopback (the default), GET / hands the token to the page it serves, and
+.cache/cockpit.token-url (mode 0600) holds the full URL. With --host on a non-loopback address,
+GET / does not carry the token: open the ?token= URL printed once. Requests whose Host header is
+not local (127.0.0.1, localhost, ::1, the bind address, or COCKPIT_ALLOWED_HOSTS, comma separated)
+or whose Origin header is not one of those are refused (DNS rebinding / cross-site requests).
+POST bodies must be application/json.
 The accessible no-JavaScript settings panel stays scripts/panel.py; it links here.
 """
 import argparse, hmac, json, os, re, sys, time, urllib.parse
@@ -133,16 +137,48 @@ def instance_key(port=None):
 from loopback import is_loopback  # noqa: E402  (scripts/lib on sys.path above)
 
 
+def _hostname(netloc, default_port):
+    """'host:port' / '[v6]:port' -> lower-case host; a port other than ours makes it unmatchable"""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        host, _, rest = netloc[1:].partition("]")
+        port = rest[1:] if rest.startswith(":") else ""
+    elif netloc.count(":") == 1:
+        host, port = netloc.split(":")
+    else:
+        host, port = netloc, ""
+    if port and default_port and port != str(default_port):
+        return ""
+    return host
+
+
 class H(BaseHTTPRequestHandler):
     manifests = []
-    token = None          # cockpit session token; None = loopback, no browser auth
+    token = None          # cockpit session token; always set by main()
+    local_bind = True     # bound to a loopback address
+    allowed_hosts = set() # lower-case host names (no port) accepted in Host/Origin
+    port = 0
 
     def log_message(self, *a):
         sys.stderr.write("cockpit: %s\n" % (a[0] % a[1:]))
 
-    def authed(self, q):
-        if self.token is None:
+    def host_ok(self):
+        """Host must name this cockpit; Origin, when a browser sends one, must too."""
+        host = self.headers.get("Host", "")
+        if not host or _hostname(host, self.port) not in self.allowed_hosts:
+            return False
+        origin = self.headers.get("Origin")
+        if origin is None:
             return True
+        o = urllib.parse.urlparse(origin)
+        return o.scheme in ("http", "https") and bool(o.netloc) and _hostname(o.netloc, self.port) in self.allowed_hosts
+
+    def refuse(self, code, msg):
+        self.send_response(code); self.send_header("Content-Length", str(len(msg))); self.end_headers(); self.wfile.write(msg)
+
+    def authed(self, q):
+        if not self.token:
+            return False  # fail closed: no token configured means no access
         got = q.get("token", [""])[0]
         h = self.headers.get("Authorization", "")
         if h.startswith("Bearer "):
@@ -178,8 +214,12 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
+        if not self.host_ok():
+            return self.refuse(403, b"cockpit: Host or Origin is not local\n")
         if u.path == "/":
             body = open(HTML, "rb").read()
+            if self.local_bind:  # same-origin page only (Host checked above); cross-site pages cannot read it
+                body = body.replace(b"<meta charset=\"utf-8\">", b"<meta charset=\"utf-8\"><meta name=\"cockpit-token\" content=\"%s\">" % self.token.encode(), 1)
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         if not self.authed(q):
@@ -216,6 +256,10 @@ class H(BaseHTTPRequestHandler):
         # /recover: startup recovery from the cockpit. Writes .cache/recover.request (KEY=VALUE);
         # serve.sh re-checks every key and value against its own whitelist before using it.
         u = urllib.parse.urlparse(self.path)
+        if not self.host_ok():
+            return self.refuse(403, b"cockpit: Host or Origin is not local\n")
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            return self.refuse(415, b"cockpit: POST needs Content-Type: application/json\n")
         if not self.authed(urllib.parse.parse_qs(u.query)):
             self.send_response(401); self.end_headers(); self.wfile.write(b"cockpit token required\n"); return
         if u.path != "/recover":
@@ -273,11 +317,18 @@ def main():
     a = ap.parse_args()
     H.manifests = a.manifest or [os.path.join(ROOT, ".cache", "logs.manifest")] + \
         [m for m in os.environ.get("FAMILIA_LOG_MANIFEST", "").split(":") if m]
+    import secrets
     url = "http://%s:%d/" % ("[%s]" % a.host if ":" in a.host else a.host, a.port)
-    if not is_loopback(a.host):
-        import secrets
-        H.token = secrets.token_urlsafe(24)
-        url += "?token=" + H.token   # the cockpit's own session token, not the API key
+    H.port = a.port
+    H.local_bind = is_loopback(a.host)
+    H.allowed_hosts = {"127.0.0.1", "localhost", "::1"} | \
+        {h.strip().lower().strip("[]") for h in os.environ.get("COCKPIT_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    if a.host not in ("0.0.0.0", "::", ""):
+        H.allowed_hosts.add(a.host.lower().strip("[]"))
+    H.token = secrets.token_urlsafe(24)   # the cockpit's own session token, not the API key
+    token_url = url + "?token=" + H.token
+    if not H.local_bind:
+        url = token_url
     srv = ThreadingHTTPServer((a.host, a.port), H)
     print("cockpit: %s  logs from %s" % (url, ", ".join(H.manifests)), file=sys.stderr, flush=True)
     url_file = os.path.join(ROOT, ".cache", "cockpit.url")
@@ -285,6 +336,11 @@ def main():
         os.makedirs(os.path.dirname(url_file), exist_ok=True)
         with open(url_file, "w") as f:
             f.write(url.split("?")[0] + "\n")   # never the token
+        tf = os.path.join(ROOT, ".cache", "cockpit.token-url")
+        fd = os.open(tf + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(token_url + "\n")
+        os.replace(tf + ".tmp", tf)
     except OSError:
         pass
     srv.serve_forever()
