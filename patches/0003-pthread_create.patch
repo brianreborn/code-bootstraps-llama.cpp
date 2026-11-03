@@ -1,5 +1,5 @@
 diff --git a/cmake/llama-config.cmake.in b/cmake/llama-config.cmake.in
-index 6500203b1..f59f42361 100644
+index 6500203..f59f423 100644
 --- a/cmake/llama-config.cmake.in
 +++ b/cmake/llama-config.cmake.in
 @@ -5,6 +5,9 @@ set(LLAMA_SHARED_LIB   @BUILD_SHARED_LIBS@)
@@ -13,7 +13,7 @@ index 6500203b1..f59f42361 100644
  set_and_check(LLAMA_LIB_DIR     "@PACKAGE_LLAMA_LIB_INSTALL_DIR@")
  set(LLAMA_BIN_DIR "@PACKAGE_LLAMA_BIN_INSTALL_DIR@")
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 97250c2e8..904326e55 100644
+index 97250c2..904326e 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -69,7 +69,8 @@ target_include_directories(llama PRIVATE . ${CMAKE_CURRENT_BINARY_DIR})
@@ -27,10 +27,10 @@ index 97250c2e8..904326e55 100644
  if (BUILD_SHARED_LIBS)
      set_target_properties(llama PROPERTIES POSITION_INDEPENDENT_CODE ON)
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 991bf5479..20ab06d27 100644
+index 6a681af..1c2e091 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -313,7 +313,9 @@ if (GGML_METAL AND NOT GGML_BACKEND_DL)
+@@ -351,7 +351,9 @@ if (GGML_METAL AND NOT GGML_BACKEND_DL)
      target_include_directories(test-metal-graph-optimize PRIVATE ${PROJECT_SOURCE_DIR}/ggml/src ${PROJECT_SOURCE_DIR}/ggml/src/ggml-metal)
  endif()
  
@@ -39,5 +39,5 @@ index 991bf5479..20ab06d27 100644
 +
 +llama_build(test-backend-ops.cpp LINK ggml Threads::Threads)
  
- llama_build_and_test(test-tiled-mulmat.cpp LINK ggml)
- llama_build_and_test(test-model-load-cancel.cpp LABEL "model")
+ llama_build_and_test(test-backend-tensor.cpp LINK ggml)
+ 
