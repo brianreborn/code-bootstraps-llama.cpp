@@ -112,11 +112,15 @@ else step coder-tools "coder tool-call round trip" fail "no tool call (rc=$rc): 
 
 # 4. cockpit: launched by start.sh, live logs, no key prompt
 cu=$(grep -o 'cockpit[^:]*: http://[^ ]*' "$LOG" | tail -n 1 | sed 's/.*: //')
+# The cockpit always needs its session token (PR #81); it writes the full URL to .cache/cockpit.token-url (0600).
+cockpit_token() { sed -n 's/.*[?&]token=\([^&[:space:]]*\).*/\1/p' "$R/.cache/cockpit.token-url" 2>/dev/null | tail -n 1; }
+# The token goes through a curl config on stdin, never on the command line.
+cockpit_curl() { printf 'header = "Authorization: Bearer %s"\n' "$(cockpit_token)" | curl -s -K - "$@"; }
 if [ -z "$cu" ]; then step cockpit "start.sh launches the cockpit and prints its URL" fail "no cockpit URL in the start output"
 else
-  page=$(curl -s --max-time 5 "$cu"); logs=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${cu}logs")
-  live=$(curl -s -N --max-time 4 "${cu}stream?log=router" | grep -c '^data:')
-  api=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${cu}api/models")
+  page=$(curl -s --max-time 5 "$cu"); logs=$(cockpit_curl -o /dev/null -w '%{http_code}' --max-time 5 "${cu}logs")
+  live=$(cockpit_curl -N --max-time 4 "${cu}stream?log=router" | grep -c '^data:')
+  api=$(cockpit_curl -o /dev/null -w '%{http_code}' --max-time 10 "${cu}api/models")
   if [ "$logs" = 200 ] && [ "$api" = 200 ] && [ "${live:-0}" -gt 0 ] && ! printf '%s' "$page" | grep -q 'prompt('; then
     step cockpit "cockpit opens with live logs, server status, no key prompt" pass "$cu ($live live lines)"
   else step cockpit "cockpit opens with live logs and no key prompt" fail "logs=$logs api=$api live=$live prompt=$(printf '%s' "$page" | grep -c 'prompt(')"; fi
@@ -143,7 +147,8 @@ else step hot-add "background download hot-adds" skip "nothing was left to downl
 # 7. recovery from the cockpit: change SIZING, retry in place
 if [ -n "$cu" ]; then
   from=$(($(wc -l < "$LOG") + 1)); old=$(cat "$R/.cache/serve.ready" 2>/dev/null)
-  curl -s --max-time 5 -H 'Content-Type: application/json' -d '{"SIZING":"distributed","ACTION":"retry"}' "${cu}recover" >/dev/null
+  rc=$(cockpit_curl -o /dev/null -w '%{http_code}' --max-time 5 -H 'Content-Type: application/json' -d '{"SIZING":"distributed","ACTION":"retry"}' "${cu}recover")
+  [ "$rc" = 200 ] || echo "e2e: POST /recover -> HTTP $rc (token from .cache/cockpit.token-url: $([ -n "$(cockpit_token)" ] && echo found || echo missing))" >&2
   if wait_log "sizing=distributed" 120 "$from" && wait_log "serve.sh: listening on http://" "$READY_MAX" "$from" && [ "$(cat "$R/.cache/serve.ready")" != "$old" ] \
      && rep=$(chat general "Reply with one word: OK" 2>&1); then
     step recovery "change a setting in the cockpit and retry without restarting everything" pass "now SIZING=distributed, chat works"

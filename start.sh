@@ -237,10 +237,18 @@ start_cockpit() {
   cp_port=${COCKPIT_PORT:-9933}
   i=0
   while [ "$i" -le 20 ]; do
-    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/" 2>/dev/null | grep -q 'name="cockpit-token"'; then
+    # Headers only (-D -, body discarded), so the page's session token never lands in curl output.
+    cp_hdr=$(curl -s --max-time 1 -D - -o /dev/null "http://127.0.0.1:$cp_port/" 2>/dev/null | tr -d '\r')
+    if printf '%s\n' "$cp_hdr" | grep -qi '^x-cockpit-auth: token'; then
       say "cockpit (live logs): http://127.0.0.1:$cp_port/ (already running)"; return 0
     fi
     port_busy "$cp_port" || break
+    # A cockpit from before session tokens (no X-Cockpit-Auth header) still serves its page here.
+    if curl -s --max-time 1 "http://127.0.0.1:$cp_port/" 2>/dev/null | grep -q 'MECHA COCKPIT'; then
+      say "WARNING: an older cockpit (no session token) is still running on port $cp_port and is NOT protected."
+      say "         Stop it (pkill -f scripts/cockpit.py, or close the start.sh that launched it), then run start.sh again."
+      say "         Starting the new cockpit on the next free port meanwhile."
+    fi
     cp_port=$((cp_port + 1)); i=$((i + 1))
   done
   mkdir -p .cache

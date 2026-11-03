@@ -19,7 +19,8 @@ Every request except GET / needs the cockpit's own session token (never the API 
 at startup. Bound to loopback (the default), GET / hands the token to the page it serves, and
 .cache/cockpit.token-url (mode 0600) holds the full URL. With --host on a non-loopback address,
 GET / does not carry the token: open the ?token= URL printed once. Requests whose Host header is
-not local (127.0.0.1, localhost, ::1, the bind address, or COCKPIT_ALLOWED_HOSTS, comma separated)
+not local (127.0.0.1, localhost, ::1, the bind address, on a 0.0.0.0/:: bind this machine's own
+addresses and host name, or COCKPIT_ALLOWED_HOSTS, comma separated)
 or whose Origin header is not one of those are refused (DNS rebinding / cross-site requests).
 POST bodies must be application/json.
 The accessible no-JavaScript settings panel stays scripts/panel.py; it links here.
@@ -152,6 +153,37 @@ def _hostname(netloc, default_port):
     return host
 
 
+WILDCARD = ("0.0.0.0", "::", "")
+REFUSED = (b"cockpit: Host or Origin is not local. To open the cockpit under another name or address, "
+           b"add it to COCKPIT_ALLOWED_HOSTS (comma separated) and restart the cockpit.\n")
+
+
+def own_addresses():
+    """This machine's own interface addresses and names (for a wildcard bind). Stdlib only, best effort."""
+    import socket, subprocess
+    out = set()
+    for n in {socket.gethostname(), socket.getfqdn()}:
+        if n:
+            out.add(n.lower())
+            try:
+                out.update(ai[4][0].split("%")[0].lower() for ai in socket.getaddrinfo(n, None))
+            except OSError:
+                pass
+    for fam, probe in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1")):
+        try:  # UDP connect sends nothing; it only picks the outgoing interface address
+            with socket.socket(fam, socket.SOCK_DGRAM) as s:
+                s.connect((probe, 9)); out.add(s.getsockname()[0].split("%")[0].lower())
+        except OSError:
+            pass
+    try:
+        r = subprocess.run(["ip", "-o", "addr", "show"], capture_output=True, text=True, timeout=3)
+        out.update(m.lower() for m in re.findall(r"\binet6? ([0-9a-fA-F:.]+)/", r.stdout))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    out.discard("0.0.0.0"); out.discard("::")
+    return out
+
+
 class H(BaseHTTPRequestHandler):
     manifests = []
     token = None          # cockpit session token; always set by main()
@@ -172,6 +204,15 @@ class H(BaseHTTPRequestHandler):
             return True
         o = urllib.parse.urlparse(origin)
         return o.scheme in ("http", "https") and bool(o.netloc) and _hostname(o.netloc, self.port) in self.allowed_hosts
+
+    def refuse_host(self):
+        sys.stderr.write("cockpit: refused Host=%r Origin=%r (add it to COCKPIT_ALLOWED_HOSTS if it is yours)\n"
+                         % (self.headers.get("Host", ""), self.headers.get("Origin")))
+        return self.refuse(403, REFUSED)
+
+    def end_headers(self):
+        self.send_header("X-Cockpit-Auth", "token")   # lets start.sh tell this cockpit from an older one
+        super().end_headers()
 
     def refuse(self, code, msg):
         self.send_response(code); self.send_header("Content-Length", str(len(msg))); self.end_headers(); self.wfile.write(msg)
@@ -215,7 +256,7 @@ class H(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if not self.host_ok():
-            return self.refuse(403, b"cockpit: Host or Origin is not local\n")
+            return self.refuse_host()
         if u.path == "/":
             body = open(HTML, "rb").read()
             if self.local_bind:  # same-origin page only (Host checked above); cross-site pages cannot read it
@@ -257,7 +298,7 @@ class H(BaseHTTPRequestHandler):
         # serve.sh re-checks every key and value against its own whitelist before using it.
         u = urllib.parse.urlparse(self.path)
         if not self.host_ok():
-            return self.refuse(403, b"cockpit: Host or Origin is not local\n")
+            return self.refuse_host()
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
             return self.refuse(415, b"cockpit: POST needs Content-Type: application/json\n")
         if not self.authed(urllib.parse.parse_qs(u.query)):
@@ -323,8 +364,13 @@ def main():
     H.local_bind = is_loopback(a.host)
     H.allowed_hosts = {"127.0.0.1", "localhost", "::1"} | \
         {h.strip().lower().strip("[]") for h in os.environ.get("COCKPIT_ALLOWED_HOSTS", "").split(",") if h.strip()}
-    if a.host not in ("0.0.0.0", "::", ""):
+    if a.host not in WILDCARD:
         H.allowed_hosts.add(a.host.lower().strip("[]"))
+    else:  # LAN mode: a device on the LAN sends this machine's own address (or name) as Host
+        H.allowed_hosts |= own_addresses()
+        print("cockpit: bound to %s; accepting Host/Origin %s. Another name or address (a DNS name, a NAT or "
+              "proxy address)? Set COCKPIT_ALLOWED_HOSTS=name1,name2" % (a.host or "all addresses", ", ".join(sorted(H.allowed_hosts))),
+              file=sys.stderr, flush=True)
     H.token = secrets.token_urlsafe(24)   # the cockpit's own session token, not the API key
     token_url = url + "?token=" + H.token
     if not H.local_bind:
@@ -332,17 +378,27 @@ def main():
     srv = ThreadingHTTPServer((a.host, a.port), H)
     print("cockpit: %s  logs from %s" % (url, ", ".join(H.manifests)), file=sys.stderr, flush=True)
     url_file = os.path.join(ROOT, ".cache", "cockpit.url")
+    tf = os.path.join(ROOT, ".cache", "cockpit.token-url")
     try:
         os.makedirs(os.path.dirname(url_file), exist_ok=True)
         with open(url_file, "w") as f:
             f.write(url.split("?")[0] + "\n")   # never the token
-        tf = os.path.join(ROOT, ".cache", "cockpit.token-url")
+    except OSError as e:
+        print("cockpit: WARNING: could not write %s: %s" % (url_file, e), file=sys.stderr, flush=True)
+    try:
         fd = os.open(tf + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(token_url + "\n")
         os.replace(tf + ".tmp", tf)
-    except OSError:
-        pass
+    except OSError as e:
+        # scripts and tests read the token from this file; a stale one would make them fail with 401
+        try:
+            os.unlink(tf)
+        except OSError:
+            pass
+        print("cockpit: WARNING: could not write %s (%s). Scripts that read the token from it will get 401;%s"
+              % (tf, e, " the page served on loopback still carries the token." if H.local_bind
+                 else " use the ?token= URL printed above."), file=sys.stderr, flush=True)
     srv.serve_forever()
 
 

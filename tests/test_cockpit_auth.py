@@ -88,6 +88,57 @@ try:
     ok(get(p, "/logs?token=" + tok)[0] == 200 and get(p, "/api/models", {"Authorization": "Bearer " + tok})[0] == 200, "non-loopback: token opens logs and proxy")
     ok(get(p, "/logs", {"Authorization": "Bearer " + KEY})[0] == 401, "non-loopback: the API key itself is not a cockpit token")
     pr.terminate(); pr.wait()
+
+    # LAN mode (review #81): a device on the LAN sends this machine's own address as Host
+    def own_ip():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("192.0.2.1", 9)); return s.getsockname()[0]
+        except OSError:
+            return ""
+    for bind in ("0.0.0.0", "::"):
+        if bind == "::" and not socket.has_ipv6: continue
+        pr, p, log = start({"API_KEY_FILE": kf}, "--host", bind)
+        time.sleep(0.3); log.seek(0); out = log.read()
+        if "?token=" not in out:
+            ok(bind == "::", "%s bind starts" % bind); pr.terminate(); pr.wait(); continue
+        tok = out.split("?token=")[1].split()[0]; A = {"Authorization": "Bearer " + tok}
+        ok("COCKPIT_ALLOWED_HOSTS" in out, "%s: startup hint names COCKPIT_ALLOWED_HOSTS" % bind)
+        ip = own_ip()
+        if ip and ip != "127.0.0.1":
+            ok(get(p, "/logs", dict(A, Host="%s:%d" % (ip, p)))[0] == 200, "%s: LAN Host (own address %s) is accepted" % (bind, ip))
+            ok(get(p, "/logs", dict(A, Origin="http://%s:%d" % (ip, p)))[0] == 200, "%s: LAN Origin is accepted" % bind)
+        c, b = get(p, "/logs", dict(A, Host="203.0.113.9:%d" % p))
+        ok(c == 403 and "COCKPIT_ALLOWED_HOSTS" in b, "%s: a foreign address is still refused, and the 403 names COCKPIT_ALLOWED_HOSTS" % bind)
+        pr.terminate(); pr.wait()
+    pr, p, log = start({"API_KEY_FILE": kf, "COCKPIT_ALLOWED_HOSTS": "cockpit.lan, 203.0.113.9"}, "--host", "0.0.0.0")
+    time.sleep(0.3); log.seek(0); out = log.read(); tok = out.split("?token=")[1].split()[0] if "?token=" in out else ""
+    A = {"Authorization": "Bearer " + tok}
+    ok(get(p, "/logs", dict(A, Host="cockpit.lan:%d" % p))[0] == 200 and get(p, "/logs", dict(A, Host="203.0.113.9:%d" % p))[0] == 200,
+       "COCKPIT_ALLOWED_HOSTS names are accepted")
+    pr.terminate(); pr.wait()
+
+    # start.sh tells this cockpit from an older one by a header, not by the token in the body
+    pr, p, log = start({"API_KEY_FILE": kf})
+    with urllib.request.urlopen("http://127.0.0.1:%d/" % p, timeout=5) as r:
+        ok(r.headers.get("X-Cockpit-Auth") == "token", "responses carry X-Cockpit-Auth: token")
+    pr.terminate(); pr.wait()
+
+    # a failed token-url write is loud and leaves no stale file behind
+    os.makedirs(tf + ".tmp")
+    open(tf, "w").write("http://127.0.0.1:1/?token=stale\n")
+    pr, p, log = start({"API_KEY_FILE": kf})
+    time.sleep(0.3); log.seek(0); out = log.read()
+    ok("WARNING" in out and "cockpit.token-url" in out, "token-url write failure is logged as a WARNING")
+    ok(not os.path.exists(tf), "token-url write failure removes the stale token file")
+    ok(get(p, "/logs", {"Authorization": "Bearer " + page_token(get(p, "/")[1])})[0] == 200, "cockpit still serves after a token-url write failure")
+    pr.terminate(); pr.wait(); os.rmdir(tf + ".tmp")
+
+    # the page prefers the server-provided token over a stale sessionStorage one, and re-reads on 401
+    h = open(os.path.join(ROOT, "scripts", "cockpit", "index.html")).read()
+    ok("if(mt&&mt.content)sessionStorage.t=mt.content" in h and "!sessionStorage.t" not in h, "page: served token replaces a stale stored one")
+    ok("async function retok()" in h and "r.status==401&&await retok()" in h, "page: a 401 re-reads the token from the page")
+    ok(not re.search(r'fetch\("/(logs|reasoning|api/|startup|recover)', h), "page: every authed fetch goes through the retry wrapper")
     cu = open(os.path.join(d, ".cache", "cockpit.url")).read()
     ok(KEY not in cu and "token=" not in cu, "cockpit.url has no key or token")
 finally:
