@@ -160,7 +160,11 @@ class H(BaseHTTPRequestHandler):
     port = 0
 
     def log_message(self, *a):
-        sys.stderr.write("cockpit: %s\n" % (a[0] % a[1:]))
+        # the request line can carry ?token=...: never write the session token to the log
+        line = a[0] % a[1:]
+        if self.token:
+            line = line.replace(self.token, "<redacted>")
+        sys.stderr.write("cockpit: %s\n" % re.sub(r"([?&]token=)[^&\s\"]*", r"\1<redacted>", line))
 
     def host_ok(self):
         """Host must name this cockpit; Origin, when a browser sends one, must too."""
