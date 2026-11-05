@@ -133,6 +133,13 @@ if [ "${MODELS_BG:-1}" = 1 ]; then
       export MODELS_PENDING_OK=1
       ( scripts/fetch-models.sh > .cache/fetch-models.log 2>&1; echo "fetch-models: done (exit $?)" >> .cache/fetch-models.log ) </dev/null &
       echo $! > .cache/fetch-models.pid
+      FAMILIA_BG_FETCH_PID=$!
+      export FAMILIA_BG_FETCH_PID
+      # issue #35: Ctrl-C/SIGTERM/HUP while start.sh runs stops the download too
+      . "$ROOT/scripts/lib/bgfetch.sh"
+      trap 'bgfetch_stop; exit 130' INT
+      trap 'bgfetch_stop; exit 143' TERM
+      trap 'bgfetch_stop; exit 129' HUP
       say "downloading the other models in the background (logs: $ROOT/.cache/fetch-models.log); chat starts now"
     fi
   fi
@@ -253,6 +260,12 @@ open_ui "$$" &
 if [ "$TERMUX" = 1 ] && command -v termux-wake-lock >/dev/null 2>&1; then
   termux-wake-lock >/dev/null 2>&1 && export TERMUX_WAKE_LOCKED=1 || true
 fi
+# Detached modes keep the background download running with the detached server;
+# foreground serve.sh stops it on exit (FAMILIA_BG_FETCH_PID, issue #35).
+case "${DETACH_MODE:-foreground}" in
+  foreground|"") ;;
+  *) trap - INT TERM HUP; unset FAMILIA_BG_FETCH_PID ;;
+esac
 case "${DETACH_MODE:-foreground}" in
   tmux)
     if command -v tmux >/dev/null 2>&1; then

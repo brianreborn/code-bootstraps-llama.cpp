@@ -766,7 +766,16 @@ cleanup() {
   fi
   rm -rf "$ua_dir"
 }
-trap cleanup EXIT
+# issue #35: a foreground start.sh hands serve.sh its background download; stop it
+# when serve.sh really exits (retry_server re-execs with cleanup only, so it survives).
+serve_exit() {
+  cleanup
+  if [ -n "${FAMILIA_BG_FETCH_PID:-}" ]; then
+    . "$ROOT/scripts/lib/bgfetch.sh"
+    bgfetch_stop "$FAMILIA_BG_FETCH_PID"
+  fi
+}
+trap serve_exit EXIT
 # start.sh takes this lock and then execs serve.sh. A direct serve.sh must
 # take it too, or Android freezes the server once Termux is in the background.
 if [ "$IS_ANDROID" = 1 ] && [ "${TERMUX_WAKE_LOCKED:-0}" != 1 ] \
