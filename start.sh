@@ -251,7 +251,10 @@ start_cockpit() {
     cp_port=$((cp_port + 1)); i=$((i + 1))
   done
   mkdir -p .cache
+  # the log is private (it lists request paths); the cockpit never writes its token there
+  cp_umask=$(umask); umask 077; touch .cache/cockpit.log; chmod 600 .cache/cockpit.log
   COCKPIT_PORT=$cp_port nohup python3 scripts/cockpit.py >> .cache/cockpit.log 2>&1 </dev/null &
+  umask "$cp_umask"
   say "cockpit (live logs, startup recovery): http://127.0.0.1:$cp_port/ (logs: $ROOT/.cache/cockpit.log)"
 }
 rm -f .cache/serve.ready

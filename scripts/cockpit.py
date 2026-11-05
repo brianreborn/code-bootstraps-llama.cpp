@@ -18,13 +18,15 @@ when it proxies to llama-server (/api/...). The key never reaches the page and i
 Every request except GET / needs the cockpit's own session token (never the API key), generated
 at startup. Bound to loopback (the default), GET / hands the token to the page it serves, and
 .cache/cockpit.token-url (mode 0600) holds the full URL. With --host on a non-loopback address,
-GET / does not carry the token: open the ?token= URL printed once. Requests whose Host header is
-not local (127.0.0.1, localhost, ::1, the bind address, or COCKPIT_ALLOWED_HOSTS, comma separated)
+GET / does not carry the token: open the ?token= URL shown once on the terminal (never on stderr or
+in logs) or read it from .cache/cockpit.token-url. Requests whose Host header is
+not local (127.0.0.1, localhost, ::1, the bind address, this machine's own interface addresses when
+bound non-loopback, or COCKPIT_ALLOWED_HOSTS, comma separated, e.g. a LAN host name)
 or whose Origin header is not one of those are refused (DNS rebinding / cross-site requests).
 POST bodies must be application/json.
 The accessible no-JavaScript settings panel stays scripts/panel.py; it links here.
 """
-import argparse, hmac, json, os, re, sys, time, urllib.parse
+import argparse, hmac, json, os, re, socket, sys, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -137,8 +139,9 @@ def instance_key(port=None):
 from loopback import is_loopback  # noqa: E402  (scripts/lib on sys.path above)
 
 
-def _hostname(netloc, default_port):
-    """'host:port' / '[v6]:port' -> lower-case host; a port other than ours makes it unmatchable"""
+def _hostname(netloc, our_port, scheme="http"):
+    """'host:port' / '[v6]:port' -> lower-case host; a port other than ours makes it unmatchable.
+    No port means the scheme's default (http 80, https 443), as a browser means it."""
     netloc = netloc.strip().lower()
     if netloc.startswith("["):
         host, _, rest = netloc[1:].partition("]")
@@ -147,9 +150,19 @@ def _hostname(netloc, default_port):
         host, port = netloc.split(":")
     else:
         host, port = netloc, ""
-    if port and default_port and port != str(default_port):
+    if not port:
+        port = "443" if scheme == "https" else "80"
+    if our_port and port != str(our_port):
         return ""
     return host
+
+
+def redact(text):
+    """never log the session token (request lines carry ?token=...)"""
+    # the name may be percent-encoded (?%74oken=...): parse_qs decodes it, so decode before matching
+    def one(m):
+        return m.group(1) + "REDACTED" if urllib.parse.unquote(m.group(1)).lower() == "token=" else m.group(0)
+    return re.sub(r"((?:[A-Za-z0-9]|%[0-9A-Fa-f]{2})+=)[^&\s]*", one, text)
 
 
 class H(BaseHTTPRequestHandler):
@@ -160,7 +173,10 @@ class H(BaseHTTPRequestHandler):
     port = 0
 
     def log_message(self, *a):
-        sys.stderr.write("cockpit: %s\n" % (a[0] % a[1:]))
+        line = redact(a[0] % a[1:])
+        if self.token:
+            line = line.replace(self.token, "REDACTED")   # whatever spelling carried it
+        sys.stderr.write("cockpit: %s\n" % line)
 
     def host_ok(self):
         """Host must name this cockpit; Origin, when a browser sends one, must too."""
@@ -171,7 +187,7 @@ class H(BaseHTTPRequestHandler):
         if origin is None:
             return True
         o = urllib.parse.urlparse(origin)
-        return o.scheme in ("http", "https") and bool(o.netloc) and _hostname(o.netloc, self.port) in self.allowed_hosts
+        return o.scheme in ("http", "https") and bool(o.netloc) and _hostname(o.netloc, self.port, o.scheme) in self.allowed_hosts
 
     def refuse(self, code, msg):
         self.send_response(code); self.send_header("Content-Length", str(len(msg))); self.end_headers(); self.wfile.write(msg)
@@ -309,6 +325,54 @@ class H(BaseHTTPRequestHandler):
             return
 
 
+def parse_ifconfig(text):
+    """inet / inet6 addresses from `ifconfig -a` output (BSD, macOS, Linux net-tools)."""
+    out = []
+    for line in text.splitlines():
+        f = line.split()
+        if len(f) >= 2 and f[0] in ("inet", "inet6"):
+            x = f[1]
+            if x.startswith("addr:"):    # old Linux net-tools: "inet addr:10.0.0.5"
+                x = x[5:]
+            out.append(x.split("/")[0])
+    return out
+
+
+def own_addresses(bind):
+    """IP literals of this machine's interfaces (best effort, no DNS, no packets sent); a specific
+    bind address only adds itself (done by the caller), the wildcard binds add every interface."""
+    import ipaddress, subprocess
+    if bind not in ("0.0.0.0", "::", ""):
+        return set()
+    out = set()
+    def add(x):
+        try:
+            ip = ipaddress.ip_address(x.split("%")[0])
+        except ValueError:
+            return
+        if not ip.is_unspecified and not ip.is_multicast and not ip.is_link_local:   # 169.254/16, fe80::/10
+            out.add(str(ip))
+    for fam, dst in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1")):
+        try:   # route lookup only: UDP connect sends nothing
+            s = socket.socket(fam, socket.SOCK_DGRAM); s.connect((dst, 9)); add(s.getsockname()[0]); s.close()
+        except OSError:
+            pass
+    def run(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""   # missing or hung tool: skip silently
+    ipbin = next((b for b in ("/sbin/ip", "/usr/sbin/ip", "/bin/ip", "/usr/bin/ip") if os.access(b, os.X_OK)), None)
+    for line in (run([ipbin, "-o", "addr", "show"]) if ipbin else "").splitlines():
+        f = line.split()
+        if len(f) > 3 and f[2] in ("inet", "inet6"):
+            add(f[3].split("/")[0])
+    ifc = next((b for b in ("/sbin/ifconfig", "/usr/sbin/ifconfig", "/bin/ifconfig", "/usr/bin/ifconfig") if os.access(b, os.X_OK)), None)
+    for x in parse_ifconfig(run([ifc, "-a"]) if ifc else ""):   # FreeBSD, macOS, systems without ip
+        add(x)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=int(os.environ.get("COCKPIT_PORT", 9933)))
@@ -321,28 +385,55 @@ def main():
     url = "http://%s:%d/" % ("[%s]" % a.host if ":" in a.host else a.host, a.port)
     H.port = a.port
     H.local_bind = is_loopback(a.host)
-    H.allowed_hosts = {"127.0.0.1", "localhost", "::1"} | \
-        {h.strip().lower().strip("[]") for h in os.environ.get("COCKPIT_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    H.allowed_hosts = {"127.0.0.1", "localhost", "::1"}
+    for h in os.environ.get("COCKPIT_ALLOWED_HOSTS", "").split(","):
+        h = h.strip().lower()
+        if not h:
+            continue
+        if "*" in h or h.count(":") == 1 or "]:" in h:   # wildcards / host:port never match: warn, ignore
+            print("cockpit: warning: COCKPIT_ALLOWED_HOSTS entry %r ignored (no wildcards or ports; "
+                  "list bare host names or IPs)" % h, file=sys.stderr, flush=True)
+            continue
+        H.allowed_hosts.add(h.strip("[]"))
     if a.host not in ("0.0.0.0", "::", ""):
-        H.allowed_hosts.add(a.host.lower().strip("[]"))
+        H.allowed_hosts.add(a.host.lower().strip("[]"))   # an explicit bind address names this cockpit
+    if not H.local_bind:
+        # bound for the LAN: this machine's own interface addresses (IP literals only) name it too, so
+        # http://<lan-ip>:port/ works; arbitrary names are never accepted (DNS rebinding)
+        H.allowed_hosts |= own_addresses(a.host)
     H.token = secrets.token_urlsafe(24)   # the cockpit's own session token, not the API key
     token_url = url + "?token=" + H.token
     if not H.local_bind:
         url = token_url
     srv = ThreadingHTTPServer((a.host, a.port), H)
-    print("cockpit: %s  logs from %s" % (url, ", ".join(H.manifests)), file=sys.stderr, flush=True)
     url_file = os.path.join(ROOT, ".cache", "cockpit.url")
     try:
         os.makedirs(os.path.dirname(url_file), exist_ok=True)
         with open(url_file, "w") as f:
             f.write(url.split("?")[0] + "\n")   # never the token
         tf = os.path.join(ROOT, ".cache", "cockpit.token-url")
-        fd = os.open(tf + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.unlink(tf + ".tmp")   # a leftover (maybe 0644, maybe a symlink) is never reused
+        except FileNotFoundError:
+            pass
+        fd = os.open(tf + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(token_url + "\n")
         os.replace(tf + ".tmp", tf)
     except OSError:
         pass
+    # stderr usually ends up in .cache/cockpit.log (start.sh): never put the token there
+    print("cockpit: %s  logs from %s" % (url.split("?")[0], ", ".join(H.manifests)), file=sys.stderr, flush=True)
+    if not H.local_bind:
+        shown = False
+        try:
+            with open("/dev/tty", "w") as tty:
+                tty.write("cockpit: open %s (session token, shown once)\n" % token_url); shown = True
+        except OSError:
+            pass
+        print("cockpit: session token URL %s; also in %s (mode 0600)" % ("shown on the terminal" if shown else "not shown (no terminal)",
+              os.path.join(ROOT, ".cache", "cockpit.token-url")), file=sys.stderr, flush=True)
     srv.serve_forever()
 
 
