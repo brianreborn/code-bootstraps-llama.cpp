@@ -88,6 +88,8 @@ try:
     ok(get(p, "/logs?token=" + tok)[0] == 200 and get(p, "/api/models", {"Authorization": "Bearer " + tok})[0] == 200, "non-loopback: token opens logs and proxy")
     ok(get(p, "/logs", {"Authorization": "Bearer " + KEY})[0] == 401, "non-loopback: the API key itself is not a cockpit token")
     pr.terminate(); pr.wait()
+    log.seek(0); out2 = log.read()
+    ok(out2.count(tok) == 1 and "token=<redacted>" in out2, "non-loopback: request log redacts the session token (only the startup URL has it)")
     cu = open(os.path.join(d, ".cache", "cockpit.url")).read()
     ok(KEY not in cu and "token=" not in cu, "cockpit.url has no key or token")
 finally:
