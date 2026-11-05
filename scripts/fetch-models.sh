@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
     --dry-run) mode=dry ;;
     --damp-run) mode=damp ;;
     --max-file-mb) max_mb=${2:?--max-file-mb needs a number}; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "fetch-models.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
   shift
