@@ -948,6 +948,7 @@ if [ -n "$CONTAINER_ID" ]; then SERVER_CWD=/; else SERVER_CWD=$WORKDIR; fi
 SERVE_PID=$$
 READY_FILE=$ROOT/.cache/serve.ready
 rm -f "$READY_FILE" "$LOG_FILE"
+( umask 077; : > "$LOG_FILE" ) 2>/dev/null || true
 if command -v setsid >/dev/null 2>&1; then
   ( cd "$SERVER_CWD" && exec setsid "$BIN" "$@" ) &
 else
