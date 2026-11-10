@@ -765,6 +765,7 @@ cleanup() {
     termux-wake-unlock >/dev/null 2>&1 || true
   fi
   rm -rf "$ua_dir"
+  if [ -n "${KEY_SED_FILE:-}" ]; then rm -f "$KEY_SED_FILE"; KEY_SED_FILE=""; fi
 }
 trap cleanup EXIT
 # start.sh takes this lock and then execs serve.sh. A direct serve.sh must
@@ -1017,19 +1018,25 @@ rm -f "$STUCK_FILE"
 # STARTUP_LOG=live (default) streams every llama-server line to this terminal while it starts
 # (the cockpit streams the same file); quiet = progress lines only.
 LIVE_TAIL_PID=""
-# issue #38: mask instance keys in everything streamed to the start log/terminal
-KEY_SED=$(key_redact_sed "$API_KEYS"); [ -n "$KEY_SED" ] || KEY_SED="s/^//"
+# issue #38: mask instance keys in everything streamed to the start log/terminal.
+# The sed script lives in a 0600 temp file (umask 077, mktemp, no clobber) so the
+# keys never appear in the live-tail process argv (sed -u -e "$KEY_SED" would).
+KEY_SED_FILE=""
 if [ "${STARTUP_LOG:-live}" = live ] && command -v tail >/dev/null 2>&1; then
   : >> "$LOG_FILE"
+  KEY_SED_FILE=$(umask 077; mktemp) || die "cannot create key-redact sed script"
+  chmod 600 "$KEY_SED_FILE"
+  key_redact_sed "$API_KEYS" > "$KEY_SED_FILE"
+  [ -s "$KEY_SED_FILE" ] || printf 's/^//\n' > "$KEY_SED_FILE"
   # background model downloads (start.sh MODELS_BG) show their progress here too
   if [ -f "$ROOT/.cache/fetch-models.log" ] && [ -s "$ROOT/.cache/pending-models" ]; then
-    ( tail -n 0 -F "$LOG_FILE" "$ROOT/.cache/fetch-models.log" 2>/dev/null | { if command -v stdbuf >/dev/null 2>&1; then stdbuf -o0 tr '\r' '\n'; else cat; fi; } | sed -u -e '/^==> .* <==$/d' -e '/^$/d' -e "$KEY_SED" -e 's/^/  | /' >&2 ) &
+    ( tail -n 0 -F "$LOG_FILE" "$ROOT/.cache/fetch-models.log" 2>/dev/null | { if command -v stdbuf >/dev/null 2>&1; then stdbuf -o0 tr '\r' '\n'; else cat; fi; } | sed -u -e '/^==> .* <==$/d' -e '/^$/d' -f "$KEY_SED_FILE" -e 's/^/  | /' >&2 ) &
   else
-    ( tail -n +1 -F "$LOG_FILE" 2>/dev/null | sed -u -e "$KEY_SED" -e 's/^/  | /' >&2 ) &
+    ( tail -n +1 -F "$LOG_FILE" 2>/dev/null | sed -u -f "$KEY_SED_FILE" -e 's/^/  | /' >&2 ) &
   fi
   LIVE_TAIL_PID=$!
 fi
-stop_live_tail() { if [ -n "$LIVE_TAIL_PID" ]; then pkill -P "$LIVE_TAIL_PID" 2>/dev/null || true; kill "$LIVE_TAIL_PID" 2>/dev/null || true; fi; LIVE_TAIL_PID=""; return 0; }
+stop_live_tail() { if [ -n "$LIVE_TAIL_PID" ]; then pkill -P "$LIVE_TAIL_PID" 2>/dev/null || true; kill "$LIVE_TAIL_PID" 2>/dev/null || true; fi; LIVE_TAIL_PID=""; if [ -n "${KEY_SED_FILE:-}" ]; then rm -f "$KEY_SED_FILE"; KEY_SED_FILE=""; fi; return 0; }
 ready_probe() {
   command -v curl >/dev/null 2>&1 || return 0
   ( t0=$(date +%s); next=$READY_EVERY

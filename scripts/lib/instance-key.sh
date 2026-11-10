@@ -55,6 +55,20 @@ key_redact_sed() {
       printf 's/%s/%s/g;' "$_p" "$_r"
     done)
   _out=${_out%;}
-  if [ -n "$_out" ] && ! printf 'x\n' | sed -e "$_out" >/dev/null 2>&1; then _out='s/.*/[line hidden: key redaction failed]/'; fi
+  # Compile-check with sed -f on a 0600 temp file so the keys never appear in argv.
+  # If mktemp is unavailable, hide the whole line rather than fall back to sed -e.
+  if [ -n "$_out" ]; then
+    _tf=$(umask 077; mktemp 2>/dev/null) || _tf=
+    if [ -n "$_tf" ]; then
+      chmod 600 "$_tf"
+      printf '%s\n' "$_out" > "$_tf"
+      if ! printf 'x\n' | sed -f "$_tf" >/dev/null 2>&1; then
+        _out='s/.*/[line hidden: key redaction failed]/'
+      fi
+      rm -f "$_tf"
+    else
+      _out='s/.*/[line hidden: key redaction failed]/'
+    fi
+  fi
   printf '%s\n' "$_out"
 }
