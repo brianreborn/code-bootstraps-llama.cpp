@@ -22,6 +22,14 @@ WINDOW = 120
 LIMIT = 3
 
 
+
+def recover_base_url():
+    if "RECOVER_URL" in os.environ:
+        return os.environ["RECOVER_URL"].rstrip("/")
+    port = int(os.environ.get("PORT", 9931))
+    return f"http://127.0.0.1:{port}"
+
+
 def should_reload(model):
     status = model.get("status") or {}
     if status.get("value") != "unloaded":
@@ -48,7 +56,7 @@ def clear_ok(deaths, models):
 
 def main():
     try_lock_process("recover.py")
-    url = os.environ.get("RECOVER_URL", "http://127.0.0.1:9931").rstrip("/")
+    url = recover_base_url()
     key_file = os.environ.get("API_KEY_FILE", "")
     key = ""
     if key_file and os.path.isfile(key_file):
