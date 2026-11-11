@@ -38,3 +38,37 @@ instance_key_ensure() {
 instance_key_first() { # <file>
   grep -v -e '^#' -e '^[[:space:]]*$' "$1" 2>/dev/null | tr -d ' \r' | head -n 1
 }
+
+# issue #38: never log a full key. key_mask <key> -> ****<last4>
+key_mask() { _k=$1; [ ${#_k} -gt 4 ] && printf '****%s\n' "${_k#"${_k%????}"}" || printf '****\n'; }
+# key_redact_sed <comma-list>: prints a sed script that masks every listed key.
+# Keys are matched literally: only BRE specials ([ ] \ . * ^ $) and the / delimiter are
+# escaped (escaping other punctuation would turn \+ \( \| \? into GNU operators), & / \ are
+# escaped in the replacement, and longer keys go first so a key that contains another is
+# fully hidden. If the script still fails to compile, fall back to hiding whole lines so
+# the live log keeps running and never shows a key.
+key_redact_sed() {
+  _out=$(printf '%s\n' "$1" | tr ',' '\n' | awk 'length { print length "\t" $0 }' | sort -rn | cut -f2- |
+    while IFS= read -r _k; do
+      _p=$(printf '%s\n' "$_k" | sed 's/[][\\.*^$/]/\\&/g')
+      _r=$(key_mask "$_k" | sed 's/[\\/&]/\\&/g')
+      printf 's/%s/%s/g;' "$_p" "$_r"
+    done)
+  _out=${_out%;}
+  # Compile-check with sed -f on a 0600 temp file so the keys never appear in argv.
+  # If mktemp is unavailable, hide the whole line rather than fall back to sed -e.
+  if [ -n "$_out" ]; then
+    _tf=$(umask 077; mktemp 2>/dev/null) || _tf=
+    if [ -n "$_tf" ]; then
+      chmod 600 "$_tf"
+      printf '%s\n' "$_out" > "$_tf"
+      if ! printf 'x\n' | sed -f "$_tf" >/dev/null 2>&1; then
+        _out='s/.*/[line hidden: key redaction failed]/'
+      fi
+      rm -f "$_tf"
+    else
+      _out='s/.*/[line hidden: key redaction failed]/'
+    fi
+  fi
+  printf '%s\n' "$_out"
+}
