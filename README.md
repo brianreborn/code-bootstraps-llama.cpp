@@ -2,7 +2,7 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
-**State of the art out of the box:** one command builds the newest CI-green llama.cpp (`b12032`) from source with our patches, auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+**State of the art out of the box:** one command uses the pinned `brianreborn/llama.cpp` source (rebased on current upstream `master`; release/UI assets remain at `b12032`), auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
 
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
@@ -87,7 +87,7 @@ flowchart TB
   inst["install.sh / install.ps1<br/>download, EXPECTED_SHA256, notice"]
   start["start.sh / start.bat / start.command"]
   fl["scripts/fetch-llama.sh / .ps1<br/>config/llama-pin.env, llama-release.json"]
-  build["scripts/build-*.sh / build-windows.ps1<br/>pinned source + patches/<br/>(FreeBSD: build-linux.sh, BUILD_DIR=build-freebsd)"]
+  build["scripts/build-*.sh / build-windows.ps1<br/>pinned fork source<br/>(FreeBSD: build-linux.sh, BUILD_DIR=build-freebsd)"]
   fm["scripts/fetch-models.sh / .ps1<br/>config/models-manifest.json"]
   store[("GGUF store<br/>GGUF_HOME or the model directory<br/>models/role/")]
   serve["scripts/serve.sh / .ps1<br/>llama-server router mode<br/>(local gateway)"]
@@ -125,7 +125,7 @@ sequenceDiagram
     R->>K: spawn the child and wait for it,<br/>evicting the LRU child beyond --models-max
   end
   R->>K: forward to the child (children inherit LLAMA_API_KEY,<br/>patch 0001 adds the key to the router's own stream calls)
-  Note over R,K: tools and MCP belong to the router only. The router-child-no-tools<br/>patch is not in patches/ yet, so serve.sh turns tools and MCP off<br/>when the binary lacks that marker
+  Note over R,K: tools and MCP belong to the router only. router-child-no-tools<br/>is not implemented in the pinned fork yet, so serve.sh turns tools and MCP off<br/>when the binary lacks that marker
   K-->>R: completion (stream)
   R-->>C: completion
 ```
@@ -229,30 +229,32 @@ erDiagram
 
 ## Pinned llama.cpp
 
-The current pin is llama.cpp release **`b12032`**, checked out and built **from the
-[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork** with our patches
-(`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). The fork's `b12032` tag
-points to the same commit and source archive as upstream. It was picked on 2026-11-02 as the
-newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent upstream tags
-are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
-ggml-org/llama.cpp#31252) needs.
+The current source is pinned to a commit in the
+[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork. Its changes are
+rebased on `ggml-org/llama.cpp` `master` at `5d4c8eeb` (fetched 2026-11-12). The router-auth,
+PID-log and POSIX thread-link changes are committed in the fork; builds no longer apply a local
+patch stack. The official `b12032` release binaries and web UI remain pinned separately because
+the tracking fork does not publish binaries. `b12032` was selected on 2026-11-02 as the newest tag
+whose completed upstream CI had no failures (all newer tags were marked pre-release); it is at or
+after `b11938`, which LFM3 (arch `lfm3`, ggml-org/llama.cpp#31252) needs.
 
 | | |
 |---|---|
-| Tag | `b12032` |
-| Commit | `dde879bc4f954b809892fd0d660515f42536394a` |
+| Release/UI tag | `b12032` |
+| Upstream source base | `ggml-org/llama.cpp` `master` at `5d4c8eeb` |
+| Fork commit | `e529969a1a5710ff7631fcd92118165aea278a0a` |
 | Build number | `12032` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b12032`) |
-| Source tarball sha256 | `2fbadc9cc8552352efbdf3cf5bc7b8c9cce84a12c876cca03c858cb062567e2a` |
-| Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`), `0003-pthread_create` (links POSIX threads for FreeBSD) |
+| Source tarball sha256 | `91a72df69189ad74240119d9cd4c00488369f6443b8051b0bc674af0fd3e41c5` |
+| Fork changes | Router forwards caller auth to child requests; `LLAMA_LOG_PID=1` adds `[pid]` / `[pid model:port]`; CMake package exports include POSIX Threads |
 
-The pin is recorded in `config/llama-pin.env`, which the build scripts read; both the submodule and
-source tarball use the tracking fork. **The launchers are prebuilt-first:** `start.sh` / `start.bat`
+The exact fork commit is recorded in `config/llama-pin.env`, which the build scripts read; both the
+submodule and source tarball use it. **The launchers are prebuilt-first:** `start.sh` / `start.bat`
 reuse an existing `build-*` llama-server, else download the sha256-checked official ggml-org b12032
 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
-macOS, Windows), and build the pinned source with `patches/` only when no release binary fits
-(FreeBSD, Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces the patched
-source build. The upstream binary has none of `patches/`, so `serve.sh` keeps TOOLS/MCP off with it
-(see the patches table); build when you need them.
+macOS, Windows), and build the pinned fork source only when no release binary fits (FreeBSD,
+Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces a fork-source build.
+The official release binary does not include fork changes; `serve.sh` keeps TOOLS/MCP off unless the
+binary has the router-child-no-tools marker.
 
 ### Build prerequisites
 
@@ -276,7 +278,7 @@ GPU builds additionally need CUDA (`nvcc`) or the Vulkan SDK (`glslc` + headers)
 `scripts/predownload.sh` (`scripts\predownload.ps1` on Windows) fetches everything up front: the
 toolchain packages above (download only, not installed), the pinned source tarball and web UI
 (sha256-checked), the `llama.cpp` submodule (or unpacks the tarball when this is not a git
-checkout), checks that `patches/` apply, and downloads the default models (LFM3-1.7B-Uncensored first; one file serves both chat and coder).
+checkout), verifies the pinned fork revision, and downloads the default models (LFM3-1.7B-Uncensored first; one file serves both chat and coder).
 After that, build and start work offline. `SKIP_PACKAGES=1` / `SKIP_MODELS=1` skip a step.
 
 ### GPU backend (auto-detected, one only)
@@ -328,7 +330,7 @@ That is enough for the launchers below, which use release binaries. Without git,
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher uses the sha256-checked b12032 release binary for this machine (or an existing build; it builds the pinned source with `patches/` only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
+The launcher uses the sha256-checked b12032 release binary for this machine (or an existing build; it builds the pinned fork source only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
 
 **API key.** The server only answers with the API key. There is **one stable key per instance (port)**, kept in **`${XDG_CONFIG_HOME:-~/.config}/familia/instances/<port>/api-keys`** (`%APPDATA%\familia\instances\<port>\api-keys` on Windows; one key per line, directory 700, file 600). `serve.sh` / `serve.ps1` create it atomically on the very first start (adopting an older `.secrets/api-keys`) and never rotate it; every client (familia, `snap.py`, `agent.py`, the launchers) reads the same file. See [docs/api-key-design.md](docs/api-key-design.md). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
@@ -404,7 +406,7 @@ Limits of the web UI path:
 - It has no interpreter mode (`LANGUAGE_MODE=interpret` is for `scripts/agent.py`). The coder answers in the user's language as far as it can.
 - Its agent runs up to 10 tool turns, then asks whether to continue. Unlike `scripts/agent.py` it has no repeat guard (see "Run"). In router mode the UI ignores `--ui-config` defaults (it returns before applying them when `/props` has no generation settings, b11374), so this repo cannot preset a system message for it. You can set one yourself under Settings, for example: "When the task is done, stop calling tools and reply with a one-line summary."
 - Closing the browser tab does not stop the server.
-- Fixed by `patches/0001-router-child-auth.patch`: upstream router mode sent its own `/v1/streams/lookup` and `DELETE /v1/stream` calls to the model children without the API key, so every child answered `unauthorized: Invalid API Key` and stream resume/stop silently failed. That error is **not** harmless: a rejected keyless call was read elsewhere as "no server" and triggered re-bootstraps (docs/api-key-design.md). An `Invalid API Key` line in the log now always means a misconfigured caller and should be reported.
+- Fixed in the pinned fork: router mode forwards the caller's auth headers on `/v1/streams/lookup` and `DELETE /v1/stream` requests to children, which otherwise reject them with `unauthorized: Invalid API Key` and stream resume/stop silently fail. That error is **not** harmless: a rejected keyless call was read elsewhere as "no server" and triggered re-bootstraps (docs/api-key-design.md). An `Invalid API Key` line in the log now always means a misconfigured caller and should be reported.
 
 ### Android (Termux)
 
@@ -786,7 +788,7 @@ HY-MT is the best interpreter we tested, but **its license excludes the EU, the 
 
 The router passes its own command-line flags to every model instance it starts, and the instances listen on random 127.0.0.1 ports. `serve.sh` and `serve.ps1` therefore:
 - pass the API key as `LLAMA_API_KEY` in the environment instead of `--api-key-file`. The instances inherit it, so they answer 401 to anything without the key (except `/health`). The router forwards the client's `Authorization` header, so requests through the router still work.
-- give the tools and MCP config to the router only, through `LLAMA_ARG_*` environment variables, and `patches/0003-router-child-no-tools.patch` keeps them out of every instance: children inherit neither `LLAMA_ARG_TOOLS*`, MCP, nor agent settings, from the environment or the preset, so their prompts carry no tool at all (their `/tools` answers "feature disabled"). The preset has no `tools` key on purpose: the old `tools = get_info` workaround injected `get_info` into every model's prompt. An unpatched `llama-server` (an upstream release from `fetch-llama.sh`) would pass the tools on, so `serve.sh` / `serve.ps1` turn tools and MCP off with a warning when the binary lacks the patch marker `router-child-no-tools`.
+- give the tools and MCP config to the router only, through `LLAMA_ARG_*` environment variables. The pinned fork does not yet isolate these settings from child processes; therefore `serve.sh` / `serve.ps1` turn tools and MCP off with a warning unless the binary has the `router-child-no-tools` marker. The preset has no `tools` key on purpose: the old `tools = get_info` workaround injected `get_info` into every model's prompt.
 - clear every inherited `LLAMA_ARG_*` and `LLAMA_API_KEY` variable (for example `LLAMA_ARG_MCP_SERVERS_JSON`, `LLAMA_ARG_AGENT`, `LLAMA_ARG_UI_MCP_PROXY`), plus `LLAMA_APP_CMD`, `LLAMA_SERVER_ROUTER_PORT`, `LLAMA_SERVER_CHILD_MODE`, `LLAMA_SERVER_SLOTS_DEBUG`, `LLAMA_TRACE`, `HF_ENDPOINT` and `MODEL_ENDPOINT`, and set only their own.
 - refuse extra arguments that would widen what the model can do (`--tools`, `--tools-runtime`, `-ag`/`--agent`, `--mcp-*`, `--ui-mcp-proxy`/`--webui-mcp-proxy`, `--api-key`, `--api-key-file`, `--rpc`), because the router overlays extra flags on every preset, flags that would break the ready check (`--host`, `--port`, `--reuse-port`: use `HOST=` / `PORT=`, `-BindHost` / `-Port` on Windows; `--log-file`, `--log-disable`, `-lv`/`--verbosity`/`--log-verbosity`: `serve` reads the server's log, `.cache/server.log`), and arguments that pick, download or attach a model or point at model or file locations: `-m`/`--model`, `-mu`/`--model-url`, `-dr`/`--docker-repo`, `-hf`/`-hfr`/`--hf-repo`, `-hff`/`--hf-file`, the draft variants (`-hfd`, `-hfrd`, `--hf-repo-draft`, `-md`, `--model-draft`, `--spec-draft-model`, `--spec-draft-hf`), `--models-dir`, `--models-preset`, `--lora*`, `--control-vector*`, `-mm`/`--mmproj`, `-mmu`/`--mmproj-url`, `-a`/`--alias`, `--path`, `--media-path` and the built-in model presets (`--fim-*`, `--gpt-oss-*`, `--vision-*`, `--embd-*-default`). Matching ignores case and treats `_` as `-` (`--API_KEY`, `--Hf_Repo`, `--model=x`). Other flags are allowed and apply to every role (see Run); `serve` says so when it gets any.
 - pin every role to one file in the preset and pass no `--models-dir` (see Models), and point `LLAMA_CACHE` at a new, empty directory on every start (`.cache/llama-cache.<pid>.<random>`, deleted when `serve` stops; older ones from a crashed start and a legacy `.cache/llama-cache` are deleted first, a symlink or junction only as the link): the router always adds the GGUFs of the Hugging Face cache (`~/.cache/huggingface/hub`, `%USERPROFILE%\.cache\huggingface\hub`, or `HF_HUB_CACHE` / `HF_HOME`) to its model list, with no flag to turn that off, and `LLAMA_CACHE` takes precedence over all of those (`common/hf-cache.cpp`). Without this, a model downloaded earlier with `llama-server -hf` showed up in the web UI's model list (Windows test), and (round-5 review) a Hugging Face-layout model placed in a reused `.cache/llama-cache` was listed and loaded with `--hf-repo`, without a sha256 check. `serve` also sets `LLAMA_ARG_OFFLINE=1` and `MODEL_ENDPOINT=https://offline.invalid/` (a name that never resolves), so the router cannot download a model at run time either: a model requested through `POST /models` or the UI's model picker that is not in the preset is not fetched (tested: without offline mode, `bartowski/SmolLM2-135M-Instruct-GGUF:Q2_K` was downloaded into the cache; with it, the router's own check of the request still queried Hugging Face and wrote the repository's `refs/main`, because that check ignores offline mode in b11374; with the endpoint as well, nothing). `tests/test_serve_ready.sh` and the model-selection matrix cover a populated, stale and symlinked cache. **`GET /models?reload=1` is not supported:** a reload makes the router scan `LLAMA_CACHE` again, so a Hugging Face-layout model written into the per-start directory while the server runs would then be listed (`[cache]`) and could be loaded without a sha256 check (found on Windows; it needs write access to `.cache\` as your user and the API key). Restart `serve` instead of reloading.

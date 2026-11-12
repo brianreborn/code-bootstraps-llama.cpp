@@ -1,6 +1,6 @@
 #!/bin/sh
 # Click-and-go launcher (Linux, Android/Termux; macOS: start.command).
-# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1 (build the pinned source with patches/; default: reuse an existing local build, else the sha256-checked b12032 release binary for this OS/arch, else build from source),
+# Settings: PORT, VARIANT=auto|cpu|vulkan|cuda-12|cuda-13, NO_BROWSER=1, BUILD=1 (build the pinned fork source; default: reuse an existing local build, else the sha256-checked b12032 release binary for this OS/arch, else build from source),
 # MODEL_SET=official|unimpeded (or --set NAME; default unimpeded, config/model-sets.json),
 # COPY_KEY=1, WAKE_LOCK=0, RAISE=0|1, REASONING=on|auto (default off), plus everything scripts/serve.sh reads.
 # DETACH_MODE=foreground|nohup|tmux|screen|screen-attached (default foreground).
@@ -63,11 +63,11 @@ VARIANT=${VARIANT:-auto}
 if [ -n "${LLAMA_SERVER:-}" ]; then
   say "$(t "using the binary you named")"
 elif [ "${BUILD:-0}" != 1 ] && existing=$(ls -td "$ROOT"/build-*/bin/llama-server 2>/dev/null | head -n 1) && [ -x "$existing" ]; then
-  # prebuilt-first never forces a rebuild: an earlier (patched) source build is reused as-is
+  # prebuilt-first never forces a rebuild: an earlier source build is reused as-is
   LLAMA_SERVER=$existing
   say "using the existing build $LLAMA_SERVER (BUILD=1 rebuilds)"
 elif [ "${BUILD:-0}" != 1 ] && LLAMA_SERVER=$(scripts/fetch-llama.sh --variant "$VARIANT"); then
-  say "using the sha256-checked release binary $LLAMA_SERVER (upstream, without patches/: tools/MCP stay off; BUILD=1 builds the patched source)"
+  say "using the sha256-checked release binary $LLAMA_SERVER (official release; BUILD=1 builds the pinned fork source)"
 else
   rc=$?
   if [ "${BUILD:-0}" != 1 ] && [ "$rc" != 3 ]; then

@@ -27,7 +27,7 @@ if (-not (Test-Path "llama.cpp\CMakeLists.txt")) {
 }
 if (Test-Path "llama.cpp\.cbl-source-tag") { $actual = ((Get-Content "llama.cpp\.cbl-source-tag" -TotalCount 1) -split ' ')[1] }   # unpacked tarball
 else {
-    $actual = ((git -C llama.cpp log --first-parent --format="%H %s" HEAD) | Where-Object { $_ -notmatch "^\S+ familia: .*\.patch$" } | Select-Object -First 1).Split(" ")[0]
+    $actual = git -C llama.cpp rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw "git rev-parse failed" }
 }
 if ($actual -ne $pin.LLAMA_COMMIT) {
@@ -35,8 +35,6 @@ if ($actual -ne $pin.LLAMA_COMMIT) {
     else { throw "llama.cpp is at $actual but the pin is $($pin.LLAMA_TAG) ($($pin.LLAMA_COMMIT)); run 'git submodule update --init' or pass -AllowUnpinned" }
 }
 
-# our patches (patches\*.patch) on top of the pinned source, every build
-& (Join-Path $PSScriptRoot "apply-patches.ps1")
 & (Join-Path $PSScriptRoot "prereqs.ps1") -Check
 
 # pin the prebuilt web UI to the same release instead of falling back to "latest"

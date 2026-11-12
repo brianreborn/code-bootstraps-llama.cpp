@@ -1,7 +1,7 @@
 # Click-and-go launcher for Windows (start.bat runs this). Windows PowerShell 5.1 and PowerShell 7.
 # 1. llama.cpp: prebuilt-first. An existing build-windows-x64* build is reused; else the sha256-checked
 #    release in config\llama-release.json; only if none fits (or -Build / BUILD=1) the pinned source
-#    with patches\ is built (scripts\build-windows.ps1; prerequisites: scripts\prereqs.ps1).
+#    from the pinned fork is built (scripts\build-windows.ps1; prerequisites: scripts\prereqs.ps1).
 # 2. models: the default set from config\models-manifest.json (sha256-checked).
 # 3. scripts\serve.ps1: router with tools and an API key.
 # 4. opens the built-in web UI once serve.ps1 reports it ready (-CopyKey: key to the clipboard).
@@ -16,7 +16,7 @@ param(
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$Variant = $(if ($env:VARIANT) { $env:VARIANT } else { "cpu" }),
     [switch]$NoBrowser,
-    [switch]$Build,                   # build the pinned source with patches\ (default: prebuilt when one fits)
+    [switch]$Build,                   # build the pinned fork source (default: prebuilt when one fits)
     [switch]$Prebuilt,                # kept for compatibility: prebuilt is now the default
     [switch]$CopyKey,                 # also copy the API key to the clipboard (opt-in: clipboard history)
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ServeArgs = @()
@@ -98,7 +98,7 @@ if (-not $Build -and -not $server) {
     }
 }
 if (-not $server) {
-    Write-Host "start: building the pinned llama.cpp with patches/ from source (needs git, cmake and Visual Studio C++; scripts\prereqs.ps1)"
+    Write-Host "start: building the pinned llama.cpp fork from source (needs git, cmake and Visual Studio C++; scripts\prereqs.ps1)"
     if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) { throw "cmake not found: install it with Visual Studio C++, or use a platform listed in config\llama-release.json" }
     & (Join-Path $PSScriptRoot "build-windows.ps1")
     $server = Get-ChildItem -Path $Root -Directory -Filter "build-windows-x64*" | ForEach-Object { Join-Path $_.FullName "bin\Release\llama-server.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1

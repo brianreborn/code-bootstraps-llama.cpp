@@ -23,7 +23,7 @@ prereqs_check build || exit 1
 
 [ -f llama.cpp/CMakeLists.txt ] || git submodule update --init --recursive || scripts/predownload.sh
 if [ -f llama.cpp/.cbl-source-tag ]; then actual=$(cut -d' ' -f2 llama.cpp/.cbl-source-tag)   # unpacked tarball (predownload.sh)
-else actual=$(BASE=1 sh scripts/apply-patches.sh llama.cpp); fi
+else actual=$(git -C llama.cpp rev-parse HEAD); fi
 if [ "$actual" != "$LLAMA_COMMIT" ]; then
   if [ "${ALLOW_UNPINNED:-0}" = 1 ]; then
     echo "build-linux.sh: WARNING: llama.cpp is at $actual, pin is $LLAMA_TAG ($LLAMA_COMMIT); ALLOW_UNPINNED=1" >&2
@@ -32,9 +32,6 @@ if [ "$actual" != "$LLAMA_COMMIT" ]; then
     exit 1
   fi
 fi
-
-# our patches (patches/*.patch) on top of the pinned source, every build
-scripts/apply-patches.sh "$ROOT/llama.cpp"
 
 ARCH=$(uname -m)
 OS=$(uname -s)

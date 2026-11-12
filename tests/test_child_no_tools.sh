@@ -2,10 +2,9 @@
 # Router children get ZERO tools: no built-in tool, tools runtime, MCP server or agent.
 #  1. no section of config/models-preset.ini sets tools / MCP (the old "tools = get_info"
 #     workaround injected get_info into every model's prompt)
-#  2. patches/0003-router-child-no-tools.patch applies to the pinned source (when present)
-#  3. serve.sh turns tools/MCP off for a llama-server without the patch marker, and keeps
+#  2. serve.sh turns tools/MCP off for a llama-server without the marker, and keeps
 #     them (router only) for one with it
-#  4. live (REAL_LLAMA_SERVER=patched llama-server, TEST_GGUF=small model; else SKIP):
+#  3. live (REAL_LLAMA_SERVER=marked llama-server, TEST_GGUF=small model; else SKIP):
 #     the router lists tools, a spawned child answers /tools "feature disabled", has no
 #     LLAMA_ARG_TOOLS in its environment, and its prompt for a chat without tools has no get_info
 #   sh tests/test_child_no_tools.sh
@@ -30,12 +29,6 @@ hits=$(grep -nE '^[[:space:]]*(tools|tools-runtime|mcp-servers-config|mcp-server
 if [ -z "$hits" ]; then ok "models-preset.ini sets no tools / MCP / agent key in any section"
 else bad "models-preset.ini sets tools or MCP: $hits"; fi
 # 2
-if [ -f "$ROOT/llama.cpp/CMakeLists.txt" ] && command -v git >/dev/null 2>&1; then
-  if CHECK=1 sh "$ROOT/scripts/apply-patches.sh" 2>&1 | grep -qE "0003-router-child-no-tools.patch (applies cleanly|already applied)"; then
-    ok "patches/0003 applies to the pinned llama.cpp source"
-  else bad "patches/0003 does not apply: $(CHECK=1 sh "$ROOT/scripts/apply-patches.sh" 2>&1 | tail -n 2)"; fi
-else echo "SKIP patch check (no llama.cpp source)"; fi
-# 3
 sandbox() {
   d=$1
   mkdir -p "$d/.cache/verified"
@@ -61,7 +54,7 @@ guard() {   # guard NAME MARKER(0|1): run serve.sh with a stub that records LLAM
       LLAMA_SERVER="$d/stub/llama-server" sh scripts/serve.sh > "$d/out.txt" 2>&1 ) || true
 }
 guard unpatched 0
-if ! grep -q LLAMA_ARG_TOOLS "$T/unpatched/env.txt" && ! grep -q LLAMA_ARG_MCP "$T/unpatched/env.txt" && grep -q "lacks patches/0003" "$T/unpatched/out.txt"; then
+if ! grep -q LLAMA_ARG_TOOLS "$T/unpatched/env.txt" && ! grep -q LLAMA_ARG_MCP "$T/unpatched/env.txt" && grep -q "lacks router-child-no-tools support" "$T/unpatched/out.txt"; then
   ok "unpatched llama-server: tools and MCP switched off with a warning"
 else bad "unpatched llama-server still got: $(cat "$T/unpatched/env.txt") $(tail -n 2 "$T/unpatched/out.txt")"; fi
 guard patched 1
@@ -75,7 +68,7 @@ GG=${TEST_GGUF:-}
 if [ -z "$REAL" ] || [ -z "$GG" ] || ! command -v curl >/dev/null 2>&1; then
   echo "SKIP live check (set REAL_LLAMA_SERVER and TEST_GGUF)"
 elif ! grep -aqs router-child-no-tools "$REAL" "$(dirname "$REAL")"/*.so* "$(dirname "$REAL")"/*.dll; then
-  echo "SKIP live check ($REAL is not built with patches/0003)"
+  echo "SKIP live check ($REAL lacks router-child-no-tools support)"
 else
   printf 'version = 1\n[*]\nctx-size = 2048\n[t]\nmodel = %s\n' "$GG" > "$T/p.ini"
   port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')

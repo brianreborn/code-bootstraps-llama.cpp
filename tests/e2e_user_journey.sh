@@ -8,7 +8,7 @@
 #   E2E_REPO      repo to clone (default: this checkout's origin)    E2E_BRANCH (default: current branch)
 #   E2E_WORK      work dir (default: a new temp dir, kept on failure)
 #   E2E_LLAMA_SERVER  reuse an already built llama-server (default: start.sh builds the pinned
-#                 source with patches/, the real first-run path; ~10-30 min)
+#                 pinned fork source, the real first-run path; ~10-30 min)
 #   E2E_MODEL_CACHE   dir or .gguf files holding the default chat model (matched by sha256) to
 #                 skip its 1.1 GB download; other models always download live (background test)
 #   FAMILIA_DIR   familia checkout for the proto-chat step (default: ../familia if present)

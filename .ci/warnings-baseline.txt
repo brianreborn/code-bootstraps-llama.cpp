@@ -4,7 +4,6 @@
 # as warnings get fixed. Generated with shellcheck 0.11.0 -x -S warning (.mk as -s sh).
 # Regenerate counts: SHELLCHECK=shellcheck sh .ci/lint-warnings.sh --current
 # Python: none baselined (compile -W error; pytest --collect-only -W error::*Deprecation* where pytest.ini exists).
-2 scripts/apply-patches.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
 1 scripts/build-android-release.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
 1 scripts/build-linux.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
 1 scripts/build-macos.sh SC1007  # `CDPATH= cd` idiom: intentional empty CDPATH for one command
