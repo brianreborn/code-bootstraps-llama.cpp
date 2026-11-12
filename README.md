@@ -229,10 +229,12 @@ erDiagram
 
 ## Pinned llama.cpp
 
-The current pin is llama.cpp release **`b12032`**, built **from source** with our patches
-(`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). It was picked on
-2026-11-02 as the newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent
-upstream tags are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
+The current pin is llama.cpp release **`b12032`**, checked out and built **from the
+[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork** with our patches
+(`patches/`, applied in order by `scripts/apply-patches.sh` / `.ps1`). The fork's `b12032` tag
+points to the same commit and source archive as upstream. It was picked on 2026-11-02 as the
+newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent upstream tags
+are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
 ggml-org/llama.cpp#31252) needs.
 
 | | |
@@ -241,11 +243,12 @@ ggml-org/llama.cpp#31252) needs.
 | Commit | `dde879bc4f954b809892fd0d660515f42536394a` |
 | Build number | `12032` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b12032`) |
 | Source tarball sha256 | `2fbadc9cc8552352efbdf3cf5bc7b8c9cce84a12c876cca03c858cb062567e2a` |
-| Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`) |
+| Patches | `0001-router-child-auth` (router forwards the caller's key to its children), `0002-log-pid-prefix` (`LLAMA_LOG_PID=1`: `[pid]` / `[pid model:port]` on every log line; on by default in `serve.sh` / `serve.ps1`), `0003-pthread_create` (links POSIX threads for FreeBSD) |
 
-The pin is recorded in `config/llama-pin.env`, which the build scripts read. **The launchers are
-prebuilt-first:** `start.sh` / `start.bat` reuse an existing `build-*` llama-server, else download the
-sha256-checked b12032 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
+The pin is recorded in `config/llama-pin.env`, which the build scripts read; both the submodule and
+source tarball use the tracking fork. **The launchers are prebuilt-first:** `start.sh` / `start.bat`
+reuse an existing `build-*` llama-server, else download the sha256-checked official ggml-org b12032
+release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
 macOS, Windows), and build the pinned source with `patches/` only when no release binary fits
 (FreeBSD, Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces the patched
 source build. The upstream binary has none of `patches/`, so `serve.sh` keeps TOOLS/MCP off with it

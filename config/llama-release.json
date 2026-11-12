@@ -1,5 +1,5 @@
 {
-  "_comment": "Official llama.cpp b12032 (matches config/llama-pin.env) release binaries. sha256 and byte counts are copied from the GitHub release API. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains available for platforms or variants not listed. The upstream Android archive is intentionally not used because it disables subprocess support required by router mode and server tools; Termux builds the pinned source instead.",
+  "_comment": "Official ggml-org llama.cpp b12032 (matches config/llama-pin.env) release binaries. sha256 and byte counts are copied from the GitHub release API. The source checkout/archive is pinned to brianreborn/llama.cpp; this tracking fork does not publish binary releases. The web UI is embedded in llama-server. Building from source (scripts/build-*.sh) remains available for platforms or variants not listed. The upstream Android archive is intentionally not used because it disables subprocess support required by router mode and server tools; Termux builds the pinned fork source instead.",
   "tag": "b12032",
   "commit": "dde879bc4f954b809892fd0d660515f42536394a",
   "published_at": "2026-11-01T09:00:59Z",

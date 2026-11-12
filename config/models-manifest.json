@@ -1,8 +1,8 @@
 {
     "_comment": "Bootstrap model set. pick=default: approved and fetched by scripts/fetch-models.sh with no flags. pick=fallback / step-up: optional, only fetched with --fallback / --step-up. pick=language / language-small: interpreter for LANGUAGE_MODE=interpret (opt-in), only fetched with --language / --language-small; never by default. pick=locale-<lang>: language-native general model for LANGUAGE_MODE=swap, only fetched with --locale <lang>. The default LANGUAGE_MODE=native needs no extra model. role = models/<role>/ directory; scripts/serve.sh pins each role to the first installed entry of that role (manifest order) in the effective preset, so other files there are never served; dir = other directory (models-optional/...). revision = Hugging Face commit the file is downloaded from (resolve/<revision>/<file>); sha256 = Hugging Face LFS oid, checked before the file is moved into place. tested = verified end to end through scripts/serve.sh on llama.cpp b11374 (x86_64 CPU). notice = license notice printed by fetch-models.sh when the file is downloaded or restored.",
     "llama_cpp": {
-        "tag": "b11944",
-        "commit": "1b4554eff124a8f0033bc09b3f708a5e51cbda15"
+        "tag": "b12032",
+        "commit": "dde879bc4f954b809892fd0d660515f42536394a"
     },
     "candidates": [
         {

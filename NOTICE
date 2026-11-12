@@ -3,10 +3,10 @@ Copyright (c) 2026 Brian Fundakowski Feldman. Licensed under the MIT License (se
 
 This project includes, as a git submodule (llama.cpp/), unmodified source code of:
 
-  llama.cpp - https://github.com/ggml-org/llama.cpp
+  llama.cpp - https://github.com/brianreborn/llama.cpp
   Copyright (c) 2023-2026 The ggml authors
   Licensed under the MIT License, see llama.cpp/LICENSE.
-  Pinned at tag b11669 (llama.cpp 0.7.0), commit 620d2225cc436ab0b001e3200e590e3b286ef9ab.
+  Pinned at tag b12032, commit dde879bc4f954b809892fd0d660515f42536394a.
   llama.cpp bundles third-party code under its own licenses, see llama.cpp/licenses/
   and llama.cpp/vendor/.
 
