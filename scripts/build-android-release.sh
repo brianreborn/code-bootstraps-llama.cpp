@@ -80,13 +80,11 @@ READELF=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
 [ -x "$READELF" ] || READELF=readelf
 
 [ -f llama.cpp/CMakeLists.txt ] || git submodule update --init llama.cpp
-actual=$(BASE=1 sh scripts/apply-patches.sh llama.cpp)
+actual=$(git -C llama.cpp rev-parse HEAD)
 [ "$actual" = "$LLAMA_COMMIT" ] || die "llama.cpp is at $actual, the pin is $LLAMA_TAG ($LLAMA_COMMIT): git submodule update --init"
 if [ -n "$(git -C llama.cpp status --porcelain --untracked-files=no)" ] && [ "${ALLOW_DIRTY:-0}" != 1 ]; then
   die "llama.cpp has local changes (git -C llama.cpp status); a release must build the pinned source as is"
 fi
-# our patches (patches/*.patch), applied after the clean-tree check
-scripts/apply-patches.sh "$ROOT/llama.cpp"
 REPO_COMMIT=$(git rev-parse HEAD)
 REPO_DIRTY=$(git status --porcelain -- scripts/build-android-release.sh scripts/lib/ui-assets.sh config/llama-pin.env | wc -l | tr -d ' ')
 

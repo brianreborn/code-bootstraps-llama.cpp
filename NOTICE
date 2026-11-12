@@ -1,12 +1,13 @@
 code-bootstraps-llama.cpp
 Copyright (c) 2026 Brian Fundakowski Feldman. Licensed under the MIT License (see LICENSE).
 
-This project includes, as a git submodule (llama.cpp/), unmodified source code of:
+This project includes, as a git submodule (llama.cpp/), source code from the
+brianreborn tracking fork, including fork-specific changes:
 
   llama.cpp - https://github.com/brianreborn/llama.cpp
   Copyright (c) 2023-2026 The ggml authors
   Licensed under the MIT License, see llama.cpp/LICENSE.
-  Pinned at tag b12032, commit dde879bc4f954b809892fd0d660515f42536394a.
+  Based on tag b12032; exact fork commit is recorded in config/llama-pin.env.
   llama.cpp bundles third-party code under its own licenses, see llama.cpp/licenses/
   and llama.cpp/vendor/.
 

@@ -63,7 +63,5 @@ if [ ! -f llama.cpp/CMakeLists.txt ]; then
   printf '%s %s\n' "$LLAMA_TAG" "$LLAMA_COMMIT" > llama.cpp/.cbl-source-tag
   say "unpacked llama.cpp $LLAMA_TAG into llama.cpp/"
 fi
-CHECK=1 scripts/apply-patches.sh "$ROOT/llama.cpp"
-
 [ "${SKIP_MODELS:-0}" = 1 ] || scripts/fetch-models.sh
 say "done: you can now build and start offline (start.sh)"

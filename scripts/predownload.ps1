@@ -26,6 +26,5 @@ if (-not (Test-Path "llama.cpp\CMakeLists.txt")) {
     if ($LASTEXITCODE -ne 0) { throw "predownload: unpacking the source tarball failed" }
     Set-Content -LiteralPath "llama.cpp\.cbl-source-tag" -Value "$($pin.LLAMA_TAG) $($pin.LLAMA_COMMIT)" -Encoding ascii
 }
-& (Join-Path $PSScriptRoot "apply-patches.ps1") -Check
 if (-not $SkipModels) { & (Join-Path $PSScriptRoot "fetch-models.ps1") }
 Write-Host "predownload: done: you can now build and start offline (start.bat)"

@@ -826,7 +826,7 @@ while IFS= read -r ev; do
 done < "$env_dump"
 rm -f "$env_dump"
 export LLAMA_API_KEY="$API_KEYS"
-# patches/0002: tag every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off
+# The pinned fork tags every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off.
 export LLAMA_LOG_PID="${LLAMA_LOG_PID:-1}"
 for d in "$ROOT"/.cache/llama-cache "$ROOT"/.cache/llama-cache.*; do
   [ -e "$d" ] || [ -h "$d" ] || continue
@@ -844,12 +844,11 @@ export LLAMA_CACHE="$LLAMA_CACHE_DIR"
 export LLAMA_ARG_OFFLINE=1
 export MODEL_ENDPOINT="https://offline.invalid/"
 # Router children listen on loopback without the API key and must get NO tools and no MCP.
-# patches/0003 (marker "router-child-no-tools") keeps the LLAMA_ARG_TOOLS* / MCP / agent
-# settings on the router. An unpatched llama-server (e.g. an upstream release from
-# fetch-llama.sh) would hand them to every child, so tools and MCP are switched off there.
+# The router-child-no-tools change is not in the pinned fork yet. An unmarked binary would
+# pass these settings to every child, so tools and MCP are switched off for it.
 if [ -n "$TOOLS" ] || [ -n "$MCP_CONFIG" ] || [ -n "$RUNTIME_ARG" ]; then
   if ! grep -aqs "router-child-no-tools" "$BIN" "$(dirname "$BIN")"/libllama-server* "$(dirname "$BIN")"/*.so* 2>/dev/null; then
-    warn "$BIN lacks patches/0003 (router-child-no-tools): its child instances would inherit the tools and MCP servers, so TOOLS and MCP are off; build with scripts/build-*.sh to use them"
+    warn "$BIN lacks router-child-no-tools support: its child instances would inherit the tools and MCP servers, so TOOLS and MCP are off"
     ROUTER_TOOLS_OFF=1; TOOLS_SET="off (unpatched llama-server)"
   fi
 fi
@@ -1105,7 +1104,7 @@ ready_probe() {
 ready_probe
 # log manifest: every process this script starts writes to a named file listed here
 # (name<TAB>path); scripts/cockpit.py tails them. Router children log through the router
-# with a "[pid name:port]" prefix (patches/0002, LLAMA_LOG_PID=1).
+# with a "[pid name:port]" prefix (LLAMA_LOG_PID=1).
 LOG_MANIFEST=$ROOT/.cache/logs.manifest
 {
   printf 'router\t%s\n' "$LOG_FILE"

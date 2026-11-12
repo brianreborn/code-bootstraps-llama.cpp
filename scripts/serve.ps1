@@ -537,7 +537,7 @@ $clear = @("LLAMA_API_KEY", "LLAMA_APP_CMD", "LLAMA_SERVER_ROUTER_PORT", "LLAMA_
            "LLAMA_SERVER_SLOTS_DEBUG", "LLAMA_SERVER_SLOTS_N_DIFF", "LLAMA_MEDIA_MARKER", "LLAMA_TRACE", "LLAMA_CACHE", "HF_ENDPOINT", "MODEL_ENDPOINT")
 Get-ChildItem Env: | Where-Object { $_.Name -like "LLAMA_ARG_*" -or $clear -contains $_.Name } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:LLAMA_API_KEY = $keys
-# patches/0002: tag every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off
+# The pinned fork tags every log line with [pid] (children: [pid model:port]); LLAMA_LOG_PID=0 turns it off.
 if (-not $env:LLAMA_LOG_PID) { $env:LLAMA_LOG_PID = "1" }
 # The router also lists every GGUF in the Hugging Face cache (%USERPROFILE%\.cache\huggingface\hub,
 # HF_HUB_CACHE, HF_HOME) and serves it on request; LLAMA_CACHE wins over those. So every start
@@ -561,8 +561,8 @@ $env:LLAMA_CACHE = $llamaCache
 $env:LLAMA_ARG_OFFLINE = "1"
 $env:MODEL_ENDPOINT = "https://offline.invalid/"   # the router checks a download request online even when offline (.invalid never resolves)
 # Router children listen on loopback without the API key and must get NO tools and no MCP
-# (same rule as serve.sh): only a llama-server with patches/0003 ("router-child-no-tools")
-# keeps them on the router; an unpatched one would pass them to every child.
+# The router-child-no-tools change is not in the pinned fork yet; an unmarked binary
+# would pass these settings to every child.
 if ($Tools -or $McpConfig -or $runtime) {
     $binDir = Split-Path -Parent $LlamaServer
     $patched = $false
@@ -570,7 +570,7 @@ if ($Tools -or $McpConfig -or $runtime) {
         if ([System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($f.FullName)).Contains('router-child-no-tools')) { $patched = $true; break }
     }
     if (-not $patched) {
-        Write-Warning "serve.ps1: $LlamaServer lacks patches/0003 (router-child-no-tools): its child instances would inherit the tools and MCP servers, so Tools and MCP are off; build with scripts\build-windows.ps1 to use them"
+        Write-Warning "serve.ps1: $LlamaServer lacks router-child-no-tools support: its child instances would inherit the tools and MCP servers, so Tools and MCP are off"
         $Tools = ""; $McpConfig = ""; $runtime = ""
     }
 }

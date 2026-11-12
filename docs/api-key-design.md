@@ -32,7 +32,7 @@ it never writes a different key. Different ports have different keys and never i
 | caller | how |
 |---|---|
 | llama-server router | `LLAMA_API_KEY` env, inherited by every child |
-| router -> child (`/v1/streams/lookup`, `DELETE /v1/stream`) | `patches/0001-router-child-auth.patch` adds `Authorization: Bearer` (upstream sent none: children answered 401) |
+| router -> child (`/v1/streams/lookup`, `DELETE /v1/stream`) | The pinned `brianreborn/llama.cpp` fork forwards `Authorization` / `X-Api-Key` (upstream sent none: children answered 401) |
 | serve.sh ready probe | `curl -K -` (key on stdin, not argv) |
 | start.sh / open-ui | key read from the instance file, passed to the browser UI |
 | familia (`familia_auth.py`, start.sh --bootstrap, find_models.sh, search_x.sh) | same resolver, `Authorization: Bearer` |

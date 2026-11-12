@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke test for a patched llama-server (patches/): router with an API key, one child, then
+# Smoke test for a pinned-fork llama-server: router with an API key, one child, then
 #  - the router->child stream lookup and stream stop must not 401 in the child (0001)
 #  - with LLAMA_LOG_PID=1 log lines start with [pid] and child lines with [pid model:port] (0002)
 #   tests/smoke-router-auth.sh <llama-server> <model.gguf> [port]
