@@ -6,6 +6,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,6 +107,15 @@ class TxTests(unittest.TestCase):
             self.assertEqual(tx_lines, ["tx: nothing open"])
 
 
+def _wait_state(snap, pid, ok, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    state = snap._state(pid)
+    while not ok(state) and time.monotonic() < deadline:
+        time.sleep(0.01)
+        state = snap._state(pid)
+    return state
+
+
 class SnapTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix="snap-")
@@ -140,9 +150,11 @@ class SnapTests(unittest.TestCase):
         try:
             held = snap.freeze([child.pid, os.getpid(), 1])
             self.assertEqual(held, [child.pid])
-            self.assertEqual(snap._state(child.pid), "T")
+            # SIGSTOP/SIGCONT are delivered asynchronously; under load /proc can still
+            # show R for a moment after kill() returns (issue #37). Poll, don't race.
+            self.assertEqual(_wait_state(snap, child.pid, lambda s: s == "T"), "T")
             snap.thaw(held)
-            self.assertNotEqual(snap._state(child.pid), "T")
+            self.assertNotEqual(_wait_state(snap, child.pid, lambda s: s != "T"), "T")
         finally:
             child.kill()
             child.wait(timeout=5)
