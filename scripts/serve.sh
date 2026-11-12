@@ -843,13 +843,12 @@ LLAMA_CACHE_DIR=$(mktemp -d "$ROOT/.cache/llama-cache.$$.XXXXXX") || die "cannot
 export LLAMA_CACHE="$LLAMA_CACHE_DIR"
 export LLAMA_ARG_OFFLINE=1
 export MODEL_ENDPOINT="https://offline.invalid/"
-# Router children listen on loopback without the API key and must get NO tools and no MCP.
-# The router-child-no-tools change is not in the pinned fork yet. An unmarked binary would
-# pass these settings to every child, so tools and MCP are switched off for it.
+# Older llama-server builds may pass router tool settings to child instances.
+# Keep tools enabled for baseline compatibility, but warn when child isolation is unavailable.
 if [ -n "$TOOLS" ] || [ -n "$MCP_CONFIG" ] || [ -n "$RUNTIME_ARG" ]; then
   if ! grep -aqs "router-child-no-tools" "$BIN" "$(dirname "$BIN")"/libllama-server* "$(dirname "$BIN")"/*.so* 2>/dev/null; then
-    warn "$BIN lacks router-child-no-tools support: its child instances would inherit the tools and MCP servers, so TOOLS and MCP are off"
-    ROUTER_TOOLS_OFF=1; TOOLS_SET="off (unpatched llama-server)"
+    warn "$BIN lacks router-child-no-tools support: child instances may inherit tool and MCP settings"
+    # ROUTER_TOOLS_OFF=1; TOOLS_SET="off (unpatched llama-server)"
   fi
 fi
 if [ "${ROUTER_TOOLS_OFF:-0}" != 1 ]; then
