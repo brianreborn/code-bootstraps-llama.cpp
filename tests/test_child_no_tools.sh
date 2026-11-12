@@ -1,9 +1,9 @@
 #!/bin/sh
-# Router children get ZERO tools: no built-in tool, tools runtime, MCP server or agent.
+# Router children get ZERO tools when llama-server supports child isolation.
 #  1. no section of config/models-preset.ini sets tools / MCP (the old "tools = get_info"
 #     workaround injected get_info into every model's prompt)
-#  2. serve.sh turns tools/MCP off for a llama-server without the marker, and keeps
-#     them (router only) for one with it
+#  2. serve.sh keeps requested tools enabled without the marker (with an inheritance
+#     warning), and keeps them for a marked router
 #  3. live (REAL_LLAMA_SERVER=marked llama-server, TEST_GGUF=small model; else SKIP):
 #     the router lists tools, a spawned child answers /tools "feature disabled", has no
 #     LLAMA_ARG_TOOLS in its environment, and its prompt for a chat without tools has no get_info
@@ -54,9 +54,9 @@ guard() {   # guard NAME MARKER(0|1): run serve.sh with a stub that records LLAM
       LLAMA_SERVER="$d/stub/llama-server" sh scripts/serve.sh > "$d/out.txt" 2>&1 ) || true
 }
 guard unpatched 0
-if ! grep -q LLAMA_ARG_TOOLS "$T/unpatched/env.txt" && ! grep -q LLAMA_ARG_MCP "$T/unpatched/env.txt" && grep -q "lacks router-child-no-tools support" "$T/unpatched/out.txt"; then
-  ok "unpatched llama-server: tools and MCP switched off with a warning"
-else bad "unpatched llama-server still got: $(cat "$T/unpatched/env.txt") $(tail -n 2 "$T/unpatched/out.txt")"; fi
+if grep -q "^LLAMA_ARG_TOOLS=" "$T/unpatched/env.txt" && grep -q "lacks router-child-no-tools support" "$T/unpatched/out.txt"; then
+  ok "unpatched llama-server: requested tools stay enabled with an inheritance warning"
+else bad "unpatched llama-server lost tools or warning: $(cat "$T/unpatched/env.txt") $(tail -n 2 "$T/unpatched/out.txt")"; fi
 guard patched 1
 if grep -q "^LLAMA_ARG_TOOLS=" "$T/patched/env.txt"; then ok "patched llama-server: the router keeps TOOLS"
 else bad "patched llama-server lost TOOLS: $(tail -n 3 "$T/patched/out.txt")"; fi
