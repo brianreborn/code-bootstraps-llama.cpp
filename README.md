@@ -2,7 +2,7 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
-**State of the art out of the box:** one command uses the pinned `brianreborn/llama.cpp` source (`b12032` base), auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+**State of the art out of the box:** one command uses the pinned `brianreborn/llama.cpp` source (rebased on current upstream `master`; release/UI assets remain at `b12032`), auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
 
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
@@ -230,20 +230,21 @@ erDiagram
 ## Pinned llama.cpp
 
 The current source is pinned to a commit in the
-[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork, based on release
-**`b12032`**. The router-auth, PID-log and POSIX thread-link changes are committed in the fork;
-builds no longer apply a local patch stack. The official `b12032` release binaries remain from
-ggml-org because the tracking fork does not publish binaries. The base release was picked on 2026-11-02 as the
-newest tag whose completed CI on ggml-org/llama.cpp had no failures (all recent upstream tags
-are marked pre-release); it is at or after `b11938`, which LFM3 (arch `lfm3`,
-ggml-org/llama.cpp#31252) needs.
+[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork. Its changes are
+rebased on `ggml-org/llama.cpp` `master` at `5d4c8eeb` (fetched 2026-11-12). The router-auth,
+PID-log and POSIX thread-link changes are committed in the fork; builds no longer apply a local
+patch stack. The official `b12032` release binaries and web UI remain pinned separately because
+the tracking fork does not publish binaries. `b12032` was selected on 2026-11-02 as the newest tag
+whose completed upstream CI had no failures (all newer tags were marked pre-release); it is at or
+after `b11938`, which LFM3 (arch `lfm3`, ggml-org/llama.cpp#31252) needs.
 
 | | |
 |---|---|
-| Tag | `b12032` |
-| Commit | `ef5eb0a7765e09301cc73963e407e56b4a159973` |
+| Release/UI tag | `b12032` |
+| Upstream source base | `ggml-org/llama.cpp` `master` at `5d4c8eeb` |
+| Fork commit | `e529969a1a5710ff7631fcd92118165aea278a0a` |
 | Build number | `12032` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b12032`) |
-| Source tarball sha256 | `0581dd8d58e46d32a4c729397622d55c85e46ccb6c3b0f46208c70cb786ede99` |
+| Source tarball sha256 | `91a72df69189ad74240119d9cd4c00488369f6443b8051b0bc674af0fd3e41c5` |
 | Fork changes | Router forwards caller auth to child requests; `LLAMA_LOG_PID=1` adds `[pid]` / `[pid model:port]`; CMake package exports include POSIX Threads |
 
 The exact fork commit is recorded in `config/llama-pin.env`, which the build scripts read; both the
