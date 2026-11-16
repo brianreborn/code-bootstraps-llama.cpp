@@ -2,7 +2,7 @@
 
 The models and the server for [FEELDZNUTTS](https://github.com/brianreborn/feeldznutts). You talk to **chat**. Work that is code goes to **coder**. **route** chooses.
 
-**State of the art out of the box:** one command uses the pinned `brianreborn/llama.cpp` source (rebased on current upstream `master`; release/UI assets remain at `b12032`), auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
+**State of the art out of the box:** one command uses the pinned `brianreborn/llama.cpp` source (official `v1.0.0` / `b12359`, with the fork's router-auth, PID-log, and POSIX thread-link changes kept), auto-detects ONE backend (CUDA / Vulkan / Metal / CPU), fetches **LFM3-1.7B-Uncensored** (one 1.13 GB file, 256k context, trained for tool calling and agents) and serves it twice, as `general` (chat profile) and `coder` (coder profile), behind a stable per-instance API key.
 
 <img src="https://github.com/brianreborn/feeldznutts/raw/main/logo.png" alt="FEELDZNUTTS" width="170">
 
@@ -78,7 +78,7 @@ Everything after this is the detail: the pinned llama.cpp, the models, what was 
 
 ## Diagrams
 
-Mermaid diagrams of `main` (`542d5e3`, llama.cpp pin `b12032`), rendered by GitHub.
+Mermaid diagrams of the launcher flow (llama.cpp pin `v1.0.0` / `b12359`), rendered by GitHub.
 
 ### Components
 
@@ -142,7 +142,7 @@ stateDiagram-v2
   Tools --> Runtime
   Runtime --> Named: LLAMA_SERVER= set by the user
   Runtime --> Reuse: existing build-*/bin/llama-server (unless BUILD=1)
-  Runtime --> Release: sha256-checked b12032 release binary
+  Runtime --> Release: sha256-checked b12359 release binary
   Runtime --> Build: no release binary fits (exit 3), or BUILD=1
   Runtime --> Failed: release download failed (not exit 3)
   Build --> Failed: cmake or sources missing, or no llama-server built
@@ -230,26 +230,30 @@ erDiagram
 ## Pinned llama.cpp
 
 The current source is pinned to a commit in the
-[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork. Its changes are
-rebased on `ggml-org/llama.cpp` `master` at `5d4c8eeb` (fetched 2026-11-12). The router-auth,
-PID-log and POSIX thread-link changes are committed in the fork; builds no longer apply a local
-patch stack. The official `b12032` release binaries and web UI remain pinned separately because
-the tracking fork does not publish binaries. `b12032` was selected on 2026-11-02 as the newest tag
-whose completed upstream CI had no failures (all newer tags were marked pre-release); it is at or
-after `b11938`, which LFM3 (arch `lfm3`, ggml-org/llama.cpp#31252) needs.
+[`brianreborn/llama.cpp`](https://github.com/brianreborn/llama.cpp) tracking fork. Branch
+`cursor/v1.0.0-familia-3e4f` merges official [`ggml-org/llama.cpp` `v1.0.0`](https://github.com/ggml-org/llama.cpp/releases/tag/v1.0.0)
+(`b1b770d90d94cad9e9ea5b993bdbc383a522fb28`, the same commit as nightly tag `b12359`) and keeps the
+fork patches. The router-auth, PID-log and POSIX thread-link changes are still committed in the
+fork; builds do not apply a local patch stack. No fork patches were dropped. The official `b12359`
+release binaries and web UI are pinned separately because the tracking fork does not publish
+binaries. `b12359` is the build tag llama.cpp published for `v1.0.0`, and it is after `b11938`,
+which LFM3 (arch `lfm3`, ggml-org/llama.cpp#31252) needs. Upstream CUDA 13 assets moved from 13.4
+to 13.5; the `cuda-13` variant name is unchanged.
 
 | | |
 |---|---|
-| Release/UI tag | `b12032` |
-| Upstream source base | `ggml-org/llama.cpp` `master` at `5d4c8eeb` |
-| Fork commit | `e529969a1a5710ff7631fcd92118165aea278a0a` |
-| Build number | `12032` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b12032`) |
-| Source tarball sha256 | `91a72df69189ad74240119d9cd4c00488369f6443b8051b0bc674af0fd3e41c5` |
-| Fork changes | Router forwards caller auth to child requests; `LLAMA_LOG_PID=1` adds `[pid]` / `[pid model:port]`; CMake package exports include POSIX Threads |
+| Release/UI tag | `b12359` (official `v1.0.0`) |
+| Upstream source | `ggml-org/llama.cpp` `v1.0.0` at `b1b770d90d94cad9e9ea5b993bdbc383a522fb28` |
+| Fork branch | `cursor/v1.0.0-familia-3e4f` |
+| Fork commit | `2a8600387b40f2820d17973067020ce11377904d` |
+| Build number | `12359` (passed as `-DLLAMA_BUILD_NUMBER`; the web UI is pinned with `HF_UI_VERSION=b12359`) |
+| Source tarball sha256 | `5e6bc118ec9ed019a5e18bfb959c7ef99f6f6681ae8512a4947647800eb133dd` |
+| Fork changes kept | Router forwards caller auth to child requests; `LLAMA_LOG_PID=1` adds `[pid]` / `[pid model:port]`; CMake package exports include POSIX Threads |
+| Fork changes dropped | none |
 
 The exact fork commit is recorded in `config/llama-pin.env`, which the build scripts read; both the
 submodule and source tarball use it. **The launchers are prebuilt-first:** `start.sh` / `start.bat`
-reuse an existing `build-*` llama-server, else download the sha256-checked official ggml-org b12032
+reuse an existing `build-*` llama-server, else download the sha256-checked official ggml-org b12359
 release binary for this OS/arch from `config/llama-release.json` (Linux x64/arm64,
 macOS, Windows), and build the pinned fork source only when no release binary fits (FreeBSD,
 Termux) or it does not run here. `BUILD=1 start.sh` (`start.bat -Build`) forces a fork-source build.
@@ -330,7 +334,7 @@ That is enough for the launchers below, which use release binaries. Without git,
 | macOS | double-click `start.command` (or `./start.sh`) |
 | Windows | double-click `start.bat` |
 
-The launcher uses the sha256-checked b12032 release binary for this machine (or an existing build; it builds the pinned fork source only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
+The launcher uses the sha256-checked b12359 release binary for this machine (or an existing build; it builds the pinned fork source only when no release binary fits, or with `BUILD=1`; see Build prerequisites) and downloads the default models, checking every file's sha256. On Linux that same command also asks once, through sudo, for the right to lock model memory. On Windows, `start.bat` asks once through the administrator prompt. The server starts either way. The next launch does not ask again. `RAISE=1` asks again, and `RAISE=0` never asks. Sign in again before locking can succeed. Termux and macOS skip this step. If no release binary fits the machine, it builds from source when `cmake` is installed. It then starts `scripts/serve.sh` (`scripts\serve.ps1` on Windows) and opens the built-in web UI at **`http://127.0.0.1:9931/?model=chat`**, with chat selected (the general model; coder is a handoff) (another port if 9931 is taken: the launcher prints the URL it uses). Files the agent creates go to `workspace/`. Stop with Ctrl-C or by closing the terminal window; both stop the server and its model processes (tested on Linux by closing a pty: no `llama-server` was left; untested on macOS and Windows). The browser tab and URL are only opened once `serve.sh` / `serve.ps1` reports that its own server listens on the port and answers (it writes `.cache/serve.ready`, see Security; removed when the server stops, on Windows also when the console window is closed, and every launcher start removes an old one), so a failed start, or another program on the port, never opens the page. Without internet access the launcher says so; run it again later and a partial download resumes.
 
 **API key.** The server only answers with the API key. There is **one stable key per instance (port)**, kept in **`${XDG_CONFIG_HOME:-~/.config}/familia/instances/<port>/api-keys`** (`%APPDATA%\familia\instances\<port>\api-keys` on Windows; one key per line, directory 700, file 600). `serve.sh` / `serve.ps1` create it atomically on the very first start (adopting an older `.secrets/api-keys`) and never rotate it; every client (familia, `snap.py`, `agent.py`, the launchers) reads the same file. See [docs/api-key-design.md](docs/api-key-design.md). The launcher prints the key when the server is ready. The first time you open the page, the UI says **"Server Connection Error / Access denied"**: that is expected, nothing is broken. Click the **Enter API Key** button, paste the key and press Enter. The b11374 UI has no way to receive the key through the URL (it reads only `model`, `q` and `load` from it), and a key in a URL would end up in the browser history anyway. The browser keeps it for later visits. `COPY_KEY=1` (`-CopyKey` on Windows) also copies it to the clipboard; that is off by default because clipboard managers keep a history.
 
@@ -419,7 +423,7 @@ cd ~/cbl && ./start.sh
 ```
 
 - **Clone with git, not the ZIP**, and keep the folder in `$HOME` (`/data/data/com.termux/files/home`), not on `/sdcard`: shared storage is mounted noexec (the binaries cannot run there) and slow to read models from. About 3 GB free are needed (4-5 GB more for a source build).
-- The tested `android-b11374-1` build described above is historical; there is no prebuilt Android archive for 0.7.0 yet. The upstream Android asset disables subprocess support required by router mode and server tools, so Termux builds the pinned 0.7.0 source instead (`pkg install git clang cmake ninja`; 30-90 min, `JOBS=2` if clang gets killed). `scripts/build-android-release.sh` can create a custom subprocess-enabled archive for maintainers.
+- The tested `android-b11374-1` build described above is historical; there is no prebuilt Android archive for v1.0.0 in this repo yet. The upstream Android asset disables subprocess support required by router mode and server tools, so Termux builds the pinned v1.0.0 source instead (`pkg install git clang cmake ninja`; 30-90 min, `JOBS=2` if clang gets killed). `scripts/build-android-release.sh` can create a custom subprocess-enabled archive for maintainers.
 - `start.sh` takes a Termux wake lock (`termux-wake-lock`, released when the server stops; `WAKE_LOCK=0` skips it) and opens the UI with `termux-open-url`. Android gets the `moderate` profile with 6.9 GB of RAM or more (Galaxy A57: general, coder and decision all loaded), `lowram` below that (note9).
 - When Termux is in the background, Android may run it on the slow cores only, or stop it. Keep Termux visible (split screen), or view the UI from a PC through an SSH tunnel: in Termux `pkg install openssh`, set a password with `passwd`, run `sshd` (port 8022), then on the PC `ssh -p 8022 -L 9931:127.0.0.1:9931 <phone-ip>` and open `http://127.0.0.1:9931/?model=chat` there.
 - Android 12 and later (for example a Galaxy A57 on Android 16) kill "phantom" child processes, which the router and its model processes are. In Developer options turn on **Disable child process restrictions** and reboot. On Samsung phones also turn **Auto Blocker** off (Settings > Security and privacy) to install a Termux APK from GitHub or use USB debugging, and set Termux's battery use to **Unrestricted**. Android 10 (for example a Galaxy Note 9) has neither restriction.
@@ -427,7 +431,7 @@ cd ~/cbl && ./start.sh
 
 ### Release binaries (no build)
 
-`scripts/fetch-llama.sh` downloads the official llama.cpp **0.7.0 (b11669)** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), macOS arm64 (Metal) and x64, Windows x64/arm64. Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b11669-<platform>-<variant>/` (git-ignored). Termux builds from the pinned source because the upstream Android asset disables subprocess support. The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
+`scripts/fetch-llama.sh` downloads the official llama.cpp **v1.0.0 (b12359)** release binary for this machine instead of building: Linux x64/arm64 (CPU, Vulkan, CUDA 12/13 on x64), macOS arm64 (Metal) and x64, Windows x64/arm64. Each archive's sha256 is pinned in `config/llama-release.json` (copied from the digest GitHub reports for the release asset) and checked before unpacking into `bin/llama-b12359-<platform>-<variant>/` (git-ignored). Termux builds from the pinned source because the upstream Android asset disables subprocess support. The web UI is embedded in `llama-server`. If the binary cannot run (for example a Linux without glibc 2.34, `libgomp1` or `libssl3`), the script removes it and exits 3: build instead.
 
 FreeBSD has no upstream release archive here. `start.sh` builds natively with
 `scripts/build-linux.sh` (CPU backend) into `build-freebsd/`. For a local build
