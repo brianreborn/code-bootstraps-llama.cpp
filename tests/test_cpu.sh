@@ -30,7 +30,7 @@ check() {
 }
 # Galaxy A57 (Exynos 1680): 1x A720 2.9 GHz + 4x A720 2.6 GHz + 3x A520 1.95 GHz
 check a57-freq   cpufreq/cpuinfo_max_freq 5 2900000 2600000 2600000 2600000 2600000 1950000 1950000 1950000
-check a57-cap    cpu_capacity 5 1024 918 918 918 918 410 410 410
+check a57-cap    cpu_capacity 5 358 358 358 914 914 914 914 1024
 # 3 clusters 1+3+4 where only the prime core passes 75%: everything but the slowest cluster
 check 1-3-4      cpu_capacity 4 1024 700 700 700 300 300 300 300
 check 1-3-4-freq cpufreq/cpuinfo_max_freq 4 3200000 2400000 2400000 2400000 1800000 1800000 1800000 1800000
