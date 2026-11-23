@@ -179,11 +179,17 @@
             "decision_type": "laya",
             "tested": true,
             "db_id": "ggml-org--Laya-GGUF--Laya-Q8_0",
-            "base_model": "convaiinnovations/laya",
+            "base_model": ["convaiinnovations/laya"],
             "base_revision": "7b928d828b7b0e022f929d9bd2e44165aa270148",
             "native_ctx": 8192,
             "native_ctx_source": "GGUF modern-bert.context_length",
-            "required": ["@endpoint POST /v1/systemone", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}"]
+            "required": ["@endpoint POST /v1/systemone", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}"],
+            "arch": "modern-bert",
+            "stop": {"eos_token_id": 50282, "eos_token_id_source": "GGUF tokenizer.ggml.eos_token_id"},
+            "rope": {"rope.scaling.type": "none", "rope.freq_base": 160000.0, "source": "GGUF metadata"},
+            "files": {"README.md": "8c6758b5e50d2119c152e1f80440e6f1a4da1f3cc9a67fe42aac9fc324257bf4"},
+            "inferred": {"role": "--role", "quant": "filename", "license": "card front matter", "ctx": "GGUF modern-bert.context_length", "by": "scripts/add_model.py"},
+            "unknown": ["card_defaults: the card and generation_config.json state no sampling values", "config.json"]
         },
         {
             "role": "general",
@@ -500,22 +506,7 @@
             "bytes": 309855456,
             "native_ctx": 8192,
             "native_ctx_source": "card: google/embeddinggemma-2 README.md:L45",
-            "required": [
-                "--embeddings",
-                "--pooling mean",
-                "--ubatch-size ${slot_ctx}",
-                "--batch-size ${slot_ctx}",
-                "@prompt task: search result | query: ",
-                "@prompt task: classification | query: ",
-                "@prompt task: clustering | query: ",
-                "@prompt task: code retrieval | query: ",
-                "@prompt title: none | text: ",
-                "@prompt task: fact checking | query: ",
-                "@prompt task: sentence similarity | query: ",
-                "@prompt task: question answering | query: ",
-                "@normalize euclidean",
-                "@prompt title: {title} | text: {content}"
-            ],
+            "required": ["--embeddings", "--pooling mean", "--ubatch-size ${slot_ctx}", "--batch-size ${slot_ctx}", "@prompt task: search result | query: ", "@prompt task: classification | query: ", "@prompt task: clustering | query: ", "@prompt task: code retrieval | query: ", "@prompt title: none | text: ", "@prompt task: fact checking | query: ", "@prompt task: sentence similarity | query: ", "@prompt task: question answering | query: ", "@normalize euclidean", "@prompt title: {title} | text: {content}"],
             "dir": "models/embed-official",
             "note": "MODEL_SET=official embed pick: ggml-org's own conversion of google/embeddinggemma-2 (Google ships no GGUF). Own folder because the file name equals the unsloth default's. GGUF header gemma-embedding2.context_length 262144; card 8192. Loaded on b11944 and passed a retrieval check (relevant 0.79 vs irrelevant 0.53 cosine) but not end to end through serve.sh."
         },
@@ -669,12 +660,7 @@
             "tested": true,
             "dir": "models-optional/nemotron-embed",
             "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
-            "required": [
-                "--embeddings",
-                "--pooling mean",
-                "@prompt query: ",
-                "@prompt passage: "
-            ],
+            "required": ["--embeddings", "--pooling mean", "@prompt query: ", "@prompt passage: "],
             "note": "optional embed specialist (opt-in: --pick nemotron-embed; serve.sh keeps the default embed model). Text only (the image mmproj is not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: 2048-dim, query/related passage cosine 0.63 vs unrelated -0.02. The card's model is bidirectional (is_causal false); whether llama.cpp's mistral3 path matches the reference embeddings is unverified."
         },
         {
@@ -695,9 +681,7 @@
             "tested": true,
             "dir": "models-optional/nemotron-guard",
             "publisher": "community GGUF (mradermacher) of the official NVIDIA model; NVIDIA ships no GGUF",
-            "required": [
-                "--jinja"
-            ],
+            "required": ["--jinja"],
             "note": "optional guard specialist (opt-in: --pick nemotron-guard), replies 'User Safety: safe|unsafe' (+ 'Response Safety'). Text only (image mmproj not fetched). Tested 2026-10-28 on official llama.cpp b11944 CPU prebuilt: sourdough question -> safe, pipe-bomb request -> unsafe."
         },
         {
@@ -803,9 +787,7 @@
             "security_tier": "guard",
             "dir": "models-optional/qwen3guard",
             "publisher": "community GGUF (mradermacher) of the official Qwen model",
-            "required": [
-                "--jinja"
-            ],
+            "required": ["--jinja"],
             "note": "second, independent guard (different vendor from nemotron-guard) (opt-in: --pick qwen3guard). PARTIAL TESTED: architecture qwen3 is supported by stock llama.cpp; load and verdict test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
         },
         {
@@ -828,9 +810,7 @@
             "guard_gated": true,
             "dir": "models-optional/foundation-sec",
             "publisher": "official Cisco Foundation AI GGUF",
-            "required": [
-                "--jinja"
-            ],
+            "required": ["--jinja"],
             "note": "defensive code/security review of our own components (opt-in: --pick foundation-sec). PARTIAL TESTED: llama arch, load and review test still TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
         },
         {
@@ -878,10 +858,30 @@
             "banner": "RISKY SPECIALIST: WhiteRabbitNeo is trained not to refuse. Opt-in, guard-gated, read/analyze our own swarm only; never act, attack or exploit. Upstream usage restrictions apply.",
             "dir": "models-optional/whiterabbitneo",
             "publisher": "community GGUF (bartowski) of WhiteRabbitNeo-V3-7B",
-            "required": [
-                "--jinja"
-            ],
+            "required": ["--jinja"],
             "note": "risky specialist (opt-in: --pick whiterabbitneo). Strict gating: fails closed for itself when no guard is healthy, unless an admin override is logged. PARTIAL TESTED: qwen2 arch, load test TODO (#65). Opt-in only; never a default role. Can be disabled live (config/security-gating.json, docs/security-models.md); if it fails, only this pick is dropped, never the swarm. Preservative use only: read and analyze our own code, never act or exploit."
+        },
+        {
+            "role": "chat",
+            "pick": "local",
+            "repo": "bartowski/SmolLM2-135M-Instruct-GGUF",
+            "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+            "file": "SmolLM2-135M-Instruct-Q4_0.gguf",
+            "quant": "Q4_0",
+            "bytes": 91893088,
+            "sha256": "bcc3af2849ad6095af57e9b5cd43775256efdc66e306acb529172f92d0c04b03",
+            "license": "apache-2.0",
+            "ctx": 8192,
+            "tested": false,
+            "arch": "llama",
+            "base_model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+            "card_commands": [{"tool": "huggingface-cli", "command": "huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF --include \"SmolLM2-135M-Instruct-Q4_K_M.gguf\" --local-dir ./", "source": "README.md:L77"}, {"tool": "huggingface-cli", "command": "huggingface-cli download bartowski/SmolLM2-135M-Instruct-GGUF --include \"SmolLM2-135M-Instruct-Q8_0/*\" --local-dir ./", "source": "README.md:L83"}],
+            "chat_template": {"gguf_sha256": "872be49dbb638044ad01b60388f48d469ff2980e5f0dccdc22ec907db54d0788"},
+            "stop": {"eos_token_id": 2, "eos_token_id_source": "GGUF tokenizer.ggml.eos_token_id"},
+            "rope": {"rope.freq_base": 100000.0, "source": "GGUF metadata"},
+            "files": {"README.md": "09b1f05942d11f5c47aac9789dde6fa8e431cdd541028532a7fb6f1c0e63d939"},
+            "inferred": {"role": "--role", "quant": "filename", "license": "card front matter", "ctx": "GGUF llama.context_length", "by": "scripts/add_model.py"},
+            "unknown": ["card_defaults: the card and generation_config.json state no sampling values", "config.json"]
         }
     ],
     "unplaced_options": [
