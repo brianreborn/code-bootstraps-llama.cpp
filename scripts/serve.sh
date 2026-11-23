@@ -210,17 +210,17 @@ else
     warn "$(t "this CPU is slow for the chosen profile")"
   fi
 fi
-# SIZING (per host; .cache/panel.env or the environment): monolithic = few big models with long
-# context (one 131072 pool per role, up to 8 loaded); distributed = several small slots per role
-# (16k pools, 2-4 parallel, 2 loaded), the pre-b1f6678 sizing for spreading work across hosts.
+# SIZING (per host; .cache/panel.env or the environment): monolithic favors fewer loaded models;
+# distributed favors more concurrent slots and fewer loaded models. A slot keeps the model's
+# full cataloged context in either profile; memory is controlled by slot/model counts.
 SIZING=${SIZING:-monolithic}
 CTX_MIN_CODER=32768; CTX_MIN_GENERAL=16384
 case "$SIZING" in
   monolithic) ;;
   distributed)
     CTX_MIN_CODER=2048; CTX_MIN_GENERAL=2048
-    DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
-    DIST_SMALL="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=262144 *.kv-unified-per-slot=262144 *.stop-timeout=10 general.ctx-size=262144 coder.ctx-size=262144 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
+    DIST_SMALL="coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     ;;
   *) die "unknown SIZING=$SIZING (monolithic|distributed)" ;;
 esac
@@ -228,21 +228,21 @@ if [ "$SIZING" = distributed ]; then
 case "$PROFILE" in
   default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="$DIST_BASE decision.load-on-startup=true" ;;
   moderate) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
-    OVERLAY="$DIST_BASE $DIST_SMALL coder.ctx-size=24576 decision.load-on-startup=true" ;;
+    OVERLAY="$DIST_BASE $DIST_SMALL coder.ctx-size=262144 decision.load-on-startup=true" ;;
   lowram) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0; OVERLAY="$DIST_BASE $DIST_SMALL" ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
 else
 case "$PROFILE" in
-  default) MODELS_MAX=${MODELS_MAX:-8}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
+  default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
     MODELS_MAX=${MODELS_MAX:-4}; RESIDENT=1
-    OVERLAY="coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    OVERLAY="coder.parallel=1 coder.ctx-size=262144 general.parallel=1 general.ctx-size=262144 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     ;;
   # No forcing extra models like decision on low-RAM systems. Let them decide.
   lowram)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
-    OVERLAY="coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    OVERLAY="coder.parallel=1 coder.ctx-size=262144 general.parallel=1 general.ctx-size=262144 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
@@ -270,22 +270,22 @@ if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" "$CTX_MIN_CODER" 2621
 if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" "$CTX_MIN_GENERAL" 262144
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
-# Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens, so the old
-# 256 MiB stored nothing and every turn re-read the whole prompt. Per profile: lowram 768,
-# moderate 1024, default 2048 MiB, never more than a quarter of the free RAM. CACHE_RAM
-# (MiB, 0 = off) or a --cache-ram argument wins.
+# Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens. This is a
+# per-generation-role limit. Divide the free-RAM ceiling between general and coder so their
+# combined default cache stays at or below a quarter of free RAM. Decision stays uncached.
+# CACHE_RAM (MiB, 0 = off) or an explicit --cache-ram argument wins.
 CACHE_RAM_MIB=""
 if [ -n "$UA_CACHE_RAM" ]; then :
 elif [ -n "${CACHE_RAM:-}" ]; then num_ok CACHE_RAM "$CACHE_RAM" 0 1048576
   CACHE_RAM_MIB=$CACHE_RAM; TUNED="$TUNED CACHE_RAM=$CACHE_RAM"
 else
   case "$PROFILE" in lowram) CACHE_RAM_MIB=768 ;; moderate) CACHE_RAM_MIB=1024 ;; *) CACHE_RAM_MIB=2048 ;; esac
-  if [ "$AVAIL_MB" -gt 0 ] && [ $((AVAIL_MB / 4)) -lt "$CACHE_RAM_MIB" ]; then CACHE_RAM_MIB=$((AVAIL_MB / 4)); fi
+  if [ "$AVAIL_MB" -gt 0 ] && [ $((AVAIL_MB / 8)) -lt "$CACHE_RAM_MIB" ]; then CACHE_RAM_MIB=$((AVAIL_MB / 8)); fi
   if [ "$CACHE_RAM_MIB" -lt 512 ]; then
     warn "prompt cache limited to ${CACHE_RAM_MIB} MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached"
   fi
 fi
-[ -n "$CACHE_RAM_MIB" ] && ov_set "*.cache-ram" "$CACHE_RAM_MIB"
+[ -n "$CACHE_RAM_MIB" ] && { ov_set "general.cache-ram" "$CACHE_RAM_MIB"; ov_set "coder.cache-ram" "$CACHE_RAM_MIB"; }
 # Language and decision stay as the preset wrote them. A locale section's reasoning = off
 # would otherwise win over this overlay when that role is swapped in.
 # Reasoning toggle per role: REASONING_GENERAL / REASONING_CODER, else REASONING, else the preset.
@@ -297,12 +297,8 @@ for rs_role in general coder; do
     *) die "unknown REASONING=$rs_v for $rs_role (on|off|auto)" ;;
   esac
 done
-# An untrusted Android app has RLIMIT_MEMLOCK of 64 KB. mmap+mlock fails
-# immediately and locks nothing. Keep the preset's mmap+mlock on other hosts.
-if [ "$IS_ANDROID" = 1 ] && [ -z "$LOAD_MODE" ]; then
-  ov_set general.load-mode mmap
-  ov_set coder.load-mode mmap
-fi
+# mmap is the cross-platform default so identical GGUF files can use OS file-backed sharing.
+# Explicit LOAD_MODE remains available when a host has a measured reason to pin/read differently.
 if [ -n "$LOAD_MODE" ]; then
   ov_set general.load-mode "$LOAD_MODE"
   ov_set coder.load-mode "$LOAD_MODE"
@@ -1265,4 +1261,3 @@ if [ ! -f "$READY_FILE" ] && [ "$status" != 0 ] && [ "$status" -lt 128 ]; then
   fi
 fi
 exit "$status"
-

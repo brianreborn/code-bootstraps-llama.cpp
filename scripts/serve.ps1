@@ -15,7 +15,7 @@ param(
     [string]$BindHost = $(if ($env:HOST) { $env:HOST } else { "127.0.0.1" }),
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | lowram | moderate | default (README "Light tuning")
-    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # general/coder kept loaded: 0 = profile default 2; decision stays loaded on top (not lowram)
+    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # nonresident model cap: 0 = profile default; resident decision is counted on top
     [string]$ToolsRuntime = $(if ($env:TOOLS_RUNTIME) { $env:TOOLS_RUNTIME } else { "auto" }),
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
     [string]$ToolsImage = $(if ($env:TOOLS_IMAGE) { $env:TOOLS_IMAGE } else { "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016" }),
@@ -172,8 +172,9 @@ if ($RamProfile -eq "auto") {
 }
 # same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
 # model is loaded at startup and kept (one --models-max slot more than ModelsMax), except lowram.
-# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic = long
-# context (131072 pools, up to 8 loaded); distributed = small slots (16k pools, 2-4 parallel, 2 loaded).
+# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic favors
+# fewer loaded models; distributed favors more concurrent slots and fewer loaded models. A slot
+# keeps the model's full cataloged context in either profile.
 $sizing = if ($env:SIZING) { $env:SIZING } else { "monolithic" }
 if ($sizing -notin @("monolithic", "distributed")) { throw "unknown SIZING=$sizing (monolithic|distributed)" }
 $overlay = [ordered]@{}
@@ -182,22 +183,22 @@ $ctxMinCoder = 32768; $ctxMinGeneral = 16384
 function Add-Pairs($pairs) { foreach ($p in ($pairs -split ' ')) { if ($p) { $kv = $p -split '=', 2; if ($overlay.Contains($kv[0])) { $overlay.Remove($kv[0]) }; $overlay[$kv[0]] = $kv[1] } } }
 if ($sizing -eq "distributed") {
     $ctxMinCoder = 2048; $ctxMinGeneral = 2048
-    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
-    $small = "coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=262144 *.kv-unified-per-slot=262144 *.stop-timeout=10 general.ctx-size=262144 coder.ctx-size=262144 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
+    $small = "coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }
     if ($RamProfile -eq "lowram") { Add-Pairs $small; $resident = 0 }
-    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=24576 decision.load-on-startup=true" }
+    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=262144 decision.load-on-startup=true" }
     else { Add-Pairs "decision.load-on-startup=true" }
 } else {
     if ($RamProfile -eq "lowram") {
         if ($ModelsMax -eq 0) { $ModelsMax = 2 }
         $resident = 0
-        Add-Pairs "coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+        Add-Pairs "coder.parallel=1 coder.ctx-size=262144 general.parallel=1 general.ctx-size=262144 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     } elseif ($RamProfile -eq "moderate") {
         if ($ModelsMax -eq 0) { $ModelsMax = 4 }
-        Add-Pairs "coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+        Add-Pairs "coder.parallel=1 coder.ctx-size=262144 general.parallel=1 general.ctx-size=262144 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     } else {
-        if ($ModelsMax -eq 0) { $ModelsMax = 8 }
+        if ($ModelsMax -eq 0) { $ModelsMax = 2 }
         Add-Pairs "decision.load-on-startup=true"
     }
 }
@@ -218,8 +219,9 @@ $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
 if ($parallelKnob) { Set-Overlay "coder.parallel" $parallelKnob; $tuned += " PARALLEL=$parallelKnob" }
-# Prompt cache (issue #16, same rules as serve.sh): lowram 768, moderate 1024, default 2048 MiB,
-# never more than a quarter of the free RAM. CACHE_RAM (MiB, 0 = off) or a --cache-ram argument wins.
+# Prompt cache (issue #16, same rules as serve.sh): lowram 768, moderate 1024, default 2048 MiB
+# per generation role. Divide free RAM between general and coder so their combined default
+# cache stays at or below a quarter of free RAM. Decision stays uncached.
 $uaCacheRam = $false
 foreach ($a in $Extra) { $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant(); if ($n -eq '--cache-ram' -or $n -eq '-cram') { $uaCacheRam = $true } }
 if (-not $uaCacheRam) {
@@ -228,10 +230,11 @@ if (-not $uaCacheRam) {
     if ($cacheRamKnob) { $cacheRam = [int]$cacheRamKnob; $tuned += " CACHE_RAM=$cacheRamKnob" }
     else {
         $cacheRam = switch ($RamProfile) { "lowram" { 768 } "moderate" { 1024 } default { 2048 } }
-        if ($availMB -gt 0 -and [int][math]::Floor($availMB / 4) -lt $cacheRam) { $cacheRam = [int][math]::Floor($availMB / 4) }
+        if ($availMB -gt 0 -and [int][math]::Floor($availMB / 8) -lt $cacheRam) { $cacheRam = [int][math]::Floor($availMB / 8) }
         if ($cacheRam -lt 512) { Write-Warning "prompt cache limited to $cacheRam MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached" }
     }
-    Set-Overlay "*.cache-ram" "$cacheRam"
+    Set-Overlay "general.cache-ram" "$cacheRam"
+    Set-Overlay "coder.cache-ram" "$cacheRam"
 }
 $reasoning = [Environment]::GetEnvironmentVariable("REASONING")
 if (-not $reasoning) { $reasoning = "" }
