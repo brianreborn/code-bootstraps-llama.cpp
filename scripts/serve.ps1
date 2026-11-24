@@ -179,10 +179,8 @@ $sizing = if ($env:SIZING) { $env:SIZING } else { "monolithic" }
 if ($sizing -notin @("monolithic", "distributed")) { throw "unknown SIZING=$sizing (monolithic|distributed)" }
 $overlay = [ordered]@{}
 $resident = 1
-$ctxMinCoder = 32768; $ctxMinGeneral = 16384
 function Add-Pairs($pairs) { foreach ($p in ($pairs -split ' ')) { if ($p) { $kv = $p -split '=', 2; if ($overlay.Contains($kv[0])) { $overlay.Remove($kv[0]) }; $overlay[$kv[0]] = $kv[1] } } }
 if ($sizing -eq "distributed") {
-    $ctxMinCoder = 2048; $ctxMinGeneral = 2048
     Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=262144 *.kv-unified-per-slot=262144 *.stop-timeout=10 general.ctx-size=262144 coder.ctx-size=262144 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
     $small = "coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }
@@ -213,8 +211,8 @@ function Get-Knob([string]$name, [int]$lo, [int]$hi, [string]$fallback = "") {
     return "$n"
 }
 $tuned = ""
-$coderCtx = Get-Knob "CODER_CTX" $ctxMinCoder 262144 $env:CTX
-$generalCtx = Get-Knob "GENERAL_CTX" $ctxMinGeneral 262144 $env:CTX
+$coderCtx = Get-Knob "CODER_CTX" 1 2147483647 $env:CTX
+$generalCtx = Get-Knob "GENERAL_CTX" 1 2147483647 $env:CTX
 $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
@@ -401,7 +399,6 @@ function Get-RoleValue([string]$role, [string]$key) {
     return (Get-PresetRaw '*' $key)
 }
 $ctxFit = ""
-$ctxMinSlot = 2048; if ($env:CTX_MIN_SLOT -match '^\d+$') { $ctxMinSlot = [int]$env:CTX_MIN_SLOT }
 foreach ($fitRole in @("general", "coder", "decision", "language")) {
     if (-not $roleModel.Contains($fitRole) -or -not $roleModel[$fitRole]) { continue }
     $leaf = Split-Path -Leaf $roleModel[$fitRole]; $train = 0
@@ -420,9 +417,6 @@ foreach ($fitRole in @("general", "coder", "decision", "language")) {
         $v = Get-RoleValue $fitRole $k
         if ($v -match '^\d+$' -and [int]$v -gt $eff) { Set-Overlay "$fitRole.$k" "$eff" }
     }
-    $par = Get-RoleValue $fitRole "parallel"; if ($par -notmatch '^[1-9]\d*$') { $par = 1 }
-    $slot = $eff; if ((Get-RoleValue $fitRole "kv-unified") -eq "false") { $slot = [int]($eff / [int]$par) }
-    if ($slot -lt $ctxMinSlot) { Write-Warning "the $fitRole role has only $slot tokens of context per slot (ctx $eff / $par slots)" }
 }
 
 # effective preset (same rules and output as the awk filter in serve.sh)

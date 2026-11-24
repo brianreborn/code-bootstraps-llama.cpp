@@ -93,18 +93,31 @@ else
   tail -20 "$T/ex2/out.txt" || true
 fi
 
-# 4) explicit PARALLEL=1 with CODER_CTX
+# 4) small explicit contexts below the former arbitrary floors remain accepted.
 sandbox "$T/p1"
-( cd "$T/p1" && env PROFILE=moderate PARALLEL=1 CODER_CTX=64000 GGUF_HOME="$T/p1" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+( cd "$T/p1" && env PROFILE=moderate PARALLEL=1 CODER_CTX=8192 GENERAL_CTX=4096 GGUF_HOME="$T/p1" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
     LLAMA_SERVER="$T/llama-server" PORT=19993 \
     sh scripts/serve.sh > "$T/p1/out.txt" 2>&1 ) || true
 ctx=$(val "$T/p1/.cache/models-preset.effective.ini" coder ctx-size)
 par=$(val "$T/p1/.cache/models-preset.effective.ini" coder parallel)
 slot=$(val "$T/p1/.cache/models-preset.effective.ini" coder kv-unified-per-slot)
-if [ "$ctx" = 64000 ] && [ "$par" = 1 ] && [ "$slot" = 64000 ]; then
-  ok "CODER_CTX+PARALLEL=1 -> per-slot 64000"
+general=$(val "$T/p1/.cache/models-preset.effective.ini" general ctx-size)
+if [ "$ctx" = 8192 ] && [ "$par" = 1 ] && [ "$slot" = 8192 ] && [ "$general" = 4096 ]; then
+  ok "CODER_CTX=8192 and GENERAL_CTX=4096 accepted below former floors"
 else
-  bad "env override: ctx=$ctx par=$par slot=$slot"
+  bad "small context override: coder=$ctx par=$par slot=$slot general=$general"
+fi
+
+# 5) overrides above the launcher range are accepted, then capped only by model metadata.
+sandbox "$T/above"
+( cd "$T/above" && env PROFILE=moderate CODER_CTX=524288 GGUF_HOME="$T/above" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+    LLAMA_SERVER="$T/llama-server" PORT=19994 \
+    sh scripts/serve.sh > "$T/above/out.txt" 2>&1 ) || true
+ctx=$(val "$T/above/.cache/models-preset.effective.ini" coder ctx-size)
+if [ "$ctx" = 262144 ] && grep -q 'model max; profile asked 524288' "$T/above/out.txt"; then
+  ok "context above former ceiling is model-capped at 262144"
+else
+  bad "context above former ceiling not fitted: ctx=$ctx"; tail -20 "$T/above/out.txt" || true
 fi
 
 if [ "$fails" -gt 0 ]; then echo "FAILED $fails"; exit 1; fi

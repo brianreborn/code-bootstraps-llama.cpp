@@ -214,11 +214,9 @@ fi
 # distributed favors more concurrent slots and fewer loaded models. A slot keeps the model's
 # full cataloged context in either profile; memory is controlled by slot/model counts.
 SIZING=${SIZING:-monolithic}
-CTX_MIN_CODER=32768; CTX_MIN_GENERAL=16384
 case "$SIZING" in
   monolithic) ;;
   distributed)
-    CTX_MIN_CODER=2048; CTX_MIN_GENERAL=2048
     DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=262144 *.kv-unified-per-slot=262144 *.stop-timeout=10 general.ctx-size=262144 coder.ctx-size=262144 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
     DIST_SMALL="coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     ;;
@@ -265,9 +263,9 @@ for ov_y in $ov_in; do ov_set "${ov_y%%=*}" "${ov_y#*=}"; done
 num_ok MODELS_MAX "$MODELS_MAX" 1 8
 ROUTER_MAX=$((MODELS_MAX + RESIDENT))
 TUNED=""
-if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" "$CTX_MIN_CODER" 262144
+if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 1 2147483647
   ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
-if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" "$CTX_MIN_GENERAL" 262144
+if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 1 2147483647
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
 # Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens. This is a
@@ -586,7 +584,6 @@ n_ctx_train_of() {
   awk -v match_kv="" -v fields="file n_ctx_train" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
     awk -F '\t' -v f="$(basename "$1")" '$1 == f && $2 ~ /^[0-9]+$/ { print $2; exit }'
 }
-CTX_MIN_SLOT=${CTX_MIN_SLOT:-2048}
 for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "language:$LANG_MODEL"; do
   fit_role=${fit_pair%%:*}; fit_model=${fit_pair#*:}
   [ -n "$fit_model" ] || continue
@@ -605,11 +602,6 @@ for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "la
     case "$fit_v" in ''|*[!0-9]*) continue ;; esac
     [ "$fit_v" -gt "$fit_eff" ] && ov_set "$fit_role.$fit_k" "$fit_eff"
   done
-  fit_par=$(role_value "$fit_role" parallel)
-  case "$fit_par" in ''|*[!0-9]*|0) fit_par=1 ;; esac   # kv-unified (llama-server default): every slot may use the whole pool
-  fit_kvu=$(role_value "$fit_role" kv-unified)
-  fit_slot=$fit_eff; [ "$fit_kvu" = false ] && fit_slot=$((fit_eff / fit_par))
-  [ "$fit_slot" -lt "$CTX_MIN_SLOT" ] && warn "the $fit_role role has only $fit_slot tokens of context per slot (ctx $fit_eff / $fit_par slots)"
 done
 # <<< ctx-fit
 mkdir -p "$ROOT/.cache"
