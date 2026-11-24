@@ -60,7 +60,7 @@ SHORT = {"LFM2.5-1.2B-Instruct-Q4_K_M.gguf": "LFM2.5-1.2B", "Qwen3.5-2B-Q4_K_M.g
 SIZING = os.environ.get("SIZING", "monolithic")   # per-host model sizing under test (serve.sh SIZING)
 DEFAULTS = {c["role"]: c["file"] for c in CANDS if c["pick"] == "default"}
 # directory under models/ that holds each default (manifest "dir"; the LFM3 coder shares models/general)
-KNOB_CTX = "8192" if SIZING == "distributed" else "32768"   # CODER_CTX floor: 2048 / 32768
+KNOB_CTX = "32768"  # explicit larger-than-default CODER_CTX
 ROLE_DIR = {c["role"]: (c.get("dir") or "models/" + c["role"]).split("/", 1)[1] for c in CANDS if c["pick"] == "default"}
 REAL_LLAMA = None
 for cand in [os.environ.get("REAL_LLAMA_SERVER", "")] + sorted(
@@ -712,14 +712,14 @@ def main():
 ASSERT_GRIDS = ("main", "tools", "locale-env", "profile-auto", "ps51", "moderate", "knobs")
 DEF_URLS = sorted({f"https://huggingface.co/{c['repo']}/resolve/{c['revision']}/{c['file']}" for c in CANDS if c["pick"] == "default"})   # general+coder share one file
 # distributed: the pre-b1f6678 small-slot sizing; monolithic: one long-context pool per role
-PARAMS_DISTRIBUTED = {"default": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "2", "coder": "4", "decision": "2"}, "3"),
-          "moderate": ({"general": "8192", "coder": "24576", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "3"),
-          "knobs": ({"general": "8192", "coder": "8192", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
-          "lowram": ({"general": "8192", "coder": "16384", "decision": "4096"}, {"general": "1", "coder": "2", "decision": "1"}, "2")}
-PARAMS_MONOLITHIC = {"default": ({"general": "131072", "coder": "131072", "decision": "32768"}, {"general": None, "coder": None, "decision": None}, "9"),
-                     "moderate": ({"general": "131072", "coder": "131072", "decision": "4096"}, {"general": "1", "coder": "1", "decision": "1"}, "5"),
-                     "knobs": ({"general": "131072", "coder": "32768", "decision": "4096"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
-                     "lowram": ({"general": "131072", "coder": "65536", "decision": "4096"}, {"general": None, "coder": None, "decision": "1"}, "2")}
+PARAMS_DISTRIBUTED = {"default": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "2", "coder": "2", "decision": "2"}, "3"),
+          "moderate": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "1", "coder": "1", "decision": "1"}, "3"),
+          "knobs": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
+          "lowram": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "1", "coder": "1", "decision": "1"}, "2")}
+PARAMS_MONOLITHIC = {"default": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "1", "coder": "1", "decision": "1"}, "3"),
+                     "moderate": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "1", "coder": "1", "decision": "1"}, "5"),
+                     "knobs": ({"general": "16384", "coder": "32768", "decision": "8192"}, {"general": "1", "coder": "3", "decision": "1"}, "2"),
+                     "lowram": ({"general": "16384", "coder": "16384", "decision": "8192"}, {"general": "1", "coder": "1", "decision": "1"}, "2")}
 PARAMS = PARAMS_DISTRIBUTED if SIZING == "distributed" else PARAMS_MONOLITHIC
 
 
