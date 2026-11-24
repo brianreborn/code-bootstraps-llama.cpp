@@ -53,7 +53,7 @@ TOKEN = secrets.token_urlsafe(24)
 # Names start.sh / serve.sh already read. GGUF_HOME is not one of them.
 FIELDS = (
     "PROFILE", "SIZING", "MODELS_MAX", "VARIANT", "TOOLS", "GPU_LAYERS", "PORT", "EMBED_PORT",
-    "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
+    "THREADS", "THREADS_BATCH", "CTX_SIZE", "CTX", "CODER_CTX", "GENERAL_CTX", "PARALLEL",
     "REASONING", "HOST", "LOAD_MODE", "LOCALE", "LANGUAGE_MODE", "WORKDIR",
     "REPACK", "TOOLS_RUNTIME", "SWAP_CODER", "NO_BROWSER", "BUILD", "COPY_KEY",
     "RAISE", "DETACH_MODE", "FEELD_SNAP_FS", "ENGINE_CHAT",
@@ -71,6 +71,7 @@ DEFAULTS = {
     "EMBED_PORT": "",
     "THREADS": "auto",
     "THREADS_BATCH": "auto",
+    "CTX_SIZE": "",
     "CTX": "",
     "CODER_CTX": "",
     "GENERAL_CTX": "",
@@ -119,9 +120,10 @@ HINTS = {
     "EMBED_PORT": "1-65535; empty for PORT+1",
     "THREADS": "auto or 1-4096",
     "THREADS_BATCH": "auto or 1-4096",
-    "CTX": "2048-262144; Enter keeps the profile",
-    "CODER_CTX": "2048-262144; Enter keeps the profile",
-    "GENERAL_CTX": "2048-262144; Enter keeps the profile",
+    "CTX_SIZE": "tokens for general and coder; empty keeps the 16384 suggested default",
+    "CTX": "alias for CTX_SIZE (CTX_SIZE wins if both are set)",
+    "CODER_CTX": "tokens for the coder; empty keeps CTX_SIZE or the 16384 default",
+    "GENERAL_CTX": "tokens for the general model; empty keeps CTX_SIZE or the 16384 default",
     "PARALLEL": "1-16; Enter keeps the profile",
     "REASONING": "off|on|auto",
     "HOST": "address or comma list",
@@ -144,7 +146,7 @@ HINTS = {
 # panel teaches the names that start.sh, the docs and configure.sh use.
 LABELS = {
     "PROFILE": "Memory profile",
-    "SIZING": "Model sizing (monolithic: long context, distributed: small parallel slots)",
+    "SIZING": "Model sizing (monolithic: fewer models; distributed: more slots)",
     "MODELS_MAX": "Most models loaded at once",
     "VARIANT": "llama.cpp build to use",
     "TOOLS": "Agent tools",
@@ -153,7 +155,8 @@ LABELS = {
     "EMBED_PORT": "Embedding server port",
     "THREADS": "CPU threads for writing answers",
     "THREADS_BATCH": "CPU threads for reading prompts",
-    "CTX": "Context length for every model (tokens)",
+    "CTX_SIZE": "Context length for general and coder (tokens)",
+    "CTX": "Context length for general and coder (alias of CTX_SIZE)",
     "CODER_CTX": "Context length for the coder (tokens)",
     "GENERAL_CTX": "Context length for the general model (tokens)",
     "PARALLEL": "Requests served at the same time",
@@ -180,7 +183,7 @@ SECTIONS = (
     ("basics", "Basics", "Memory profile, thinking mode and language.",
      ("PROFILE", "SIZING", "MODELS_MAX", "REASONING", "LOCALE", "LANGUAGE_MODE")),
     ("speed", "Speed and memory", "Threads, context length, graphics card and loading.",
-     ("VARIANT", "GPU_LAYERS", "THREADS", "THREADS_BATCH", "CTX", "CODER_CTX", "GENERAL_CTX",
+     ("VARIANT", "GPU_LAYERS", "THREADS", "THREADS_BATCH", "CTX_SIZE", "CTX", "CODER_CTX", "GENERAL_CTX",
       "PARALLEL", "LOAD_MODE", "REPACK", "SWAP_CODER")),
     ("network", "Network", "Ports and the address the model server listens on.",
      ("PORT", "EMBED_PORT", "HOST")),
@@ -276,8 +279,8 @@ def check(key, value):
     elif key in ("THREADS", "THREADS_BATCH"):
         if value != "auto":
             value = whole(key, value, 1, 4096)
-    elif key in ("CTX", "CODER_CTX", "GENERAL_CTX"):
-        value = whole(key, value, 2048, 262144)
+    elif key in ("CTX_SIZE", "CTX", "CODER_CTX", "GENERAL_CTX"):
+        value = whole(key, value, 1, 2147483647)
     elif key == "PARALLEL":
         value = whole(key, value, 1, 16)
     elif key == "HOST":

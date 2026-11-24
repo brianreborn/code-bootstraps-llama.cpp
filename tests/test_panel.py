@@ -98,7 +98,7 @@ class FieldTests(unittest.TestCase):
         self.assertEqual(panel.check("HOST", "::1"), "::1")
         for key, bad in (("PROFILE", "nope"), ("REASONING", "yes"), ("LANGUAGE_MODE", "yes"),
                          ("LOAD_MODE", "pin"), ("PORT", "0"), ("MODELS_MAX", "9"),
-                         ("CTX", "100"), ("TOOLS_RUNTIME", "bogus"), ("HOST", "bad host")):
+                         ("CTX", "0"), ("CTX_SIZE", "0"), ("TOOLS_RUNTIME", "bogus"), ("HOST", "bad host")):
             with self.assertRaises(ValueError):
                 panel.check(key, bad)
 
@@ -187,7 +187,7 @@ class AccessibleFormTests(unittest.TestCase):
         self.assertEqual((vals["PORT"], vals["PROFILE"]), ("9944", "lowram"))
 
     def test_error_keeps_what_was_typed_and_links_to_the_field(self):
-        s, h = self.post("/p/launch-speed/preview", THREADS="3", CTX="100")
+        s, h = self.post("/p/launch-speed/preview", THREADS="3", CTX="0")
         self.assertEqual(s, 400)
         self.assertIn('role="alert"', h)
         self.assertIn('href="#f-CTX"', h)

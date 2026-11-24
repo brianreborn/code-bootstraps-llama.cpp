@@ -241,27 +241,32 @@ fi
 sz_of() {
   ini=$1/.cache/models-preset.effective.ini
   if [ ! -f "$ini" ]; then echo "MISSING"; return; fi
-  printf '%s %s %s\n' "$(cat "$1/.cache/sizing" 2>/dev/null)" "$(val "$ini" coder ctx-size)" "$(val "$ini" coder parallel)"
+  ctx=$(val "$ini" coder ctx-size); [ -n "$ctx" ] || ctx=$(val "$ini" "*" ctx-size)
+  par=$(val "$ini" coder parallel); [ -n "$par" ] || par=$(val "$ini" "*" parallel)
+  printf '%s %s %s
+' "$(cat "$1/.cache/sizing" 2>/dev/null)" "$ctx" "$par"
 }
 d=$(launch sz-default PROFILE=default SIZING=)
 got=$(sz_of "$d")
-case "$got" in "monolithic 131072 "*) ok "SIZING unset is monolithic (coder ctx 131072)" ;; *) bad "SIZING unset: got '$got' $(tail -n 5 "$d/out.txt")" ;; esac
+if [ "$got" = "monolithic 16384 1" ]; then ok "SIZING unset is monolithic (suggested coder ctx 16384, 1 slot)"
+else bad "SIZING unset: got '$got' $(tail -n 5 "$d/out.txt")"; fi
 d=$(launch sz-dist PROFILE=default SIZING=distributed)
 got=$(sz_of "$d")
-if [ "$got" = "distributed 32768 4" ]; then ok "SIZING=distributed: coder 32768 tokens, 4 sessions"
+if [ "$got" = "distributed 16384 2" ]; then ok "SIZING=distributed: suggested ctx 16384, 2 sessions"
 else bad "SIZING=distributed: got '$got' $(tail -n 5 "$d/out.txt")"; fi
 d=$(launch sz-dist-ctx PROFILE=default SIZING=distributed CODER_CTX=8192)
 got=$(sz_of "$d")
-if [ "$got" = "distributed 8192 4" ]; then ok "SIZING=distributed accepts CODER_CTX=8192"
+if [ "$got" = "distributed 8192 2" ]; then ok "SIZING=distributed accepts CODER_CTX=8192"
 else bad "SIZING=distributed CODER_CTX=8192: got '$got' $(tail -n 5 "$d/out.txt")"; fi
 d=$(launch sz-mono-ctx PROFILE=default SIZING=monolithic CODER_CTX=8192)
-if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "CODER_CTX" "$d/out.txt"; then ok "SIZING=monolithic refuses CODER_CTX=8192 (min 32768)"
-else bad "SIZING=monolithic CODER_CTX=8192 not refused: $(tail -n 3 "$d/out.txt")"; fi
+got=$(sz_of "$d")
+if [ "$got" = "monolithic 8192 1" ]; then ok "SIZING=monolithic accepts CODER_CTX=8192 (no floor)"
+else bad "SIZING=monolithic CODER_CTX=8192: got '$got' $(tail -n 3 "$d/out.txt")"; fi
 d=$(launch sz-bad SIZING=huge)
 if [ ! -f "$d/.cache/models-preset.effective.ini" ] && grep -q "unknown SIZING=huge" "$d/out.txt"; then ok "SIZING=huge is refused"
 else bad "SIZING=huge not refused: $(tail -n 3 "$d/out.txt")"; fi
 
-# Android cannot hold mlock. Other hosts keep the preset unless LOAD_MODE is set.
+# mmap is the default on every host. LOAD_MODE can still request mlock.
 load_of() {
   ini=$1/.cache/models-preset.effective.ini
   if [ ! -f "$ini" ]; then echo "MISSING"; return; fi
@@ -270,8 +275,8 @@ load_of() {
 }
 d=$(launch linux-lock LOAD_MODE= PREFIX= ANDROID_ROOT=)
 got=$(load_of "$d")
-if [ "$got" = "mmap+mlock mmap+mlock 0 " ]; then
-  ok "Linux LOAD_MODE unset keeps preset mlock on general and coder"
+if [ "$got" = "mmap mmap 0 " ]; then
+  ok "Linux LOAD_MODE unset uses mmap (no mlock) on general and coder"
 else
   bad "Linux LOAD_MODE unset: got '$got' $(tail -n 5 "$d/out.txt")"
 fi

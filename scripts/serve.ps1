@@ -3,19 +3,20 @@
 # LLAMA_API_KEY (children inherit it), tools + MCP given to the router only through
 # LLAMA_ARG_* env vars, every role pinned to one sha256-checked file, profile overlay and
 # the optional language slot.
-#   powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 [-RamProfile lowram] [-Tools lean] [-ToolsRuntime auto|host|docker-container:<id>|ssh:<target>] [llama-server flags, e.g. --ctx-size 8192]
+#   powershell -ExecutionPolicy Bypass -File scripts\serve.ps1 [-RamProfile lowram] [-Tools lean] [-CtxSize 32768] [other llama-server flags]
 # Parameters default to the environment variables serve.sh reads (PORT, HOST, PROFILE,
 # MODELS_MAX, TOOLS, TOOLS_RUNTIME, THREADS, THREADS_BATCH, GPU_LAYERS, REPACK, LOAD_MODE,
 # WORKDIR, MCP_CONFIG, LOCALE, LANGUAGE_MODE, SWAP_CODER, REASONING, LLAMA_SERVER, MODELS_PRESET,
 # MANIFEST, MODELS_DIR, LANGUAGE_DIR); a parameter given on the command line wins.
-# Extra llama-server flags apply to EVERY role; flags that pick a model, tools, MCP or the key
-# are refused (see serve.sh).
+# --ctx-size / --coder-ctx / --general-ctx (or -CtxSize / -CoderCtx / -GeneralCtx) are host
+# context knobs, not forwarded. Other extra llama-server flags apply to EVERY role; flags that
+# pick a model, tools, MCP or the key are refused (see serve.sh).
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$BindHost = $(if ($env:HOST) { $env:HOST } else { "127.0.0.1" }),
     [int]$Port = $(if ($env:PORT) { [int]$env:PORT } else { 9931 }),
     [string]$RamProfile = $(if ($env:PROFILE) { $env:PROFILE } else { "auto" }),   # auto | lowram | moderate | default (README "Light tuning")
-    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # general/coder kept loaded: 0 = profile default 2; decision stays loaded on top (not lowram)
+    [int]$ModelsMax = $(if ($env:MODELS_MAX) { [int]$env:MODELS_MAX } else { 0 }),   # nonresident model cap: 0 = profile default; resident decision is counted on top
     [string]$ToolsRuntime = $(if ($env:TOOLS_RUNTIME) { $env:TOOLS_RUNTIME } else { "auto" }),
     # python:3.12-slim multi-arch index, pinned by digest (2026-10-03)
     [string]$ToolsImage = $(if ($env:TOOLS_IMAGE) { $env:TOOLS_IMAGE } else { "docker.io/library/python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016" }),
@@ -34,6 +35,9 @@ param(
     [switch]$SwapCoder = ($env:SWAP_CODER -eq "1"),
     [switch]$Turbo = ($env:FAMILIA_TURBO -and $env:FAMILIA_TURBO -ne "0"),   # metrics turbo button: no telemetry at all (config\metrics.json)   # swap mode: also replace the coder with the locale model
     [string]$ModelSet = $(if ($env:MODEL_SET) { $env:MODEL_SET } else { "unimpeded" }),   # official | unimpeded (config\model-sets.json)
+    [string]$CtxSize = "",
+    [string]$CoderCtx = "",
+    [string]$GeneralCtx = "",
     [string]$LlamaServer = $(if ($env:LLAMA_SERVER) { $env:LLAMA_SERVER } else { "" }),   # explicit path to llama-server.exe
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Extra = @()
 )
@@ -42,6 +46,10 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 . (Join-Path $PSScriptRoot "lib\common.ps1")
+$envCoderCtxPrior = [Environment]::GetEnvironmentVariable("CODER_CTX")
+$envGeneralCtxPrior = [Environment]::GetEnvironmentVariable("GENERAL_CTX")
+$envCtxSizePrior = [Environment]::GetEnvironmentVariable("CTX_SIZE")
+$envCtxPrior = [Environment]::GetEnvironmentVariable("CTX")
 $panelPrior = @{
     PORT = [Environment]::GetEnvironmentVariable("PORT")
     HOST = [Environment]::GetEnvironmentVariable("HOST")
@@ -60,6 +68,48 @@ $panelPrior = @{
     WORKDIR = [Environment]::GetEnvironmentVariable("WORKDIR")
 }
 Import-PanelEnv $Root
+function Get-PanelEnvValue([string]$key) {
+    $path = Join-Path $Root ".cache\panel.env"
+    if (-not (Test-Path -LiteralPath $path)) { return "" }
+    $pat = '^: "\$\{' + [regex]::Escape($key) + ':=(.*)\}"$'
+    foreach ($line in @(Get-Content -LiteralPath $path)) {
+        if ($null -eq $line) { continue }
+        if ($line -match $pat) { return $Matches[1] }
+    }
+    return ""
+}
+function Pick-Ctx([string]$flagSpec, [string]$flagBoth, [string]$envSpec, [string]$envBoth, [string]$panelSpec, [string]$panelBoth) {
+    foreach ($v in @($flagSpec, $flagBoth, $envSpec, $envBoth, $panelSpec, $panelBoth)) {
+        if (-not [string]::IsNullOrEmpty($v)) { return $v }
+    }
+    return ""
+}
+$flagCtxSize = ""; $flagCoderCtx = ""; $flagGeneralCtx = ""
+if ($PSBoundParameters.ContainsKey("CtxSize") -and $CtxSize) { $flagCtxSize = $CtxSize }
+if ($PSBoundParameters.ContainsKey("CoderCtx") -and $CoderCtx) { $flagCoderCtx = $CoderCtx }
+if ($PSBoundParameters.ContainsKey("GeneralCtx") -and $GeneralCtx) { $flagGeneralCtx = $GeneralCtx }
+$extraOut = New-Object System.Collections.Generic.List[string]
+$ctxExpect = ""
+foreach ($a in @($Extra)) {
+    if ($ctxExpect) {
+        switch ($ctxExpect) {
+            "ctx-size" { $flagCtxSize = $a }
+            "coder-ctx" { $flagCoderCtx = $a }
+            "general-ctx" { $flagGeneralCtx = $a }
+        }
+        $ctxExpect = ""
+        continue
+    }
+    if ($a -match '^--ctx-size=(.+)$' -or $a -match '^--ctx=(.+)$') { $flagCtxSize = $Matches[1]; continue }
+    if ($a -eq '--ctx-size' -or $a -eq '--ctx') { $ctxExpect = "ctx-size"; continue }
+    if ($a -match '^--coder-ctx=(.+)$') { $flagCoderCtx = $Matches[1]; continue }
+    if ($a -eq '--coder-ctx') { $ctxExpect = "coder-ctx"; continue }
+    if ($a -match '^--general-ctx=(.+)$') { $flagGeneralCtx = $Matches[1]; continue }
+    if ($a -eq '--general-ctx') { $ctxExpect = "general-ctx"; continue }
+    $extraOut.Add($a)
+}
+if ($ctxExpect) { throw "--$ctxExpect needs a token count" }
+$Extra = @($extraOut)
 Use-PanelValue "Port" "PORT" ($PSBoundParameters.ContainsKey("Port")) ([string]$panelPrior["PORT"])
 Use-PanelValue "BindHost" "HOST" ($PSBoundParameters.ContainsKey("BindHost")) ([string]$panelPrior["HOST"])
 Use-PanelValue "RamProfile" "PROFILE" ($PSBoundParameters.ContainsKey("RamProfile")) ([string]$panelPrior["PROFILE"])
@@ -172,32 +222,31 @@ if ($RamProfile -eq "auto") {
 }
 # same keys in the same order as OVERLAY in serve.sh, so both write the same preset. The decision
 # model is loaded at startup and kept (one --models-max slot more than ModelsMax), except lowram.
-# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic = long
-# context (131072 pools, up to 8 loaded); distributed = small slots (16k pools, 2-4 parallel, 2 loaded).
+# SIZING (same as serve.sh; per host in .cache\panel.env or the environment): monolithic favors
+# fewer loaded models; distributed favors more concurrent slots and fewer loaded models. A slot
+# keeps the model's full cataloged context in either profile.
 $sizing = if ($env:SIZING) { $env:SIZING } else { "monolithic" }
 if ($sizing -notin @("monolithic", "distributed")) { throw "unknown SIZING=$sizing (monolithic|distributed)" }
 $overlay = [ordered]@{}
 $resident = 1
-$ctxMinCoder = 32768; $ctxMinGeneral = 16384
 function Add-Pairs($pairs) { foreach ($p in ($pairs -split ' ')) { if ($p) { $kv = $p -split '=', 2; if ($overlay.Contains($kv[0])) { $overlay.Remove($kv[0]) }; $overlay[$kv[0]] = $kv[1] } } }
 if ($sizing -eq "distributed") {
-    $ctxMinCoder = 2048; $ctxMinGeneral = 2048
-    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
-    $small = "coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    Add-Pairs "*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=16384 *.stop-timeout=10 general.ctx-size=16384 coder.ctx-size=16384 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
+    $small = "coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     if ($ModelsMax -eq 0) { $ModelsMax = 2 }
     if ($RamProfile -eq "lowram") { Add-Pairs $small; $resident = 0 }
-    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=24576 decision.load-on-startup=true" }
+    elseif ($RamProfile -eq "moderate") { Add-Pairs "$small coder.ctx-size=16384 decision.load-on-startup=true" }
     else { Add-Pairs "decision.load-on-startup=true" }
 } else {
     if ($RamProfile -eq "lowram") {
         if ($ModelsMax -eq 0) { $ModelsMax = 2 }
         $resident = 0
-        Add-Pairs "coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+        Add-Pairs "coder.parallel=1 coder.ctx-size=16384 general.parallel=1 general.ctx-size=16384 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     } elseif ($RamProfile -eq "moderate") {
         if ($ModelsMax -eq 0) { $ModelsMax = 4 }
-        Add-Pairs "coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+        Add-Pairs "coder.parallel=1 coder.ctx-size=16384 general.parallel=1 general.ctx-size=16384 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     } else {
-        if ($ModelsMax -eq 0) { $ModelsMax = 8 }
+        if ($ModelsMax -eq 0) { $ModelsMax = 2 }
         Add-Pairs "decision.load-on-startup=true"
     }
 }
@@ -212,14 +261,25 @@ function Get-Knob([string]$name, [int]$lo, [int]$hi, [string]$fallback = "") {
     return "$n"
 }
 $tuned = ""
-$coderCtx = Get-Knob "CODER_CTX" $ctxMinCoder 262144 $env:CTX
-$generalCtx = Get-Knob "GENERAL_CTX" $ctxMinGeneral 262144 $env:CTX
+$envBoth = if ($envCtxSizePrior) { $envCtxSizePrior } else { $envCtxPrior }
+$panelBoth = Get-PanelEnvValue "CTX_SIZE"
+if (-not $panelBoth) { $panelBoth = Get-PanelEnvValue "CTX" }
+$coderCtx = Pick-Ctx $flagCoderCtx $flagCtxSize $envCoderCtxPrior $envBoth (Get-PanelEnvValue "CODER_CTX") $panelBoth
+$generalCtx = Pick-Ctx $flagGeneralCtx $flagCtxSize $envGeneralCtxPrior $envBoth (Get-PanelEnvValue "GENERAL_CTX") $panelBoth
+function Assert-CtxInt([string]$name, [string]$v) {
+    $n = 0
+    if (-not [int]::TryParse($v, [ref]$n) -or $n -lt 1) { throw "$name=$v`: want a whole number of 1 or more" }
+    return "$n"
+}
+if ($coderCtx) { $coderCtx = Assert-CtxInt "CODER_CTX" $coderCtx }
+if ($generalCtx) { $generalCtx = Assert-CtxInt "GENERAL_CTX" $generalCtx }
 $parallelKnob = Get-Knob "PARALLEL" 1 16
 if ($coderCtx) { Set-Overlay "coder.ctx-size" $coderCtx; Set-Overlay "coder.kv-unified-per-slot" $coderCtx; $tuned += " CODER_CTX=$coderCtx" }
 if ($generalCtx) { Set-Overlay "general.ctx-size" $generalCtx; Set-Overlay "general.kv-unified-per-slot" $generalCtx; $tuned += " GENERAL_CTX=$generalCtx" }
 if ($parallelKnob) { Set-Overlay "coder.parallel" $parallelKnob; $tuned += " PARALLEL=$parallelKnob" }
-# Prompt cache (issue #16, same rules as serve.sh): lowram 768, moderate 1024, default 2048 MiB,
-# never more than a quarter of the free RAM. CACHE_RAM (MiB, 0 = off) or a --cache-ram argument wins.
+# Prompt cache (issue #16, same rules as serve.sh): lowram 768, moderate 1024, default 2048 MiB
+# per generation role. Divide free RAM between general and coder so their combined default
+# cache stays at or below a quarter of free RAM. Decision stays uncached.
 $uaCacheRam = $false
 foreach ($a in $Extra) { $n = (($a -split '=', 2)[0] -replace '_', '-').ToLowerInvariant(); if ($n -eq '--cache-ram' -or $n -eq '-cram') { $uaCacheRam = $true } }
 if (-not $uaCacheRam) {
@@ -228,10 +288,11 @@ if (-not $uaCacheRam) {
     if ($cacheRamKnob) { $cacheRam = [int]$cacheRamKnob; $tuned += " CACHE_RAM=$cacheRamKnob" }
     else {
         $cacheRam = switch ($RamProfile) { "lowram" { 768 } "moderate" { 1024 } default { 2048 } }
-        if ($availMB -gt 0 -and [int][math]::Floor($availMB / 4) -lt $cacheRam) { $cacheRam = [int][math]::Floor($availMB / 4) }
+        if ($availMB -gt 0 -and [int][math]::Floor($availMB / 8) -lt $cacheRam) { $cacheRam = [int][math]::Floor($availMB / 8) }
         if ($cacheRam -lt 512) { Write-Warning "prompt cache limited to $cacheRam MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached" }
     }
-    Set-Overlay "*.cache-ram" "$cacheRam"
+    Set-Overlay "general.cache-ram" "$cacheRam"
+    Set-Overlay "coder.cache-ram" "$cacheRam"
 }
 $reasoning = [Environment]::GetEnvironmentVariable("REASONING")
 if (-not $reasoning) { $reasoning = "" }
@@ -398,7 +459,6 @@ function Get-RoleValue([string]$role, [string]$key) {
     return (Get-PresetRaw '*' $key)
 }
 $ctxFit = ""
-$ctxMinSlot = 2048; if ($env:CTX_MIN_SLOT -match '^\d+$') { $ctxMinSlot = [int]$env:CTX_MIN_SLOT }
 foreach ($fitRole in @("general", "coder", "decision", "language")) {
     if (-not $roleModel.Contains($fitRole) -or -not $roleModel[$fitRole]) { continue }
     $leaf = Split-Path -Leaf $roleModel[$fitRole]; $train = 0
@@ -417,9 +477,6 @@ foreach ($fitRole in @("general", "coder", "decision", "language")) {
         $v = Get-RoleValue $fitRole $k
         if ($v -match '^\d+$' -and [int]$v -gt $eff) { Set-Overlay "$fitRole.$k" "$eff" }
     }
-    $par = Get-RoleValue $fitRole "parallel"; if ($par -notmatch '^[1-9]\d*$') { $par = 1 }
-    $slot = $eff; if ((Get-RoleValue $fitRole "kv-unified") -eq "false") { $slot = [int]($eff / [int]$par) }
-    if ($slot -lt $ctxMinSlot) { Write-Warning "the $fitRole role has only $slot tokens of context per slot (ctx $eff / $par slots)" }
 }
 
 # effective preset (same rules and output as the awk filter in serve.sh)

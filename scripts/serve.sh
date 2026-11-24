@@ -9,7 +9,35 @@
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
+# Snapshot process-environment context knobs before panel.env is sourced.
+# Precedence: CLI flag > env > panel.env > preset default (16384 suggested).
+ENV_CODER_CTX=${CODER_CTX-}
+ENV_GENERAL_CTX=${GENERAL_CTX-}
+ENV_CTX_SIZE=${CTX_SIZE-}
+ENV_CTX=${CTX-}
+FLAG_CODER_CTX=
+FLAG_GENERAL_CTX=
+FLAG_CTX_SIZE=
+ctx_next=
 if [ -f "$ROOT/.cache/panel.env" ]; then . "$ROOT/.cache/panel.env"; fi
+panel_env_value() {
+  # Read : "${KEY:=value}" from .cache/panel.env without using the sourced value.
+  [ -f "$ROOT/.cache/panel.env" ] || return 0
+  awk -v k="$1" '
+    BEGIN { pat = "^: \"\\$\\{" k ":=" }
+    $0 ~ pat {
+      line = $0
+      sub("^: \"\\$\\{" k ":=", "", line)
+      sub("\\}\"$", "", line)
+      print line
+      exit
+    }
+  ' "$ROOT/.cache/panel.env"
+}
+PANEL_CODER_CTX=$(panel_env_value CODER_CTX)
+PANEL_GENERAL_CTX=$(panel_env_value GENERAL_CTX)
+PANEL_CTX_SIZE=$(panel_env_value CTX_SIZE)
+PANEL_CTX=$(panel_env_value CTX)
 . "$ROOT/lib/path.mk"   # abs_path
 abspath() { abs_path "$1" "$ROOT"; }   # relative paths here are relative to $ROOT
 
@@ -23,8 +51,9 @@ MANIFEST=${MANIFEST:-$ROOT/config/models-manifest.json}
 PROFILE=${PROFILE:-auto}
 MODELS_MAX=${MODELS_MAX:-}
 CTX=${CTX:-}
-CODER_CTX=${CODER_CTX:-$CTX}
-GENERAL_CTX=${GENERAL_CTX:-$CTX}
+CTX_SIZE=${CTX_SIZE:-}
+CODER_CTX=
+GENERAL_CTX=
 PARALLEL=${PARALLEL:-}
 . "$ROOT/scripts/lib/instance-key.sh"
 API_KEY_FILE=$(instance_key_file "$PORT")
@@ -63,6 +92,24 @@ UA_CACHE_RAM=""
 ua_n=0
 ms_next=0
 for a in "$@"; do
+  # Host context knobs are consumed here and not forwarded to llama-server.
+  if [ -n "$ctx_next" ]; then
+    case "$ctx_next" in
+      ctx-size) FLAG_CTX_SIZE=$a ;;
+      coder-ctx) FLAG_CODER_CTX=$a ;;
+      general-ctx) FLAG_GENERAL_CTX=$a ;;
+    esac
+    ctx_next=
+    continue
+  fi
+  case "$a" in
+    --ctx-size|--ctx) ctx_next=ctx-size; continue ;;
+    --ctx-size=*|--ctx=*) FLAG_CTX_SIZE=${a#*=}; continue ;;
+    --coder-ctx) ctx_next=coder-ctx; continue ;;
+    --coder-ctx=*) FLAG_CODER_CTX=${a#*=}; continue ;;
+    --general-ctx) ctx_next=general-ctx; continue ;;
+    --general-ctx=*) FLAG_GENERAL_CTX=${a#*=}; continue ;;
+  esac
   # --set official|unimpeded (= MODEL_SET): the launcher's model set, not a llama-server flag
   if [ "$ms_next" = 1 ]; then MODEL_SET=$a; ms_next=0; continue; fi
   case "$a" in --set) ms_next=1; continue ;; --set=*) MODEL_SET=${a#--set=}; continue ;; esac
@@ -94,6 +141,7 @@ for a in "$@"; do
   printf '%s' "$a" > "$ua_dir/$ua_n"
 done
 [ "$ms_next" = 0 ] || die "--set needs official or unimpeded"
+[ -z "$ctx_next" ] || die "--$ctx_next needs a token count"
 MS_TAG=serve.sh; . "$ROOT/scripts/lib/modelset.sh"; model_set_check
 if [ "$ua_n" -gt 0 ]; then
   echo "serve.sh: extra llama-server arguments apply to EVERY role (general, coder, decision)" >&2
@@ -210,17 +258,15 @@ else
     warn "$(t "this CPU is slow for the chosen profile")"
   fi
 fi
-# SIZING (per host; .cache/panel.env or the environment): monolithic = few big models with long
-# context (one 131072 pool per role, up to 8 loaded); distributed = several small slots per role
-# (16k pools, 2-4 parallel, 2 loaded), the pre-b1f6678 sizing for spreading work across hosts.
+# SIZING (per host; .cache/panel.env or the environment): monolithic favors fewer loaded models;
+# distributed favors more concurrent slots and fewer loaded models. Context defaults to 16384
+# for general and coder (suggested for memory-constrained hosts) and is a per-host knob.
 SIZING=${SIZING:-monolithic}
-CTX_MIN_CODER=32768; CTX_MIN_GENERAL=16384
 case "$SIZING" in
   monolithic) ;;
   distributed)
-    CTX_MIN_CODER=2048; CTX_MIN_GENERAL=2048
-    DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=8192 *.stop-timeout=10 general.ctx-size=16384 coder.parallel=4 coder.ctx-size=32768 coder.kv-unified-per-slot=16384 decision.ctx-size=8192 decision.kv-unified-per-slot=4096 decision.batch-size=4096 decision.ubatch-size=4096 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192"
-    DIST_SMALL="coder.parallel=2 coder.ctx-size=16384 coder.kv-unified-per-slot=16384 general.parallel=1 general.ctx-size=8192 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    DIST_BASE="*.kv-unified=true *.parallel=2 *.ctx-size=16384 *.kv-unified-per-slot=16384 *.stop-timeout=10 general.ctx-size=16384 coder.ctx-size=16384 decision.parallel=2 decision.ctx-size=16384 decision.kv-unified-per-slot=8192 decision.batch-size=8192 decision.ubatch-size=8192 embed.ctx-size=8192 embed.batch-size=8192 embed.ubatch-size=8192 language.ctx-size=16384"
+    DIST_SMALL="coder.parallel=1 general.parallel=1 decision.parallel=1 language.parallel=1"
     ;;
   *) die "unknown SIZING=$SIZING (monolithic|distributed)" ;;
 esac
@@ -228,21 +274,21 @@ if [ "$SIZING" = distributed ]; then
 case "$PROFILE" in
   default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="$DIST_BASE decision.load-on-startup=true" ;;
   moderate) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1
-    OVERLAY="$DIST_BASE $DIST_SMALL coder.ctx-size=24576 decision.load-on-startup=true" ;;
+    OVERLAY="$DIST_BASE $DIST_SMALL coder.ctx-size=16384 decision.load-on-startup=true" ;;
   lowram) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0; OVERLAY="$DIST_BASE $DIST_SMALL" ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
 else
 case "$PROFILE" in
-  default) MODELS_MAX=${MODELS_MAX:-8}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
+  default) MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=1; OVERLAY="decision.load-on-startup=true" ;;
   moderate)
     MODELS_MAX=${MODELS_MAX:-4}; RESIDENT=1
-    OVERLAY="coder.parallel=1 coder.ctx-size=131072 general.parallel=1 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    OVERLAY="coder.parallel=1 coder.ctx-size=16384 general.parallel=1 general.ctx-size=16384 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     ;;
   # No forcing extra models like decision on low-RAM systems. Let them decide.
   lowram)
     MODELS_MAX=${MODELS_MAX:-2}; RESIDENT=0
-    OVERLAY="coder.ctx-size=65536 general.ctx-size=131072 decision.parallel=1 decision.ctx-size=4096 language.parallel=1 language.ctx-size=4096"
+    OVERLAY="coder.parallel=1 coder.ctx-size=16384 general.parallel=1 general.ctx-size=16384 decision.parallel=1 decision.ctx-size=8192 language.parallel=1 language.ctx-size=16384"
     ;;
   *) die "unknown PROFILE=$PROFILE (auto|lowram|moderate|default)" ;;
 esac
@@ -265,27 +311,41 @@ for ov_y in $ov_in; do ov_set "${ov_y%%=*}" "${ov_y#*=}"; done
 num_ok MODELS_MAX "$MODELS_MAX" 1 8
 ROUTER_MAX=$((MODELS_MAX + RESIDENT))
 TUNED=""
-if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" "$CTX_MIN_CODER" 262144
+pick_ctx() {
+  # $1 specific flag, $2 both flag, $3 specific env, $4 both env, $5 specific panel, $6 both panel
+  if [ -n "$1" ]; then printf '%s\n' "$1"
+  elif [ -n "$2" ]; then printf '%s\n' "$2"
+  elif [ -n "$3" ]; then printf '%s\n' "$3"
+  elif [ -n "$4" ]; then printf '%s\n' "$4"
+  elif [ -n "$5" ]; then printf '%s\n' "$5"
+  elif [ -n "$6" ]; then printf '%s\n' "$6"
+  fi
+}
+ENV_BOTH=${ENV_CTX_SIZE:-$ENV_CTX}
+PANEL_BOTH=${PANEL_CTX_SIZE:-$PANEL_CTX}
+CODER_CTX=$(pick_ctx "$FLAG_CODER_CTX" "$FLAG_CTX_SIZE" "$ENV_CODER_CTX" "$ENV_BOTH" "$PANEL_CODER_CTX" "$PANEL_BOTH")
+GENERAL_CTX=$(pick_ctx "$FLAG_GENERAL_CTX" "$FLAG_CTX_SIZE" "$ENV_GENERAL_CTX" "$ENV_BOTH" "$PANEL_GENERAL_CTX" "$PANEL_BOTH")
+if [ -n "$CODER_CTX" ]; then num_ok CODER_CTX "$CODER_CTX" 1 2147483647
   ov_set coder.ctx-size "$CODER_CTX"; ov_set coder.kv-unified-per-slot "$CODER_CTX"; TUNED="$TUNED CODER_CTX=$CODER_CTX"; fi
-if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" "$CTX_MIN_GENERAL" 262144
+if [ -n "$GENERAL_CTX" ]; then num_ok GENERAL_CTX "$GENERAL_CTX" 1 2147483647
   ov_set general.ctx-size "$GENERAL_CTX"; ov_set general.kv-unified-per-slot "$GENERAL_CTX"; TUNED="$TUNED GENERAL_CTX=$GENERAL_CTX"; fi
 if [ -n "$PARALLEL" ]; then num_ok PARALLEL "$PARALLEL" 1 16; ov_set coder.parallel "$PARALLEL"; TUNED="$TUNED PARALLEL=$PARALLEL"; fi
-# Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens, so the old
-# 256 MiB stored nothing and every turn re-read the whole prompt. Per profile: lowram 768,
-# moderate 1024, default 2048 MiB, never more than a quarter of the free RAM. CACHE_RAM
-# (MiB, 0 = off) or a --cache-ram argument wins.
+# Prompt cache (issue #16): one coder prompt state is about 490 MiB at 25k tokens. This is a
+# per-generation-role limit. Divide the free-RAM ceiling between general and coder so their
+# combined default cache stays at or below a quarter of free RAM. Decision stays uncached.
+# CACHE_RAM (MiB, 0 = off) or an explicit --cache-ram argument wins.
 CACHE_RAM_MIB=""
 if [ -n "$UA_CACHE_RAM" ]; then :
 elif [ -n "${CACHE_RAM:-}" ]; then num_ok CACHE_RAM "$CACHE_RAM" 0 1048576
   CACHE_RAM_MIB=$CACHE_RAM; TUNED="$TUNED CACHE_RAM=$CACHE_RAM"
 else
   case "$PROFILE" in lowram) CACHE_RAM_MIB=768 ;; moderate) CACHE_RAM_MIB=1024 ;; *) CACHE_RAM_MIB=2048 ;; esac
-  if [ "$AVAIL_MB" -gt 0 ] && [ $((AVAIL_MB / 4)) -lt "$CACHE_RAM_MIB" ]; then CACHE_RAM_MIB=$((AVAIL_MB / 4)); fi
+  if [ "$AVAIL_MB" -gt 0 ] && [ $((AVAIL_MB / 8)) -lt "$CACHE_RAM_MIB" ]; then CACHE_RAM_MIB=$((AVAIL_MB / 8)); fi
   if [ "$CACHE_RAM_MIB" -lt 512 ]; then
     warn "prompt cache limited to ${CACHE_RAM_MIB} MiB by free RAM; a long coder prompt (about 500 MiB) will not be cached"
   fi
 fi
-[ -n "$CACHE_RAM_MIB" ] && ov_set "*.cache-ram" "$CACHE_RAM_MIB"
+[ -n "$CACHE_RAM_MIB" ] && { ov_set "general.cache-ram" "$CACHE_RAM_MIB"; ov_set "coder.cache-ram" "$CACHE_RAM_MIB"; }
 # Language and decision stay as the preset wrote them. A locale section's reasoning = off
 # would otherwise win over this overlay when that role is swapped in.
 # Reasoning toggle per role: REASONING_GENERAL / REASONING_CODER, else REASONING, else the preset.
@@ -297,12 +357,8 @@ for rs_role in general coder; do
     *) die "unknown REASONING=$rs_v for $rs_role (on|off|auto)" ;;
   esac
 done
-# An untrusted Android app has RLIMIT_MEMLOCK of 64 KB. mmap+mlock fails
-# immediately and locks nothing. Keep the preset's mmap+mlock on other hosts.
-if [ "$IS_ANDROID" = 1 ] && [ -z "$LOAD_MODE" ]; then
-  ov_set general.load-mode mmap
-  ov_set coder.load-mode mmap
-fi
+# mmap is the cross-platform default so identical GGUF files can use OS file-backed sharing.
+# Explicit LOAD_MODE remains available when a host has a measured reason to pin/read differently.
 if [ -n "$LOAD_MODE" ]; then
   ov_set general.load-mode "$LOAD_MODE"
   ov_set coder.load-mode "$LOAD_MODE"
@@ -590,7 +646,6 @@ n_ctx_train_of() {
   awk -v match_kv="" -v fields="file n_ctx_train" -f "$ROOT/scripts/lib/manifest.awk" "$MANIFEST" |
     awk -F '\t' -v f="$(basename "$1")" '$1 == f && $2 ~ /^[0-9]+$/ { print $2; exit }'
 }
-CTX_MIN_SLOT=${CTX_MIN_SLOT:-2048}
 for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "language:$LANG_MODEL"; do
   fit_role=${fit_pair%%:*}; fit_model=${fit_pair#*:}
   [ -n "$fit_model" ] || continue
@@ -609,11 +664,6 @@ for fit_pair in "general:$M_GENERAL" "coder:$M_CODER" "decision:$M_DECISION" "la
     case "$fit_v" in ''|*[!0-9]*) continue ;; esac
     [ "$fit_v" -gt "$fit_eff" ] && ov_set "$fit_role.$fit_k" "$fit_eff"
   done
-  fit_par=$(role_value "$fit_role" parallel)
-  case "$fit_par" in ''|*[!0-9]*|0) fit_par=1 ;; esac   # kv-unified (llama-server default): every slot may use the whole pool
-  fit_kvu=$(role_value "$fit_role" kv-unified)
-  fit_slot=$fit_eff; [ "$fit_kvu" = false ] && fit_slot=$((fit_eff / fit_par))
-  [ "$fit_slot" -lt "$CTX_MIN_SLOT" ] && warn "the $fit_role role has only $fit_slot tokens of context per slot (ctx $fit_eff / $fit_par slots)"
 done
 # <<< ctx-fit
 mkdir -p "$ROOT/.cache"
@@ -936,7 +986,7 @@ resident_note=""
   printf '  Profile: %s (%s): %s general/coder model(s) loaded%s%s\n' \
     "$PROFILE" "$PROFILE_WHY" "$MODELS_MAX" "$resident_note" "${TUNED:+; set:$TUNED}"
   [ -n "$CTX_FIT" ] && printf '  Context: fitted to model limits:%s\n' "$CTX_FIT"
-  echo '  Change:  PROFILE=lowram|moderate|default, or MODELS_MAX CTX CODER_CTX GENERAL_CTX PARALLEL THREADS TOOLS (README "Light tuning")'
+  echo '  Change:  PROFILE=lowram|moderate|default, or --ctx-size/--coder-ctx/--general-ctx, CTX_SIZE CODER_CTX GENERAL_CTX MODELS_MAX PARALLEL THREADS TOOLS (README "Light tuning")'
 } > "$ROOT/.cache/profile.txt"
 echo "serve.sh: model set: $MODEL_SET (MODEL_SET / --set official|unimpeded; config/model-sets.json)" >&2
 echo "serve.sh: sizing=$SIZING profile=$PROFILE ($PROFILE_WHY; RAM ${MEM_MB} MB, ${AVAIL_MB} MB free, android=$IS_ANDROID) models-max=$ROUTER_MAX tools=$TOOLS_SET threads=$THREADS ($THREADS_SRC) threads-batch=$THREADS_BATCH gpu-layers=$GPU_LAYERS repack=$REPACK load-mode=$LOAD_MODE" >&2
@@ -1265,4 +1315,3 @@ if [ ! -f "$READY_FILE" ] && [ "$status" != 0 ] && [ "$status" -lt 128 ]; then
   fi
 fi
 exit "$status"
-

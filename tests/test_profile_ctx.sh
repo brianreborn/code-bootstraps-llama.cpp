@@ -1,10 +1,11 @@
 #!/bin/sh
-# PROFILE ctx consistency and explicit --ctx-size/--parallel beating the profile (#15).
+# PROFILE context defaults, host knobs, and precedence (CLI > env > panel.env > preset).
 # Stub llama-server exits at once; no model is loaded.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/scripts/lib/common.sh"
 T=$(mktemp -d)
+export XDG_CONFIG_HOME="$T/xdg"
 fails=0
 cleanup() {
   if [ -f "$T/pids" ]; then
@@ -26,13 +27,15 @@ tab=$(printf '\t')
 sandbox() {
   d=$1
   mkdir -p "$d/.cache/verified"
-  cp -R "$ROOT/scripts" "$ROOT/config" "$d/"
-  awk -v match_kv="pick=default" -v fields="role file sha256" -f "$ROOT/scripts/lib/manifest.awk" \
+  cp -R "$ROOT/scripts" "$ROOT/config" "$ROOT/lib" "$d/"
+  awk -v match_kv="pick=default" -v fields="role file sha256 dir" -f "$ROOT/scripts/lib/manifest.awk" \
     "$ROOT/config/models-manifest.json" > "$d/.cache/default-rows"
-  while IFS=$tab read -r role f sha; do
-    mkdir -p "$d/models/$role"
-    echo "placeholder $f" > "$d/models/$role/$f"
-    fingerprint "$d/models/$role/$f" > "$d/.cache/verified/$sha"
+  while IFS=$tab read -r role f sha dir; do
+    [ "$dir" = "-" ] && dir="models/$role"
+    mkdir -p "$d/$dir"
+    [ -f "$d/$dir/$f" ] && continue
+    echo "placeholder $f" > "$d/$dir/$f"
+    fingerprint "$d/$dir/$f" >> "$d/.cache/verified/$sha"
   done < "$d/.cache/default-rows"
 }
 val() {
@@ -43,115 +46,133 @@ val() {
     }
   ' "$1"
 }
+# Role sections inherit [*]; default monolithic leaves some keys only in the star section.
+role_val() {
+  v=$(val "$1" "$2" "$3")
+  [ -n "$v" ] || v=$(val "$1" "*" "$3")
+  printf "%s\n" "$v"
+}
+# Drop inherited ctx knobs so each case starts from the preset default.
 run_serve() {
   d=$1; shift
-  ( cd "$d" && exec env "$@" GGUF_HOME="$d" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+  ( cd "$d" && exec env -u CODER_CTX -u GENERAL_CTX -u CTX_SIZE -u CTX -u PARALLEL \
+      "$@" GGUF_HOME="$d" TOOLS_RUNTIME="host" TOOLS="" MCP_CONFIG="" \
       LLAMA_SERVER="$T/llama-server" PORT=19991 \
-      sh scripts/serve.sh "$@" > "$d/out.txt" 2>&1 ) &
+      sh scripts/serve.sh > "$d/out.txt" 2>&1 ) &
   echo $! >> "$T/pids"
   wait $! || true
+  if [ ! -f "$d/.cache/models-preset.effective.ini" ]; then
+    echo "FAIL serve did not write the effective preset for $d"
+    cat "$d/out.txt" >&2
+    fails=$((fails + 1))
+  fi
+}
+write_panel() {
+  # $1 dir, then KEY=value...
+  d=$1; shift
+  : > "$d/.cache/panel.env"
+  for kv in "$@"; do
+    printf ': "${%s:=%s}"\n' "${kv%%=*}" "${kv#*=}" >> "$d/.cache/panel.env"
+  done
+}
+expect_ctx() {  # dir label coder general [parallel]
+  d=$1; label=$2; want_c=$3; want_g=$4; want_p=${5-}
+  ini="$d/.cache/models-preset.effective.ini"
+  ctx=$(role_val "$ini" coder ctx-size)
+  general=$(role_val "$ini" general ctx-size)
+  par=$(role_val "$ini" coder parallel)
+  slot=$(role_val "$ini" coder kv-unified-per-slot)
+  if [ "$ctx" = "$want_c" ] && [ "$general" = "$want_g" ] && { [ -z "$want_p" ] || [ "$par" = "$want_p" ]; }; then
+    ok "$label (coder=$ctx general=$general parallel=$par slot=$slot)"
+  else
+    bad "$label: coder=$ctx general=$general parallel=$par slot=$slot (want coder=$want_c general=$want_g${want_p:+ parallel=$want_p})"
+    tail -20 "$d/out.txt" || true
+  fi
 }
 
-# 1) moderate profile is internally consistent: parallel * per-slot <= ctx
+# 1) suggested default is 16384, one slot, for default/moderate/lowram.
+sandbox "$T/def"
+run_serve "$T/def" PROFILE=default
+expect_ctx "$T/def" "default suggested ctx" 16384 16384 1
+
 sandbox "$T/mod"
 run_serve "$T/mod" PROFILE=moderate
-ctx=$(val "$T/mod/.cache/models-preset.effective.ini" coder ctx-size)
-par=$(val "$T/mod/.cache/models-preset.effective.ini" coder parallel)
-slot=$(val "$T/mod/.cache/models-preset.effective.ini" coder kv-unified-per-slot)
-if [ -n "$ctx" ] && [ -n "$par" ] && [ -n "$slot" ] && [ $((par * slot)) -le "$ctx" ]; then
-  ok "moderate consistent ctx=$ctx parallel=$par slot=$slot"
-else
-  bad "moderate inconsistent ctx=$ctx parallel=$par slot=$slot (product $((par * slot)))"
-fi
-# Was the old overcommit (24576 vs 2*16384); new moderate should be 32768/2/16384
-if [ "$ctx" = 32768 ] && [ "$par" = 2 ] && [ "$slot" = 16384 ]; then
-  ok "moderate values fixed to 32768 = 2*16384"
-else
-  bad "moderate unexpected values ctx=$ctx par=$par slot=$slot"
-fi
+expect_ctx "$T/mod" "moderate suggested ctx" 16384 16384 1
 
-# 2) lowram also consistent
 sandbox "$T/low"
 run_serve "$T/low" PROFILE=lowram
-ctx=$(val "$T/low/.cache/models-preset.effective.ini" coder ctx-size)
-par=$(val "$T/low/.cache/models-preset.effective.ini" coder parallel)
-slot=$(val "$T/low/.cache/models-preset.effective.ini" coder kv-unified-per-slot)
-if [ $((par * slot)) -le "$ctx" ]; then ok "lowram consistent ctx=$ctx par=$par slot=$slot"
-else bad "lowram inconsistent ctx=$ctx par=$par slot=$slot"; fi
+expect_ctx "$T/low" "lowram suggested ctx" 16384 16384 1
 
-# 3) explicit --ctx-size beats profile
-sandbox "$T/ex"
-run_serve "$T/ex" PROFILE=moderate -- --ctx-size 65536
-# serve.sh is invoked as: sh scripts/serve.sh "$@" with env PROFILE=...
-# Fix: run_serve passes env then -- then args incorrectly. Redo below.
-
-# Re-run with correct argv
-sandbox "$T/ex2"
-( cd "$T/ex2" && env PROFILE=moderate GGUF_HOME="$T/ex2" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+# 2) --ctx-size is a launcher knob: sets both roles, not a pass-through llama-server flag.
+sandbox "$T/flag-both"
+( cd "$T/flag-both" && exec env -u CODER_CTX -u GENERAL_CTX -u CTX_SIZE -u CTX \
+    PROFILE=moderate GGUF_HOME="$T/flag-both" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
     LLAMA_SERVER="$T/llama-server" PORT=19992 \
-    sh scripts/serve.sh --ctx-size 65536 > "$T/ex2/out.txt" 2>&1 ) || true
-ctx=$(val "$T/ex2/.cache/models-preset.effective.ini" coder ctx-size)
-par=$(val "$T/ex2/.cache/models-preset.effective.ini" coder parallel)
-slot=$(val "$T/ex2/.cache/models-preset.effective.ini" coder kv-unified-per-slot)
-if [ "$ctx" = 65536 ] && [ "$slot" = $((65536 / par)) ]; then
-  ok "explicit --ctx-size 65536 beats moderate (slot=$slot parallel=$par)"
+    sh scripts/serve.sh --ctx-size 65536 > "$T/flag-both/out.txt" 2>&1 ) || true
+expect_ctx "$T/flag-both" "--ctx-size 65536 sets both (larger than 16k)" 65536 65536 1
+if grep -q -- '--ctx-size 65536' "$T/flag-both/out.txt"; then
+  # banner/help may mention the flag; the child argv must not still carry it as a passthrough.
+  if grep -E 'extra llama-server arguments|llama-server .*--ctx-size 65536' "$T/flag-both/out.txt" >/dev/null; then
+    bad "--ctx-size was forwarded to llama-server"; tail -20 "$T/flag-both/out.txt" || true
+  else
+    ok "--ctx-size is consumed by the launcher"
+  fi
 else
-  bad "explicit ctx not applied: ctx=$ctx par=$par slot=$slot"
-  tail -20 "$T/ex2/out.txt" || true
+  ok "--ctx-size is consumed by the launcher"
 fi
 
-# 4) explicit PARALLEL=1 with CODER_CTX
-sandbox "$T/p1"
-( cd "$T/p1" && env PROFILE=moderate PARALLEL=1 CODER_CTX=64000 GGUF_HOME="$T/p1" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+# 3) role flags beat --ctx-size for that role only.
+sandbox "$T/flag-role"
+( cd "$T/flag-role" && exec env -u CODER_CTX -u GENERAL_CTX -u CTX_SIZE -u CTX \
+    PROFILE=moderate GGUF_HOME="$T/flag-role" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
     LLAMA_SERVER="$T/llama-server" PORT=19993 \
-    sh scripts/serve.sh > "$T/p1/out.txt" 2>&1 ) || true
-ctx=$(val "$T/p1/.cache/models-preset.effective.ini" coder ctx-size)
-par=$(val "$T/p1/.cache/models-preset.effective.ini" coder parallel)
-slot=$(val "$T/p1/.cache/models-preset.effective.ini" coder kv-unified-per-slot)
-if [ "$ctx" = 64000 ] && [ "$par" = 1 ] && [ "$slot" = 64000 ]; then
-  ok "CODER_CTX+PARALLEL=1 -> per-slot 64000"
+    sh scripts/serve.sh --ctx-size 32768 --coder-ctx 40960 --general-ctx 8192 > "$T/flag-role/out.txt" 2>&1 ) || true
+expect_ctx "$T/flag-role" "--coder-ctx/--general-ctx beat --ctx-size" 40960 8192 1
+
+# 4) small env overrides below 16k remain accepted.
+sandbox "$T/p1"
+run_serve "$T/p1" PROFILE=moderate PARALLEL=1 CODER_CTX=8192 GENERAL_CTX=4096
+expect_ctx "$T/p1" "CODER_CTX=8192 GENERAL_CTX=4096" 8192 4096 1
+
+# 5) values above the model limit are capped only at n_ctx_train.
+sandbox "$T/above"
+run_serve "$T/above" PROFILE=moderate CODER_CTX=524288
+ctx=$(val "$T/above/.cache/models-preset.effective.ini" coder ctx-size)
+if [ "$ctx" = 262144 ] && grep -q 'model max; profile asked 524288' "$T/above/out.txt"; then
+  ok "CODER_CTX=524288 is model-capped at 262144"
 else
-  bad "env override: ctx=$ctx par=$par slot=$slot"
+  bad "context above model limit not fitted: ctx=$ctx"; tail -20 "$T/above/out.txt" || true
 fi
 
-# 5) inconsistent overlay fails loud (inject via broken PROFILE values using env after patching overlay is hard;
-#    instead call check by forcing PARALLEL=2 CODER_CTX=10000 which would set slot=5000, product=10000 OK.
-#    Force failure: manually craft by setting PARALLEL=4 CODER_CTX=10000 -> slot=2500, OK.
-#    To test die path, temporarily use a profile-inconsistency by setting only PARALLEL without
-#    adjusting when ov has huge per-slot — our code recomputes slot. So test the die by
-#    invoking check via a tiny helper: PROFILE=default with no coder overlay then ov_set manually.
-#    Simpler: grep that die message exists and unit-test via sh -c sourcing is heavy.
-#    Inject overcommit by writing a wrapper that exports OVERLAY after profile — skip; covered by
-#    moderate/lowram consistency + the die() string being present.
-if grep -q 'profile inconsistent' "$ROOT/scripts/serve.sh"; then
-  ok "fail-loud check_role_kv present"
-else
-  bad "check_role_kv die missing"
-fi
+# 6) panel.env alone wins over the 16384 preset default.
+sandbox "$T/panel"
+write_panel "$T/panel" CODER_CTX=32768 GENERAL_CTX=8192
+run_serve "$T/panel" PROFILE=default
+expect_ctx "$T/panel" "panel.env role knobs" 32768 8192 1
 
-# 6) Direct overcommit die: craft with PARALLEL high and tiny ctx via env — recomputed slot makes it consistent.
-#    So invoke a one-off by patching EFFECTIVE path: call serve with PROFILE=moderate and
-#    a fake ov by using CODER_CTX=24576 PARALLEL=2 — product equals ctx (slot=12288). OK.
-#    To hit die, we need per-slot NOT recomputed: only when neither CODER_CTX nor PARALLEL set.
-#    Break lowram temporarily is wrong. Unit-test die with:
-sandbox "$T/die"
-# Copy serve and replace moderate overlay with the OLD inconsistent values, then run PROFILE=moderate
-sed 's/coder.ctx-size=32768/coder.ctx-size=24576/' "$ROOT/scripts/serve.sh" > "$T/die/scripts/serve.sh"
-# scripts already copied in sandbox — overwrite
-cp "$ROOT/scripts/serve.sh" "$T/die/scripts/serve.sh"
-# inject old bad overlay
-sed -i 's/coder.ctx-size=32768 coder.kv-unified-per-slot=16384/coder.ctx-size=24576 coder.kv-unified-per-slot=16384/' "$T/die/scripts/serve.sh"
-set +e
-( cd "$T/die" && env PROFILE=moderate GGUF_HOME="$T/die" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
+sandbox "$T/panel-size"
+write_panel "$T/panel-size" CTX_SIZE=24576
+run_serve "$T/panel-size" PROFILE=default
+expect_ctx "$T/panel-size" "panel.env CTX_SIZE sets both" 24576 24576 1
+
+# 7) env beats panel.env (including env CTX_SIZE over panel CODER_CTX).
+sandbox "$T/env-beats-panel"
+write_panel "$T/env-beats-panel" CODER_CTX=8192 GENERAL_CTX=8192
+run_serve "$T/env-beats-panel" PROFILE=default CODER_CTX=65536 GENERAL_CTX=32768
+expect_ctx "$T/env-beats-panel" "env role knobs beat panel.env" 65536 32768 1
+
+sandbox "$T/env-size-beats-panel"
+write_panel "$T/env-size-beats-panel" CODER_CTX=8192 GENERAL_CTX=8192
+run_serve "$T/env-size-beats-panel" PROFILE=default CTX_SIZE=32768
+expect_ctx "$T/env-size-beats-panel" "env CTX_SIZE beats panel role knobs" 32768 32768 1
+
+# 8) CLI flag beats env.
+sandbox "$T/flag-beats-env"
+( cd "$T/flag-beats-env" && exec env -u GENERAL_CTX -u CTX_SIZE -u CTX \
+    PROFILE=default CODER_CTX=65536 GGUF_HOME="$T/flag-beats-env" TOOLS_RUNTIME=host TOOLS="" MCP_CONFIG="" \
     LLAMA_SERVER="$T/llama-server" PORT=19994 \
-    sh scripts/serve.sh > "$T/die/out.txt" 2>&1 )
-rc=$?
-set -e
-if [ "$rc" -ne 0 ] && grep -q 'profile inconsistent' "$T/die/out.txt"; then
-  ok "inconsistent profile fails loud"
-else
-  bad "expected die on overcommit; rc=$rc"; tail -30 "$T/die/out.txt" || true
-fi
+    sh scripts/serve.sh --coder-ctx 24576 --general-ctx 16384 > "$T/flag-beats-env/out.txt" 2>&1 ) || true
+expect_ctx "$T/flag-beats-env" "CLI --coder-ctx beats env CODER_CTX" 24576 16384 1
 
 if [ "$fails" -gt 0 ]; then echo "FAILED $fails"; exit 1; fi
 echo "ALL OK"
